@@ -18,6 +18,13 @@ testing. Do not merge or push these Quest changes into `dev`, where other agents
 continue Steam Frame work. This explicit instruction supersedes the generic
 integration-branch rules below for the Quest task; all other contracts still apply.
 
+**Quest rebase approval, clarified by the maintainer on 2026-10-29:** finish the
+already-running Quest743 integration, but do not start any later Quest rebase
+until the maintainer has tested that dev version and explicitly gives the go.
+An agent's READY ping is informational and never substitutes for that approval.
+The rule followed a reported VR startup failure; automated checks alone do not
+establish startup or headset acceptance.
+
 **Quest hardware handoff, clarified on 2026-10-04:** after verifying each new
 hardware package, keep the main ignored `.planning/debug/quest3/` output directory
 limited to the latest APK, Windows archive and current handoff receipt. Remove

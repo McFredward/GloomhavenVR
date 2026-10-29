@@ -175,7 +175,7 @@ class InstalledUpdateTests(unittest.TestCase):
         changed = raw.replace(b'--installed-game', b'--unreviewed-installed-game', 1)
         self.assertNotEqual(preparation_identity.builder_producer_digest(changed), driver._LEGACY_BUILDER_AST)
 
-    def test_exact_host_only_update_rows_do_not_force_il2cpp_but_unknown_change_does(self):
+    def test_historical_host_only_rows_retain_code_but_new_sky_consumer_and_unknown_edits_do_not(self):
         paths = ('tools/quest-builder/update_driver.py', 'tools/quest-builder/apk_update.py')
         old = []
         for path in paths:
@@ -183,7 +183,11 @@ class InstalledUpdateTests(unittest.TestCase):
             old.append({'path': path, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
         current = [storage.record_file(ROOT / path, path) for path in paths]
         normalize = lambda rows: driver._code_rows(rows, normalizer=preparation_identity)
-        self.assertEqual(normalize(current), normalize(old))
+        historical = [preparation_identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS[row['path']][1]
+                      if row['path'] in preparation_identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS else row
+                      for row in current]
+        self.assertEqual(normalize(historical), normalize(old))
+        self.assertNotEqual(normalize(current), normalize(old))
         current[0]['sha256'] = '0' * 64
         self.assertNotEqual(normalize(current), normalize(old))
 
@@ -191,7 +195,7 @@ class InstalledUpdateTests(unittest.TestCase):
         import native_update_resume
         import tempfile
         f = self.f
-        expected = native_update_resume._MEDIA_SCOPE_CURRENT
+        expected = "d2cd18309f9bd7d58b847015f3521c6b11bfca580604172ae0fe54c3579fa992"
         self.assertEqual(native_update_resume.compiler_recipe(f.builder, driver.__file__), expected)
         raw = Path(driver.__file__).read_text()
         changed = raw.replace('def _compile_code(', 'def _unreviewed_compile_code(', 1)

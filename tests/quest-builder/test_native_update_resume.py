@@ -61,12 +61,13 @@ class NativeUpdateResumeTests(unittest.TestCase):
             core.INITIALIZERS: storage.canonical({"root": []}),
             core.MANAGED_RESOURCES + "original-resources.dat": b"original managed resources"}
         self.write_zip(self.base, self.values)
+        recipe = resume.compiler_recipe(self.builder, driver.__file__)
         prior = {"schema": 1, "mode": "update-mod", "baseApk": str(self.base), "sourcePackage": None,
             "baseApkSha256": storage.digest(self.base), "gameInputKey": "a" * 64,
             "inputs": copy.deepcopy(self.inputs), "updateStrategy": "compact-code", "codeChanged": True,
             "artChanged": False, "nativeHelperChanged": False, "rebuildReasons": [],
             "updateRecipe": dict(resume._LEGACY_HOST),
-            "nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}
+            "nativeCompilerRecipe": getattr(self, "completed_recipe", recipe)}
         self.prior_root, self.prior = self.write_plan(prior)
         current = copy.deepcopy(prior)
         current["nativeCompilerRecipe"] = resume.compiler_recipe(self.builder, driver.__file__)
@@ -129,7 +130,7 @@ class NativeUpdateResumeTests(unittest.TestCase):
         return driver._compile_code(self.builder, SimpleNamespace(), self.inputs, self.output, self.source,
                                     self.folder / "game", self.project, self.base, {}, self.root)
 
-    def test_b691_successful_pair_survives_data_delivery_repair_without_any_compiler(self):
+    def test_completed_current_pair_survives_data_delivery_repair_without_any_compiler(self):
         original = self.compiled.read_bytes(), self.receipt.read_bytes()
         self.assertFalse(storage.Stages(self.output).valid("update-code", self.prior_root.name))
         with patch.object(driver, "_build_code_player", side_effect=AssertionError("No weaving, SDK or native compiler")):
@@ -294,8 +295,13 @@ class NativeUpdateResumeTests(unittest.TestCase):
                 driver._compile_code(self.builder, SimpleNamespace(), different, self.output, self.source,
                     self.folder / "game", self.project, self.base, {}, self.root)
 
-    def test_legacy_bridge_is_exactly_the_reviewed_current_production_recipe(self):
-        self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._MEDIA_SCOPE_CURRENT)
+    def test_legacy_bridges_remain_distinct_from_the_actual_sky_compiler_recipe(self):
+        current = resume.compiler_recipe(self.builder, driver.__file__)
+        self.assertEqual(current, "d2cd18309f9bd7d58b847015f3521c6b11bfca580604172ae0fe54c3579fa992")
+        for previous in (resume._PIXEL_SCOPE_PREVIOUS, resume._PIXEL_SCOPE_CURRENT,
+                         resume._MEDIA_SCOPE_PREVIOUS, resume._MEDIA_SCOPE_CURRENT,
+                         resume._MENU_DELIVERY_RECIPE):
+            self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": previous}, current))
         self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}, resume._PIXEL_SCOPE_CURRENT))
         for previous in (resume._PIXEL_SCOPE_PREVIOUS, resume._PIXEL_SCOPE_CURRENT, resume._MEDIA_SCOPE_PREVIOUS):
             self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": previous}, resume._MEDIA_SCOPE_CURRENT))
@@ -306,6 +312,33 @@ class NativeUpdateResumeTests(unittest.TestCase):
         self.assertTrue(resume._same_recipe({"updateRecipe": dict(resume._LEGACY_HOST)}, resume._LEGACY_RECIPE))
         self.assertEqual(resume._LEGACY_HOST, {"update_driver.py": "e0756f5738d1f3791197769d15b059c4f166e4576aac57f1f44d71828e65f894",
             "apk_update.py": "0febdc91294da2b64843491fd50dcba4aa6fc8f1882a02310799beaba5e01af3"})
+
+    def test_b691_pair_adoption_executes_the_exact_published_b735_compiler_bridge(self):
+        # Exercise the old bridge under the actual old compiler source, never
+        # relabel the newer sky resource consumer as that historical producer.
+        raw = (Path(__file__).with_name("fixtures") / "b735_compiler_driver.py").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "d594b2e212056ec3690bc7a7c604e0ad205ba928ae8cbb24871643c9d1a261ba")
+        path = self.folder / "historical/update_driver.py"
+        path.parent.mkdir(); path.write_bytes(raw)
+        with patch.object(driver, "__file__", str(path)):
+            self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._MEDIA_SCOPE_CURRENT)
+            fixture = NativeUpdateResumeTests("runTest")
+            fixture.completed_recipe = resume._PIXEL_SCOPE_PREVIOUS
+            fixture.setUp(); self.addCleanup(fixture.doCleanups)
+            with patch.object(driver, "_build_code_player", side_effect=AssertionError("Exact historical bridge")):
+                self.assertTrue(fixture.compile()["nativePairQualified"])
+
+    def test_completed_pre_sky_pair_cannot_cross_the_new_resource_compiler(self):
+        for previous in (resume._PIXEL_SCOPE_PREVIOUS, resume._MEDIA_SCOPE_CURRENT, resume._MENU_DELIVERY_RECIPE):
+            with self.subTest(previous=previous):
+                fixture = NativeUpdateResumeTests("runTest")
+                fixture.completed_recipe = previous
+                fixture.setUp(); self.addCleanup(fixture.doCleanups)
+                with patch.object(driver, "_build_code_player", side_effect=storage.BuildError("new resource compiler required")) as compiler:
+                    with self.assertRaisesRegex(storage.BuildError, "new resource compiler required"):
+                        fixture.compile()
+                compiler.assert_called_once()
 
 
 if __name__ == "__main__": unittest.main()

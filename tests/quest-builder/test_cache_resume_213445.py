@@ -29,7 +29,7 @@ class PublishedNativeResumeTests(unittest.TestCase):
     rewrite_current = fixtures.NativeUpdateResumeTests.rewrite_current
     compile = fixtures.NativeUpdateResumeTests.compile
 
-    def publish(self, *, old_recipe=True, changed_helper=True):
+    def publish(self, *, old_recipe=False, changed_helper=True):
         prior = copy.deepcopy(self.prior)
         prior["nativeHelperChanged"] = changed_helper
         self.prior_root, self.prior = self.write_plan(prior)
@@ -110,18 +110,25 @@ class PublishedNativeResumeTests(unittest.TestCase):
         with patch.object(driver, "_build_code_player", side_effect=AssertionError("Same current producer")):
             self.assertTrue(self.compile()["nativePairQualified"])
 
-    def test_same_original_base_keeps_exact_legacy_bridge(self):
+    def test_same_original_base_keeps_completed_current_pair(self):
         with patch.object(driver, "_build_code_player", side_effect=AssertionError("No publication required")):
             self.assertTrue(self.compile()["nativePairQualified"])
 
     def test_previous_explicit_recipe_uses_only_reviewed_bridge(self):
         self.publish()
         self.assertNotEqual(resume._PREVIOUS_RECIPE, resume._LEGACY_RECIPE)
-        self.assertEqual(self.current["nativeCompilerRecipe"], resume._MEDIA_SCOPE_CURRENT)
+        self.assertEqual(self.current["nativeCompilerRecipe"],
+                         "d2cd18309f9bd7d58b847015f3521c6b11bfca580604172ae0fe54c3579fa992")
+        self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._MEDIA_SCOPE_PREVIOUS},
+                                            self.current["nativeCompilerRecipe"]))
         self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._MEDIA_SCOPE_PREVIOUS}, resume._MEDIA_SCOPE_CURRENT))
         self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._PREVIOUS_RECIPE}, resume._LEGACY_RECIPE))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._PREVIOUS_RECIPE}, "9" * 64))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": "9" * 64}, resume._LEGACY_RECIPE))
+
+    def test_published_pre_sky_recipe_requires_the_new_resource_compiler(self):
+        self.publish(old_recipe=True)
+        self.expect_incremental()
 
     def test_unsigned_claims_or_foreign_descendant_cannot_adopt(self):
         for name, value in (("mode", "update-profile"), ("baseApkSha256", "9" * 64),

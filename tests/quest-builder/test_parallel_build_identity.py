@@ -101,14 +101,22 @@ class ParallelBuildIdentityTests(unittest.TestCase):
                 self.assertEqual(reference, identity._scope(previous, self.new_source, recovery_resume,
                                                             original_prefix=True, completed=True))
 
-    def test_actual_update_producer_aliases_keep_original_payload_and_native_code(self):
+    def test_actual_update_producers_keep_original_payload_but_sky_extends_compiler_inputs(self):
         before = identity.builder_producer_digest(self.old_builder)
         after = identity.builder_producer_digest((ROOT / identity.BUILDER).read_bytes())
         self.assertEqual(before, after)
         self.assertEqual(update_driver.rebuild_reasons(self.new, self.old, payload_producer={"sha256": after},
                                                        previous_producer={"sha256": before}), [])
-        self.assertEqual(update_driver._code_rows(self.old, normalizer=identity),
-                         update_driver._code_rows(self.new, normalizer=identity))
+        old_code = update_driver._code_rows(self.old, normalizer=identity)
+        new_code = update_driver._code_rows(self.new, normalizer=identity)
+        self.assertNotEqual(old_code, new_code)
+        before = {row['path']: row for row in old_code}
+        after = {row['path']: row for row in new_code}
+        self.assertEqual([name for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)],
+                         ['tools/quest-builder/update_driver.py'])
+        historical = [identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS[row['path']][1]
+                      if row['path'] in identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS else row for row in self.new]
+        self.assertEqual(old_code, update_driver._code_rows(historical, normalizer=identity))
 
 
 if __name__ == "__main__": unittest.main()

@@ -1,3 +1,37 @@
+**Quest743 on finalized dev742, 2026-10-29.**
+
+The already-authorized actual rebase targets `fc74ee79c`, with Quest-only Android
+head-resolve resources and exact readonly-reader85 adaptation. Preserve the native
+producer confirmations, fixed-quality sampling, native SDF metric and world menu.
+The five-shader Android bank executes actual Vulkan load/material/pass checks;
+all four embedded Android bank/provenance resources match the qualified bytes.
+The final AOT pass writes387 targets, protects seven original types, has zero
+gates and passes37/14 plus851 current-mod assertions. Source comparison selects
+compact-code updating with no Campaign/art/figure/audio/movie/Story producer change.
+Small Sky resource repacking takes2.42 seconds from existing APK assets, no Unity.
+Restore the exact seven Quest material values and color when the native2D map
+retains the world-menu material; actual GPU/containing controls qualify this seam.
+
+Complete local invocation:294PASS/1BuilderFAIL over295 scopes in4001.7s; source16
+pass. The Builder failure came from stale pre-Sky recipe fixtures, already missed
+in the earlier741 summary. Correct that historical record explicitly. Test-only
+repair preserves production guards, adds three rejection cases and a Git-independent
+historical producer fixture. Complete pinned Builder continuation:1926 tests,
+1915PASS/11 unchanged optional skips, plus93/93 containing checks. All3986 inputs
+are bound to the integrated root. Final295 coverage is aggregate, not a successful
+new single full invocation. Actual retained fresh goldens pass306431. Final strict
+Debug/Release/metadata/Android builds are0W0E; source, bundle, surface and classified
+compiled review pass. Config670 and no surface removals;44 expected compiled files.
+
+The maintainer's new rule supersedes automatic READY-triggered rebases: finish743,
+then require the maintainer's tested dev version and explicit go before another
+Quest rebase. Agent pings only report status. The PC integrator later relayed that
+Steam restart restored VR without a code change; the earlier process-state cause
+is unproved. No new headset acceptance is claimed for Quest743. Preserve source,
+logs and current artifacts while retiring own worktrees/caches. See
+QUEST-DEV742-INTEGRATION.md and ignored quest-dev742-rebase-20261029/validation-final.json.
+Source delivery remains feature/quest3-standalone; Windows builds its archive.
+
 **Producer confirmations, stable character AA and a world main menu, Build742, 2026-10-29.**
 
 The maintainer accepts740's small level-up prompt but reports Perks floating
@@ -72,11 +106,13 @@ gates; menu tests pass 33/13 and current-mod tests 843 assertions. All four embe
 Android resource files match the qualified producers byte-for-byte. Actual Vulkan
 asset loading, all native mip levels and 432 shader-stage aliases are qualified.
 
-The complete Quest union records 292PASS/2fixture-compileFAIL across all 294 local
-suites, plus 16/16 source gates. Repairs change only fixture inputs. Their complete
+Corrected during743 review: the complete Quest union records291PASS/3FAIL across
+all294 local suites, plus16/16 source gates. The omitted third failure was Builder
+(1917 tests/26 failures/11 skips). Repairs changed only two fixture inputs. Their complete
 guarded Unity continuations pass level-up414/21 and stereo209/21, with all 80 direct
-final-head samples exact. All 294 scopes consequently have passing final-input
-coverage; this is not a new successful single complete invocation. The complete
+final-head samples exact. Coverage was consequently293 of294 scopes, with Builder
+still open; the original full294 claim was incorrect. This is not a new successful
+single complete invocation. The complete
 run's fresh retained wire binary passes 306431 actual goldens. Surface/bundle and
 classified compiled comparison pass with no unapproved removals. Earlier stereo
 worker evidence did not bind the combined Quest fixture and is not inherited.

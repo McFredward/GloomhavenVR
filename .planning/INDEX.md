@@ -1,6 +1,9 @@
 # Planning index
 
-Updated 2026-10-29: Build742 keeps confirmations on their exact producer,
+Updated 2026-10-29: Quest743 integrates finalized dev742 with qualified Android
+resources and minimal updates. Future Quest rebases require the maintainer's
+prior dev test and explicit go. The earlier741 test-coverage overstatement is
+explicitly corrected. Build742 keeps confirmations on their exact producer,
 restores whole-character-window antialiasing with3D, and introduces the movable
 world main menu with post-intro surroundings and central-height arrival. See
 STATE.md for complete aggregate verification, measured storage and hardware limits.
@@ -14,6 +17,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [QUEST-DEV742-INTEGRATION.md](QUEST-DEV742-INTEGRATION.md) | Quest743 Android head resolve, exact dev742 rebase, minimal updates, material restoration and source-bound final aggregate validation |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
 | [QUEST-DEV740-INTEGRATION.md](QUEST-DEV740-INTEGRATION.md) | Coordinated Quest741 rebase, original Android sky, compact update classification and complete aggregate validation |
 | [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |

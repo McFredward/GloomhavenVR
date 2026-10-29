@@ -8,6 +8,14 @@ on dev740 and actually rebased onto that final dev742 commit. Preserve the old
 published ancestry at delivery so the feature push remains a normal fast-forward.
 Do not change origin/dev. Delivery is source only; Windows builds its archive.
 
+During this already-running integration the maintainer superseded the automatic
+handoff workflow: finish Quest743, but require the maintainer's hardware test and
+explicit go before any later Quest rebase. Agent READY pings are informational.
+The maintainer initially reported that the current dev did not start VR. The PC
+integrator later relayed that restarting Steam restored VR without a code change;
+the exact earlier process-state cause remains unproved. This is not approval for
+another rebase, and automated passes do not establish headset acceptance.
+
 This is class C: upstream changes shared head capture and the menu lifecycle,
 and Android needs the fifth shader plus exact generated-reader adaptation.
 The integrated candidate receives one complete local guard. Subsequent bounded
@@ -71,9 +79,38 @@ zero integration gates. Cecil verifies all four embedded bank/provenance files
 against their exact qualified Android producers. Focused update coverage passes
 212 tests with14 optional skips, Wizard43, and Sky20 with one optional PC skip.
 
-The complete integrated invocation, strict final builds, source/bundle/surface
-checks, fresh goldens and classified compiled comparison are recorded below once
-finished. Failed attempts remain distinct from final aggregate coverage. Evidence:
+The complete integrated invocation records all295 local suites:294PASS/1FAIL
+in4001.7 seconds, with16/16 source gates passing. Builder's1923 tests include25
+failures and11 skips. These stale fixture assumptions already failed in741:
+the actual native compiler recipe changed for the Sky consumer, whereas the
+fixtures still labelled historical Pixel/Media recipes as current completions.
+The earlier741 qualification summary omitted this failure; its historical claim
+is explicitly corrected in QUEST-DEV740-INTEGRATION.md and the retained evidence.
+
+Repair only six test modules and add one immutable19KB historical producer
+fixture. Positive resumption now starts with a pair completed under the actual
+current recipe. The exact published B735 producer still exercises the old bridge
+without requiring Git history at test runtime. Three additional tests reject
+historical recipes under the Sky compiler. No production compatibility alias or
+rejection is weakened. The complete Builder continuation passes1926 tests
+(1915PASS/11 unchanged optional skips) in245.53 seconds; its eight affected
+containing modules pass93/93. All3986 materialized source/fixture inputs match
+the final root after integration. One earlier system-Python attempt had reduced
+coverage and was interrupted; it is not counted as this pinned-toolchain proof.
+
+Thus all295 scopes have passing final-input coverage:294 unchanged closures from
+the complete invocation plus the complete Builder continuation. This is aggregate
+coverage, not a new successful single complete invocation. The complete run's
+actual fresh wire executable independently passes306431 golden assertions.
+Strict final Debug/Release, metadata and Android-resource-bound builds pass0W0E.
+Bundle and surface checks pass:670 config keys;272 to274 Harmony entries;4835
+to4837 tokens; no removal. The exact snapshot procedure finds44 expected compiled
+differences:28 existing runtime types, nine ModBuild-only types, branch provenance,
+five added upstream types and the changed Desktop rendering bank. The nine
+inlined build-only differences are asserted exact and the bank matches upstream
+bytes. All remaining bodies are classified; there is no unexplained removal.
+
+Failed attempts remain distinct from final aggregate coverage. Evidence:
 `/home/claw/quest3-local/build/evidence/quest-dev742-rebase-20261029/`.
 Own worker snapshots and logs are archived; their worktrees are retired. Hardware
 inputs, current artifacts, references and other agents' worktrees are preserved.

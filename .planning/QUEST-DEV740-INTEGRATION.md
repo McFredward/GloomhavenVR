@@ -75,11 +75,14 @@ Debug/Release and metadata-reference compilation are 0W0E; docs-i18n passes.
 
 The complete integrated guard was actually invoked on the frozen production tree
 at `b61d63e019f5dbbccc53d097ec279f5d569cdab3`. Source gates pass 16/16. The local
-invocation records all 294 expected suites: 292 pass and two fixture compilation
-failures remain visible in the failed invocation (3698.2 seconds). The level-up
+invocation records all 294 expected suites: 291 pass and three failures remain
+visible in the failed invocation (3698.2 seconds). The level-up
 fixture omitted the real QuestTextureCopy dependency; the stereo fixture combined
-old desktop wrapper injections with already-present Quest boundaries. Repair only
-those fixture inputs; production source is unchanged after the frozen checkpoint.
+old desktop wrapper injections with already-present Quest boundaries. The Builder
+suite also failed: 1917 tests, 26 failures and11 skips, including stale native
+compiler-recipe fixtures. That third failure was omitted from the original summary.
+This is an explicit correction made during Quest743 qualification on2026-10-29.
+Production source remained unchanged after the frozen checkpoint.
 
 Both complete containing proofs were then continued from their exact compiled
 assemblies, with source, generated-source and assembly hashes checked before and
@@ -87,8 +90,11 @@ after Unity. Level-up passes 414 assertions and all 21 causal controls; all 80
 front/rear, left/right, final-head samples exactly match independent references.
 Stereo passes 209 assertions and all 21 controls across its unchanged 38 cases.
 These are qualified two-phase continuations, not fresh successful single-command
-invocations. Together with the 292 unchanged closures, they establish passing
-final-input coverage for all 294 suites. The earlier B735 stereo worker proof
+invocations. Together with the 291 unchanged passing closures, they establish
+passing coverage for293 of294 suites at this checkpoint; Builder coverage remained
+open. The original claim of complete294 coverage was incorrect. The later
+Quest743 integration addresses the stale Builder fixtures separately and does
+not retroactively turn this invocation into a pass. The earlier B735 stereo worker proof
 used a dev fixture composition and did not qualify the actual combined Quest
 wrapper; it is not inherited as evidence for this repaired fixture.
 
