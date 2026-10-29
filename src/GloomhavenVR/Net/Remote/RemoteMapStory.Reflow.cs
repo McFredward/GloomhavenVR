@@ -120,8 +120,21 @@ internal static partial class RemoteMapStory
     // Record 77 has kind bits only. Its story bit belongs to the opening captured from
     // record 83 in that same packet, including after the local native queue advances.
     private static byte CurrentHeldMask(int sender, in ReflowPeer peer)
-        => SharedWindowMoves.Active || MapStoryLifecycle.MatchesPose(true, sender, peer.StoryEpoch, peer.StoryToken)
-            ? peer.Held : (byte)(peer.Held & ~NetProtocol.SharedWindowMotionMapStoryBit);
+    {
+        if (!SharedWindowMoves.Active)
+            return MapStoryLifecycle.MatchesPose(true, sender, peer.StoryEpoch, peer.StoryToken)
+                ? peer.Held : (byte)(peer.Held & ~NetProtocol.SharedWindowMotionMapStoryBit);
+        // A winner or native opening can change without another packet from the old holder.
+        // Re-evaluate the live register and lease here, rather than retaining its77 snapshot.
+        byte held = 0;
+        for (int value = (int)SharedWindowKind.MapStory; value <= (int)SharedWindowKind.Encounter; value++)
+        {
+            var kind = (SharedWindowKind)value;
+            SharedWindowMoves.CurrentMotion(sender, kind, out bool gripping, out _);
+            if (gripping) held |= ReflowBit(kind);
+        }
+        return held;
+    }
 
     private static void ObserveReflowPose(int sender, SharedWindowKind kind,
         in SharedWindowEntry entry, Dictionary<int, byte> stamps)
