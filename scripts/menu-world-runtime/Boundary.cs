@@ -11,10 +11,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 namespace UnityEngine.UI { internal sealed class UIWindow:MonoBehaviour { internal bool IsVisible=false; } }
-namespace UnityEngine.EventSystems { internal interface IDragHandler { } }
+namespace UnityEngine.EventSystems { internal interface IDragHandler { } internal struct RaycastResult {internal GameObject gameObject;}}
 internal sealed class MapChoreographer:MonoBehaviour { }
 internal sealed class Choreographer:MonoBehaviour
 {internal static Choreographer? s_Choreographer=null;internal bool ThisPlayerHasTurnControl=false;}
+internal sealed class Controller{internal static Controller? Instance;internal LayerMask m_ActiveSelectionRaycastLayer;}
 internal sealed class CameraController:MonoBehaviour
 {internal static CameraController s_CameraController=null!;internal Vector3 FocusPoint=Vector3.zero;}
 internal static class Singleton<T> where T:class
@@ -44,6 +45,7 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static readonly List<string> Lines=new();
+        internal static bool WantsDebug=false;
         internal static void Info(string _,string line)=>Lines.Add(line);
         internal static void Note(string _,string line)=>Lines.Add(line);
         internal static void Debug(string _,string line)=>Lines.Add(line);
@@ -64,7 +66,7 @@ namespace GloomhavenVR
     {internal static readonly BepInEx.Configuration.ConfigEntry<bool> DevMode=new(false),SimulateHands=new(false);}
 }
 namespace GloomhavenVR.Board
-{internal static class AoeControl{internal static bool ClaimsStick(HandSide side)=>false;}}
+{internal sealed partial class BoardDriver{} internal static class AoeControl{internal static bool ClaimsStick(HandSide side)=>false;}}
 namespace GloomhavenVR.Rig
 {
     internal sealed partial class VRRigDriver:MonoBehaviour
@@ -135,14 +137,14 @@ namespace GloomhavenVR.Hands
         internal Vector3 PalmVelocity=Vector3.zero;
         internal Vector2 Thumbstick=Vector2.zero;
         internal readonly EnablePort Poke=new(),PalmGate=new();
-        internal readonly RayInteractor Ray=new();
-        internal readonly RayUguiDriver RayUgui=new();
-        internal readonly RayGrabDriver RayGrab=new();
+        internal RayInteractor Ray=null!;
+        internal RayUguiDriver RayUgui=null!;
+        internal RayGrabDriver RayGrab=null!;
         internal ProximityGrabber Grabber=null!;
         internal void Configure(HandSide side)
-        {Side=side;Rig.PalmCenter=Rig.GrabAnchor=Rig.IndexTip=transform;Grabber=new ProximityGrabber(this);}
+        {Side=side;Rig.PalmCenter=Rig.GrabAnchor=Rig.IndexTip=transform;Grabber=new ProximityGrabber(this);Ray=new RayInteractor(this);RayGrab=new RayGrabDriver(this);RayUgui=new RayUguiDriver(this);}
         internal void GetAimRay(out Vector3 origin,out Vector3 direction){origin=transform.position;direction=transform.forward;}
-        internal void SendHoverHaptic(object _){ }
+        internal void SendHoverHaptic(object? _){ }
         internal void SendHaptic(HapticPreset _){ }
     }
     internal static class VRHands
@@ -166,26 +168,57 @@ namespace GloomhavenVR.Hands.Interact
     internal readonly struct PickPose
     {
         internal readonly Vector3 Origin,Direction;
-        internal PickPose(Vector3 origin,Vector3 direction){Origin=origin;Direction=direction;}
+        internal readonly bool HasHit;internal readonly float HitDistance;internal readonly Collider? HitCollider;
+        internal PickPose(Vector3 origin,Vector3 direction,bool hit=false,float distance=float.PositiveInfinity,Collider? collider=null){Origin=origin;Direction=direction;HasHit=hit;HitDistance=distance;HitCollider=collider;}
     }
-    internal sealed class RayInteractor:IPickProvider
+    internal sealed partial class RayInteractor:IPickProvider
     {
-        internal bool Enabled=true,HasFreshUiHit=false,FreshUiHitIsPanelHoverOnly=false,HasFreshTriggerClaim=false;
+        private readonly VRHand _hand;internal RayInteractor(VRHand hand)=>_hand=hand;
+        internal bool _enabled=true;internal bool Enabled{get=>_enabled;set=>_enabled=value;}
+        internal bool IsHolding=>_hand.Grabber.Held!=null;internal bool GripSuppressed=>_hand.GripPressed;
+        internal bool CardContactStandDown=false;
+        internal bool HasFreshUiHit=false,FreshUiHitIsPanelHoverOnly=false,HasFreshTriggerClaim=false;
+        internal static bool WantFanOcclusionNote=false;
+        internal float SolidOccluderDistance=float.PositiveInfinity,FanOccluderDistance=float.PositiveInfinity,BoardOccluderDistance=float.PositiveInfinity;internal bool SolidOccluderIsBoard=false,FanOccluderHeld=false;internal PickPose Current=>Pick;
+        internal void NoteFanOcclusion(string _,float distance){}
+        internal void SetPanelUiHit(Vector3 point,string _){WorldUiHit=point;HasFreshUiHit=FreshUiHitIsPanelHoverOnly=true;}
         internal string FreshUiHitSource="native input port",FreshTriggerClaimSource="native input port";
         internal Vector3 WorldUiHit;
         internal PickPose Pick;
-        public bool TryGetPick(out PickPose pose){pose=Pick;return Enabled;}
-        internal void ClaimTrigger(string _){ }
+        public bool TryGetPick(out PickPose pose){pose=Pick;return Active;}
+        internal void ClaimTrigger(string _){HasFreshTriggerClaim=true;FreshTriggerClaimSource=_;}
         internal void SetWorldUiHit(Vector3 point,string _)=>WorldUiHit=point;
     }
-    internal sealed class RayUguiDriver
-    {internal bool IsPressing=false,HasHit=false;internal float HitDistance=0;}
-    internal sealed class RayGrabDriver
+    // Native callback/widget ports. Canvas plane geometry and arbitration execute extracted production code.
+    internal sealed class UguiPointer
     {
-        internal const float MaxDistanceMeters=5f;
-        internal bool OwnsPointerFrame=false;
-        internal static float OccludingBarDistance(Vector3 origin,Vector3 direction,float distance)=>float.PositiveInfinity;
+        internal static int Presses=0,Releases=0;internal GameObject? Hovered;
+        internal static readonly Dictionary<Canvas,GameObject> Widgets=new();
+        internal UguiPointer(HandSide side,bool farRay){}
+        internal bool TryRaycast(Canvas canvas,Vector2 point,out UnityEngine.EventSystems.RaycastResult result)
+        {result=default;if(!Widgets.TryGetValue(canvas,out var widget))return false;result.gameObject=widget;return true;}
+        internal void Cancel()=>Hovered=null;internal void SetHovered(GameObject? target)=>Hovered=target;
+        internal void Press(Vector2 point)=>Presses++;internal void Release(Vector2 point)=>Releases++;
+        internal void Drag(Vector2 point){}
     }
+    internal sealed partial class RayUguiDriver
+    {
+        private const float MaxDistanceMeters=20f,OcclusionEpsilonMeters=.005f;
+        private readonly VRHand _hand;private readonly UguiPointer _pointer;
+        private Canvas? _canvas;private bool _pressing;
+        private static readonly Vector3[] Corners=new Vector3[4];
+        internal RayUguiDriver(VRHand hand){_hand=hand;_pointer=new UguiPointer(hand.Side,true);}
+        internal bool IsPressing=>_pressing;internal bool HasHit{get;private set;}internal float HitDistance{get;private set;}=float.PositiveInfinity;
+        private static void LogCanvasOnce(Canvas canvas){}
+        private static bool OfferedAreaClear(float a,float b,float c,float d,float e,float f,float g,float h,float i)=>false;
+        private bool TrySettingsFallThrough(Canvas canvas,Vector3 point,float distance,in PickPose pick,float scale)=>false;
+        private static void LogSettingsExemption(Canvas a,float b,Canvas c,float d){}
+        private void TickStickScroll(){}private void LogSettingsClickTrace(bool hit,in UnityEngine.EventSystems.RaycastResult top){}
+        private void LogPressYielded(){}
+    }
+    internal static class UguiPokeSurfaces{internal static readonly List<Canvas> Surfaces=new();internal static void Prune()=>Surfaces.RemoveAll(x=>x==null);}
+    internal static class VisibleUiSurface{internal static bool Contains(Canvas c,Vector2 p,Camera? camera)=>true;}
+    internal static class HoverHapticTargets{internal static object? Ui(GameObject? target)=>target;}
     internal static class UiScrollFocus
     {internal static bool IsScrolling(VRHand hand)=>false;internal static string Describe(VRHand hand)=>"native UI claim port: no active list";}
 }
@@ -237,14 +270,19 @@ namespace GloomhavenVR.WorldUI
     internal struct OrderFollower{internal Canvas? Canvas;internal Renderer? Renderer;internal int Offset;}
     internal static partial class CanvasConversion
     {
+        internal static bool TryGetHitRect(Canvas canvas,out Rect result){result=default;return false;}
         internal static Camera? WorldCamera=>Rig.VRRigDriver.HeadCamera;
         private static int s_orderWrites=0;
         private static void CheckFollowerOffset(int value,string name,bool allowBehind){if(value<0||value>=16)throw new InvalidOperationException(name);}
         private static void HideTree(ConvertedPanel panel,Transform root,out int canvases,out int renderers){canvases=renderers=0;}
     }
-    internal static class ModalFallback{internal static bool HardCommitLockActive=false;}
-    internal static class VirtualMouse{internal static Vector2 Pixel;internal static void WarpTo(Vector2 value)=>Pixel=value;}
-    internal static class LaserPointerPolicy{internal static bool TargetBeforeBlocker(float target,float blocker)=>target<blocker;}
+    internal static class ModalFallback{internal static bool HardCommitLockActive=false;internal static bool IsSettingsSurface(Canvas canvas)=>false;}
+    internal static class UiSoundEar{internal static void BeforeUiEvent(){}}
+    internal static class WindowMaterialise{internal static bool IsPointerBlind(Canvas canvas)=>false;internal static void ProbePointerHit(string side,string source,Transform target){}}
+    internal static class TownServiceEnhancementHandoff{internal static bool TryNativeAreaCanvas(Canvas canvas,out Cards.VRCard? card){card=null;return false;}internal static bool TryNativeArea(Canvas canvas,GameObject? target,out Cards.VRCard? card){card=null;return false;}}
+    internal static class TownServiceVisitTarget{internal static float OccludingDistance(Vector3 a,Vector3 b,float c)=>float.PositiveInfinity;}
+    internal static class TownServicePhysicalRay{internal static bool TryPick(VRHand hand,out object? a,out object? b,out float distance){a=b=null;distance=float.PositiveInfinity;return false;}internal static bool TryOfferedCardDistance(Cards.VRCard card,Vector3 a,Vector3 b,float c,out float distance){distance=float.PositiveInfinity;return false;}internal static float OtherOccludingDistance(Cards.VRCard card,Vector3 a,Vector3 b,float c)=>float.PositiveInfinity;internal static float OtherPhysicsOccludingDistance(Cards.VRCard card,Vector3 a,Vector3 b,float c,LayerMask mask)=>float.PositiveInfinity;}
+    internal static class VirtualMouse{internal static readonly Vector2 ParkPixel=new(-4096f,-4096f);internal static Vector2 Pixel;internal static void WarpTo(Vector2 value)=>Pixel=value;}
     internal sealed class StereoPort
     {internal bool MapActive=false;internal void BeginMapPan(Vector2 _){}internal void UpdateMapPan(Vector2 _){}internal void EndMapPan(){}}
     internal sealed partial class FlatScreen
@@ -277,7 +315,16 @@ namespace GloomhavenVR.WorldUI
         private void EndScreenDrag()=>_screenDragActive=false;
         private void DirectClick(Vector2 pixel){ }
         private void LogUnderPointer(Vector2 pixel){ }
-        private void HideReticle(){ }
-        private void YieldScreenPointer(){ }
+    }
+}
+
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal sealed partial class MapLocationInteractor
+    {
+        private const string Scope="map native mask owner";
+        private bool _maskTaken=false;
+        private int _maskWasLeft=0,_maskWasRight=0,_maskInForce=1<<15;
+        private readonly List<int> _locations=new();
     }
 }

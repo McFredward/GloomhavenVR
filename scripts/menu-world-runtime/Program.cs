@@ -68,6 +68,141 @@ public static class MenuWorldProgram
         Near(VirtualMouse.Pixel.y,uv.y*1080,"native pointer V stays on the transformed world window",.05f);
         Near(hand.Ray.WorldUiHit,point,"pointer reticle ends on the actual world-space menu plane");
     }
+    private static void LaserRoute(FlatScreen window,VRHand hand,VRHand offhand,PanelGrabHandle handle,string output)
+    {
+        Physics.SyncTransforms();
+        Collider rod=handle.BarCollider??throw new Exception("missing actual narrow laser target");
+        Vector3 point=rod.bounds.center,origin=point-Vector3.forward*1.2f;
+        float savedClock=Time.timeScale;Time.timeScale=0;
+        void Aim(VRHand source,Vector3 at)
+        {
+            source.transform.SetPositionAndRotation(at,Quaternion.LookRotation(point-at));
+            source.Ray.Pick=new PickPose(at,(point-at).normalized);
+            source.Ray.HasFreshUiHit=source.Ray.FreshUiHitIsPanelHoverOnly=source.Ray.HasFreshTriggerClaim=false;
+        }
+        void Start()
+        {hand.TriggerDown=hand.TriggerPressed=true;hand.RayUgui.Tick();hand.RayGrab.Tick();hand.Grabber.Tick();Invoke(window,"TickPointer");}
+        void Release()
+        {
+            hand.TriggerDown=hand.TriggerPressed=false;hand.TriggerUp=true;hand.RayUgui.Tick();hand.Grabber.Tick();
+            hand.TriggerUp=false;hand.RayUgui.Cancel();
+            hand.Ray.HasFreshUiHit=hand.Ray.FreshUiHitIsPanelHoverOnly=hand.Ray.HasFreshTriggerClaim=false;
+        }
+        Canvas CanvasAt(string name,float depth)
+        {
+            var go=Keep(new GameObject(name,typeof(RectTransform),typeof(Canvas)));
+            go.transform.SetPositionAndRotation(point+Vector3.forward*depth,Quaternion.identity);
+            ((RectTransform)go.transform).sizeDelta=new Vector2(2,1);
+            var canvas=go.GetComponent<Canvas>();canvas.renderMode=RenderMode.WorldSpace;canvas.worldCamera=VRRigDriver.HeadCamera;
+            UguiPokeSurfaces.Surfaces.Add(canvas);UguiPointer.Widgets[canvas]=go;return canvas;
+        }
+        VRHands.Primary=hand;VRHands.PrimaryPick=hand.Ray;Aim(hand,origin);
+        Check(hand.Ray.Active&&hand.Grabber.Enabled,"ready dominant hand enables actual ray and grab policies");
+        using(var trace=new StreamWriter(Path.Combine(output,"native-menu-angle-physics.csv")))
+        {
+            trace.WriteLine("angle,vertical,targetX,physicsCollider,physicsDistance,barDistance,picked");
+            for(int angle=-75;angle<=75;angle+=15)for(int vertical=-1;vertical<=1;vertical++)for(int end=-1;end<=1;end++)
+            {
+                Vector3 aim=point+Vector3.right*(rod.bounds.extents.x*.9f*end);
+                Vector3 from=aim+new Vector3(Mathf.Sin(angle*Mathf.Deg2Rad)*1.2f,vertical*.7f,-Mathf.Cos(angle*Mathf.Deg2Rad)*1.2f);
+                Vector3 direction=(aim-from).normalized;hand.transform.SetPositionAndRotation(from,Quaternion.LookRotation(direction));
+                hand.Ray.CaptureNativePhysics(from,direction);
+                var native=hand.Ray.Current;
+                bool accepted=hand.RayGrab.TryPickBar(out _,out _,out float range);
+                trace.WriteLine($"{angle},{vertical},{end},{native.HitCollider?.name},{native.HitDistance:R},{range:R},{accepted}");
+            }
+            trace.WriteLine($"zoneBounds={handle.GetComponent<Collider>().bounds};rodBounds={rod.bounds}");
+        }
+        Aim(hand,origin);
+        bool nativeHit=Physics.Raycast(origin,(point-origin).normalized,out RaycastHit physical,20*hand.WorldScale,Physics.DefaultRaycastLayers);
+        File.WriteAllText(Path.Combine(output,"native-menu-physics.txt"),$"hit={nativeHit};collider={physical.collider};distance={physical.distance};queriesHitTriggers={Physics.queriesHitTriggers};zone={handle.GetComponent<Collider>()};rod={rod}\n");
+        hand.Ray.CaptureNativePhysics(origin,(point-origin).normalized);
+        bool picked=hand.RayGrab.TryPickBar(out var candidate,out _,out float distance);
+        File.WriteAllText(Path.Combine(output,"laser-route.txt"),$"rod={rod.bounds};enabled={rod.enabled};active={rod.gameObject.activeInHierarchy};canGrab={handle.CanGrab};picked={picked};candidate={candidate};distance={distance};point={point};origin={origin}\n");
+        Check(picked&&ReferenceEquals(candidate,handle),"ready main-menu laser resolves the visible production rod before native pointer delivery");
+        var behind=CanvasAt("native interactive panel behind menu rod",.2f);int presses=UguiPointer.Presses;
+        Start();
+        Check(ReferenceEquals(hand.Grabber.Held,handle)&&handle.LastGrabWasLaser,"normal laser route starts actual menu carry through ForceGrab");
+        Check(UguiPointer.Presses==presses&&!hand.RayUgui.IsPressing,"actual uGUI dispatch yields to nearer menu rod before any widget callback");
+        Check(VirtualMouse.Pixel==VirtualMouse.ParkPixel&&!Get<bool>(window,"_pressing"),"active menu laser carry parks native screen pointer without click-through");
+        Release();Check(hand.Grabber.Held==null,"menu laser carry releases through the original trigger-up route");
+        UguiPokeSurfaces.Surfaces.Remove(behind);behind.gameObject.SetActive(false);
+        Aim(hand,origin);var front=CanvasAt("native interactive panel in front of menu rod",-.2f);presses=UguiPointer.Presses;
+        Start();Check(hand.Grabber.Held==null&&hand.RayUgui.IsPressing&&UguiPointer.Presses==presses+1,"nearer native widget receives its press and blocks menu laser carry");
+        Release();Check(!hand.RayUgui.IsPressing&&UguiPointer.Releases>0,"latched native widget keeps original trigger-up before later menu grab");
+        UguiPokeSurfaces.Surfaces.Remove(front);front.gameObject.SetActive(false);
+        Aim(hand,origin);hand.Ray.SolidOccluderDistance=.5f;
+        Check(!hand.RayGrab.TryPickBar(out _,out _,out _),"solid geometry in front of menu rod blocks laser pickup");hand.Ray.SolidOccluderDistance=float.PositiveInfinity;
+        hand.Ray.Pick=new PickPose(origin,(point-origin).normalized,true,.5f);
+        Check(!hand.RayGrab.TryPickBar(out _,out _,out _),"nearer native physics hit blocks menu rod");Aim(hand,origin);
+        hand.GripPressed=true;Check(!hand.RayGrab.TryPickBar(out _,out _,out _),"physical grip posture keeps its ordinary laser stand-down");hand.GripPressed=false;
+        hand.HasPose=false;Check(!hand.RayGrab.TryPickBar(out _,out _,out _),"lost controller pose cannot offer menu laser grab");hand.HasPose=true;
+        hand.Grabber.Enabled=false;Check(!hand.RayGrab.TryPickBar(out _,out _,out _),"disabled grab policy cannot promise menu laser pickup");hand.Grabber.Enabled=true;
+        Aim(offhand,origin);Check(!offhand.RayGrab.TryPickBar(out _,out _,out _),"non-dominant hand cannot start a hidden second menu laser");
+        Aim(hand,point-Vector3.forward*7);Check(hand.RayGrab.TryPickBar(out var distant,out _,out _)&&ReferenceEquals(distant,handle),"ordinary twenty-metre laser reach still admits a seven-metre menu handle");
+        Aim(hand,origin);
+        var blocker=Keep(GameObject.CreatePrimitive(PrimitiveType.Cube));blocker.name="independent native solid blocker";blocker.layer=0;
+        blocker.transform.position=origin+Vector3.forward*.5f;blocker.transform.localScale=Vector3.one*.12f;Physics.SyncTransforms();
+        hand.Ray.CaptureNativePhysics(origin,(point-origin).normalized);
+        Check(hand.Ray.Current.HasHit&&ReferenceEquals(hand.Ray.Current.HitCollider,blocker.GetComponent<Collider>())&&!hand.RayGrab.TryPickBar(out _,out _,out _),"native solid geometry still blocks menu pickup after mod-layer exclusion");
+        blocker.SetActive(false);Physics.SyncTransforms();
+        int normal=hand.Ray.Mask.value,offhandNormal=offhand.Ray.Mask.value;
+        Controller.Instance=new Controller{m_ActiveSelectionRaycastLayer=1<<8};
+        typeof(GloomhavenVR.Board.BoardDriver).GetMethod("SyncRayMask",Flags)!.Invoke(null,null);
+        Check(hand.Ray.Mask.value==(1<<8)&&offhand.Ray.Mask.value==(1<<8),"original scenario selection-mask author overrides both hands verbatim");
+        hand.Ray.Mask=normal;offhand.Ray.Mask=offhandNormal;
+        var map=new GloomhavenVR.WorldUI.MapRoom.MapLocationInteractor();Invoke(map,"ApplyMask");
+        Check(hand.Ray.Mask.value==(1<<15)&&offhand.Ray.Mask.value==(1<<15),"original map selection-mask author remains authoritative over both hands");
+        map.ReleaseMaskOnly("return to menu");
+        Check(hand.Ray.Mask.value==normal&&offhand.Ray.Mask.value==offhandNormal,"actual map mask handback restores each prior native-only menu mask");
+        Controller.Instance=null;
+        VRHands.Left=VRHands.Right=null;var beforeHands=new GloomhavenVR.WorldUI.MapRoom.MapLocationInteractor();Invoke(beforeHands,"ApplyMask");
+        VRHands.Left=offhand;VRHands.Right=hand;Invoke(beforeHands,"ApplyMask");
+        Check(hand.Ray.Mask.value==(1<<15)&&offhand.Ray.Mask.value==(1<<15),"map arriving before tracked hands still applies native location mask on hand arrival");
+        beforeHands.ReleaseMaskOnly("hands arrived during map");
+        Check(hand.Ray.Mask.value==normal&&offhand.Ray.Mask.value==normal,"missing-hand map fallback restores the same native-only default on return to menu");
+        Aim(hand,origin);Time.timeScale=savedClock;
+    }
+    private static IEnumerable<int> LaserMotion(FlatScreen window,VRHand hand,PanelGrabHandle handle,Transform frame,string output,string phase)
+    {
+        float savedClock=Time.timeScale;Time.timeScale=0;Physics.SyncTransforms();
+        Vector3 point=handle.BarCollider!.bounds.center,origin=point-Vector3.forward*(1.5f*hand.WorldScale);
+        hand.transform.SetPositionAndRotation(origin,Quaternion.LookRotation(point-origin));
+        var direction=(point-origin).normalized;
+        bool hit=Physics.Raycast(origin,direction,out RaycastHit native,20*hand.WorldScale,Physics.DefaultRaycastLayers);
+        hand.Ray.CaptureNativePhysics(origin,direction);VRHands.Primary=hand;VRHands.PrimaryPick=hand.Ray;
+        hand.Ray.HasFreshUiHit=hand.Ray.FreshUiHitIsPanelHoverOnly=hand.Ray.HasFreshTriggerClaim=false;hand.GripPressed=false;
+        bool pickable=hand.RayGrab.TryPickBar(out var picked,out var pickedPoint,out float pickedRange);
+        hand.TriggerDown=hand.TriggerPressed=true;hand.RayUgui.Tick();
+        File.WriteAllText(Path.Combine(output,"motion-start-"+phase+".txt"),$"point={point};barTransform={handle.BarCollider.transform.position};barBounds={handle.BarCollider.bounds};zone={handle.GetComponent<Collider>().bounds};hit={hit};native={native.collider};nativeDistance={native.distance:R};ready={MenuWorldContext.IsReady};ray={hand.Ray.Active};primary={VRHands.Primary==hand};enabled={hand.Grabber.Enabled};canGrab={handle.CanGrab};pickable={pickable};picked={picked};range={pickedRange};uguiHit={hand.RayUgui.HasHit};uguiDistance={hand.RayUgui.HitDistance};uguiPress={hand.RayUgui.IsPressing};offer={hand.Grabber.TriggerGrabOffered};figureOffer={hand.Grabber.FigureGrabOffered}\n");
+        hand.RayGrab.Tick();hand.Grabber.Tick();hand.TriggerDown=false;
+        File.WriteAllLines(Path.Combine(output,"motion-start-log-"+phase+".txt"),VRLog.Lines);
+        Check(ReferenceEquals(hand.Grabber.Held,handle)&&handle.LastGrabWasLaser,"paused menu laser gesture engages after "+phase);
+        var quad=Get<GameObject>(window,"_quad");Vector3 frameStart=frame.position,quadStart=quad.transform.position,palm=hand.Rig.PalmCenter.position;
+        Quaternion rotation=frame.rotation;float scale=frame.localScale.x;
+        hand.transform.rotation=Quaternion.AngleAxis(18,Vector3.up)*hand.transform.rotation;
+        foreach(var step in PlayerSteps(.3f,()=>{hand.RayGrab.Tick();Invoke(window,"FollowHead");},output,"laser-sweep-"+phase,
+            ()=>$"held={hand.Grabber.Held};root={frame.position};quad={quad.transform.position};distance={Get<float>(handle,"_carryDistance"):R}"))yield return 0;
+        Check(Vector3.Distance(frame.position,frameStart)>.15f*hand.WorldScale,"paused menu follows changed laser aim with stationary palm after "+phase);
+        Near(hand.Rig.PalmCenter.position,palm,"laser sweep leaves actual palm at fixed origin after "+phase);
+        Near(quad.transform.position-quadStart,frame.position-frameStart,"original captured menu moves with laser-carried owner after "+phase);
+        Near(frame.localScale.x,scale,"laser carry preserves existing manual menu scale after "+phase);
+        Near(Quaternion.Angle(frame.rotation,rotation),0,"laser sweep translates without rotating menu owner after "+phase);
+        float distance=Get<float>(handle,"_carryDistance");hand.Thumbstick=Vector2.up;Vector3 beforeOut=frame.position;
+        foreach(var step in PlayerSteps(.25f,()=>{hand.RayGrab.Tick();Invoke(window,"FollowHead");},output,"laser-reel-out-"+phase,
+            ()=>$"distance={Get<float>(handle,"_carryDistance"):R};root={frame.position}"))yield return 0;
+        float farther=Get<float>(handle,"_carryDistance");
+        Check(farther-distance>.08f*hand.WorldScale&&Vector3.Dot(frame.position-beforeOut,hand.transform.forward)>.04f*hand.WorldScale,"paused native menu stick reel actually pushes the carried window farther after "+phase);
+        hand.Thumbstick=Vector2.down;Vector3 beforeIn=frame.position;
+        foreach(var step in PlayerSteps(.25f,()=>{hand.RayGrab.Tick();Invoke(window,"FollowHead");},output,"laser-reel-in-"+phase,
+            ()=>$"distance={Get<float>(handle,"_carryDistance"):R};root={frame.position}"))yield return 0;
+        Check(farther-Get<float>(handle,"_carryDistance")>.08f*hand.WorldScale&&Vector3.Dot(frame.position-beforeIn,hand.transform.forward)<-.04f*hand.WorldScale,"paused native menu stick reel actually pulls the carried window nearer after "+phase);
+        hand.Thumbstick=Vector2.zero;hand.TriggerPressed=false;hand.TriggerUp=true;hand.RayGrab.Tick();hand.Grabber.Tick();
+        Check(hand.Grabber.Held==null&&!handle.IsGrabbed,"laser release retires carry and keeps manipulated menu after "+phase);
+        int released=Time.frameCount;while(Time.frameCount==released)yield return 0;
+        hand.TriggerUp=false;hand.Ray.HasFreshUiHit=hand.Ray.FreshUiHitIsPanelHoverOnly=hand.Ray.HasFreshTriggerClaim=false;
+        Time.timeScale=savedClock;
+    }
     private static Texture2D Capture(Camera head)
     {
         var target=new RenderTexture(320,240,24,RenderTextureFormat.ARGB32);target.Create();var saved=head.targetTexture;var active=RenderTexture.active;
@@ -148,6 +283,9 @@ public static class MenuWorldProgram
         Near(quad.transform.TransformVector(Vector3.right).magnitude,2,"initial world menu preserves native captured screen width");
         Near(quad.transform.position,head.transform.position+Vector3.forward*1.6f,"actual first placement uses the recentered eye");
         var handle=frame.GetComponent<PanelGrabHandle>()??throw new Exception("missing production world-menu handle");Check(handle.CanGrab,"real grab handle accepts a visible menu owner without a HostCanvas");
+        LaserRoute(screen,right,left,handle,output);
+        foreach(var step in LaserMotion(screen,right,handle,frame,output,"fresh-open"))yield return null;
+        initialRear=rear.transform.position;
         var reference=Quad("independent fixed menu geometry reference",material);reference.transform.SetPositionAndRotation(quad.transform.position,quad.transform.rotation);reference.transform.localScale=new Vector3(2,2/(16f/9),1);reference.SetActive(false);
         Vector3 position=quad.transform.position;Quaternion rotation=quad.transform.rotation;float width=quad.transform.TransformVector(Vector3.right).magnitude;
         // Exclude chrome from the head-image comparison only: its actual colliders,
@@ -232,8 +370,10 @@ public static class MenuWorldProgram
         Invoke(screen,"FollowHead");
         Near(frame.localScale.x,scaleBefore*1.45f,"paused native menu supports actual two-hand scale",.005f);
         Near(quad.transform.TransformVector(Vector3.right).magnitude,2*frame.localScale.x,"menu capture and grab frame apply pinch scale exactly once",.01f);
-        Pointer(screen,right,new Vector2(.8f,.4f));
+        Check(!right.Ray.Active&&!left.Ray.Active,"near-held menu suppresses both hands pointer until release");
         right.GripPressed=false;right.Grabber.Tick();left.GripPressed=false;left.Grabber.Tick();Time.timeScale=1;
+        foreach(var step in LaserMotion(screen,right,handle,frame,output,"palm-move-and-two-hand-resize"))yield return null;
+        Pointer(screen,right,new Vector2(.8f,.4f));
         Invoke(screen,"FollowHead");position=quad.transform.position;rotation=quad.transform.rotation;width=quad.transform.TransformVector(Vector3.right).magnitude;
         // Movie/options presentation releases the wrapper, while its original
         // capture survives. The same opening must retain its absolute world size.
@@ -275,7 +415,7 @@ public static class MenuWorldProgram
         Check(RigClamp.LastClampActive,"outside the menu original native table eye clamps still apply");Near(newHeadGo.transform.position.y,4.1f,"non-menu clamp retains its original native focus metric");
         ComfortSettings.FreeMovement.Value=true;CameraController.s_CameraController=null!;
         VRSession.IsRunning=false;Check(!MenuWorldContext.AllowsSurroundings&&!MenuWorldContext.IsReady,"VR stop revokes all menu-world presentation admission");
-        File.WriteAllText(Path.Combine(output,"limits.txt"),"Whole production MenuWorldContext, WorldMenu, Placement/FollowHead, SurfaceGrabBar, PanelGrabHandle, ProximityGrabber, registry, rod geometry/tween, Flight, WorldGrab, SnapTurn and their actual resolvers/wedges execute in Unity2021.3.5/OpenGL. Original RecenterMenu, RigClamp, hand-mask policy, HandsDriver readiness Update/ApplyMode, VRHand.SetInteractorMask, pointer TickPointer and canvas order/hide registration are exact source-extracted bodies; their input/classification/visual-build/native callback boundaries are declared fixture ports. MainMenuUIManager/UIWindow visibility, tracking samples, native art/camera-target admission, config storage and UI callbacks are ports. Unrelated scenario/tilt/scroll claims are explicit inactive ports. Final head pixels compare a synthetic captured-native-art texture against separately placed world geometry. Native main-menu art/controller scheduling, actual OpenXR input, D3D11 and headset picture/frame pacing are not certified.\n");
+        File.WriteAllText(Path.Combine(output,"limits.txt"),"Whole production MenuWorldContext, WorldMenu, Placement/FollowHead, SurfaceGrabBar, PanelGrabHandle, ProximityGrabber, RayGrabDriver, LaserPointerPolicy, registry, rod geometry/tween, Flight, WorldGrab, SnapTurn and their actual resolvers/wedges execute in Unity2021.3.5/OpenGL. Original RecenterMenu, RigClamp, hand-mask policy, HandsDriver readiness Update/ApplyMode, VRHand.SetInteractorMask, native physics mask initializer and Physics.Raycast, RayUgui Tick/TickPressed/canvas geometry/Cancel, pointer TickPointer/YieldScreenPointer/HideReticle, original scenario/map mask authors and map restoration, and canvas order/hide registration are exact source-extracted bodies; their input/classification/visual-build/native callback boundaries are declared fixture ports. MainMenuUIManager/UIWindow visibility, tracking samples, native art/camera-target admission, config storage and UI callbacks are ports. Unrelated scenario/tilt/scroll claims are explicit inactive ports. Final head pixels compare a synthetic captured-native-art texture against separately placed world geometry. Native main-menu art/controller scheduling, actual OpenXR input, D3D11 and headset picture/frame pacing are not certified.\n");
         yield return checks;
     }
     public static void Cleanup()

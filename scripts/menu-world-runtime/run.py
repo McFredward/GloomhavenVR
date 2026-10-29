@@ -34,11 +34,12 @@ WHOLE=(
  'WorldUI/HeadFacing.cs','WorldUI/Conversion/PanelPlacement.cs',
  'Core/GrabBar.cs','Core/GrabBarVisual.cs','Core/GrabBarTexture.cs',
  'Hands/Interact/IGrabbable.cs','Hands/Interact/VRInteractables.cs','Hands/Interact/ProximityGrabber.cs',
+ 'Hands/Interact/RayGrabDriver.cs','Hands/Interact/LaserPointerPolicy.cs',
  'Rig/Flight.cs','Rig/WorldGrab.cs','Rig/SnapTurn.cs','Rig/RigTarget.cs',
  'Rig/LocalTurnControl.cs','Rig/ScrollTurnGate.cs','Rig/LiftWedge.cs',
 )
 KERNELS=(
- 'Core/Events/VRModeStateMachine.cs','Hands/HandsDriver.cs','Hands/VRHand.cs',
+ 'Core/Events/VRModeStateMachine.cs','Hands/HandsDriver.cs','Hands/VRHand.cs','Hands/Interact/RayInteractor.cs','Hands/Interact/RayUguiDriver.cs','Board/BoardDriver.cs','WorldUI/MapRoom/MapLocationInteractor.cs',
  'Rig/VRRigDriver.Recenter.cs','WorldUI/FlatScreen/FlatScreen.6.Pointer.cs',
  'WorldUI/Conversion/CanvasConversion.8.Order.cs','WorldUI/Conversion/CanvasConversion.6.Hide.cs',
  'WorldUI/WorldUIConfig.cs',
@@ -65,6 +66,23 @@ def generated(raw):
     result['ActualModePolicy.cs']='using System; using System.Collections.Generic; namespace GloomhavenVR.Core.Events;\n'+enums+'\ninternal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer=false; internal static VRMode CurrentMode=VRMode.Menu2D;\n'+data+'\n'+block(mode,'public static Interactors InteractorsFor(VRMode mode, HandRole role)')+'\n}\n'
     hands=raw['Hands/HandsDriver.cs']
     result['ActualHandsPolicy.cs']='using GloomhavenVR.Core; using GloomhavenVR.Core.Events; namespace GloomhavenVR.Hands; internal sealed partial class HandsDriver {\n'+block(hands,'private void Update()')+'\n'+block(hands,'private void ApplyMode(VRMode mode)')+'\n}'
+    ray=raw['Hands/Interact/RayInteractor.cs']
+    active=re.search(r'    public bool Active =>[^;]+;',ray)[0]
+    native_mask=re.search(r'    public LayerMask Mask =[^;]+;',ray)[0]
+    native_limit=re.search(r'    private const float MaxDistanceMeters =[^;]+;',ray)[0]
+    query=re.search(r'if \((Physics\.Raycast\(origin, direction, out RaycastHit hit, maxDistance, Mask\))\)',ray)
+    if query is None:raise RuntimeError('Native physics raycast extraction drift')
+    capture='internal void CaptureNativePhysics(Vector3 origin,Vector3 direction){float maxDistance=MaxDistanceMeters*_hand.WorldScale;bool hasHit='+query[1]+';Pick=new PickPose(origin,direction,hasHit,hit.distance,hit.collider);}'
+    result['ActualRayState.cs']='using UnityEngine; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayInteractor {\n'+active+'\n'+native_mask+'\n'+native_limit+'\n'+capture+'\n}\n'
+    ui=raw['Hands/Interact/RayUguiDriver.cs']
+    ui_methods='\n'.join(block(ui,sig) for sig in ('internal void Tick()', 'private void TickPressed(in PickPose pick, float scale)', 'private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,', 'private static void HitCorners(RectTransform rect, in Rect local, Vector3[] into)', 'private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)', 'internal void Cancel()'))
+    ui_rect=ui[ui.index('    private static Rect HitRectOf('):ui.index(';',ui.index('    private static Rect HitRectOf('))+1]
+    result['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+ui_methods+'\n'+ui_rect+'\n}\n'
+    masks='using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.Hands; namespace GloomhavenVR.Board { internal sealed partial class BoardDriver {\n'+block(raw['Board/BoardDriver.cs'],'private static void SyncRayMask()')+'\n}}\n'
+    map=raw['WorldUI/MapRoom/MapLocationInteractor.cs']
+    release=block(map,'if (_maskTaken)',indent='        ')
+    masks+='namespace GloomhavenVR.WorldUI.MapRoom { internal sealed partial class MapLocationInteractor {\n'+block(map,'private void ApplyMask()')+'\ninternal void ReleaseMaskOnly(string reason){int hadPokes=0;\n'+release+'\n}\n}}\n'
+    result['ActualNativeMaskOwners.cs']=masks
     result['ActualHandMask.cs']='namespace GloomhavenVR.Hands; internal sealed partial class VRHand {\n'+block(raw['Hands/VRHand.cs'],'internal void SetInteractorMask(Core.Events.Interactors mask)')+'\n}'
     result['ActualMenuRecenter.cs']='using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.Rig; internal sealed partial class VRRigDriver {\n'+block(raw['Rig/VRRigDriver.Recenter.cs'],'private void RecenterMenu()')+'\n}'
     rig=raw['Rig/VRRigDriver.cs'];arrival_start=rig.index('        if (_pendingRecenter && _camera != null && _camera.transform.localPosition.sqrMagnitude > 1e-6f)')
@@ -73,7 +91,7 @@ def generated(raw):
     dispatch=block(raw['Rig/VRRigDriver.Recenter.cs'],'internal void Recenter()')
     dispatch=dispatch[:dispatch.index('        if (_kind == RigKind.Map)')]+ '        throw new System.InvalidOperationException("Non-menu recenter is outside this fixture");\n    }'
     result['ActualFirstPoseCoordinator.cs']='using System; using GloomhavenVR.Core; using GloomhavenVR.Core.Events; using UnityEngine; namespace GloomhavenVR.Rig; internal sealed partial class VRRigDriver {\n'+block(rig,'private enum RigKind')+'\n'+tracking+'\n'+dispatch+'\ninternal void TickArrival() {\n'+rig[arrival_start:arrival_end]+'\n}}\n'
-    result['ActualNativePointer.cs']='using GloomhavenVR.Core; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+block(raw['WorldUI/FlatScreen/FlatScreen.6.Pointer.cs'],'private void TickPointer()')+'\n}'
+    result['ActualNativePointer.cs']='using GloomhavenVR.Core; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+'\n'.join(block(raw['WorldUI/FlatScreen/FlatScreen.6.Pointer.cs'],sig) for sig in ('private void TickPointer()','private void YieldScreenPointer()','private void HideReticle()'))+'\n}'
     order=raw['WorldUI/Conversion/CanvasConversion.8.Order.cs']
     result['ActualCanvasRegistration.cs']='using UnityEngine; namespace GloomhavenVR.WorldUI; internal static partial class CanvasConversion {\n'+'\n'.join((block(order,'internal static void RegisterOrderFollower(ConvertedPanel panel, Renderer renderer, int offset,'),block(order,'private static void ApplyPanelOrder(ConvertedPanel panel, int order)'),block(raw['WorldUI/Conversion/CanvasConversion.6.Hide.cs'],'internal static void AddRenderRoot(ConvertedPanel? panel, Transform? root)')))+'\n}'
     result['ActualFacingEnum.cs']='namespace GloomhavenVR.WorldUI;\n'+block(raw['WorldUI/WorldUIConfig.cs'],'internal enum WindowFaceMode',indent='')+'\n'
@@ -105,7 +123,7 @@ def main():
          'if (TickWorldMenu() && (Rig.VRRigDriver.RigRoot == null || (Rig.VRRigDriver.RigRoot.position - _placedRigPos).sqrMagnitude <= 1e-4f))\n            return;',
          "actual stick flight retains the independent menu's world pose"),
         ('paused-carry-frozen','WorldUI/Grab/PanelGrab.cs','float k = 1f - Mathf.Exp(-Smoothing * Time.unscaledDeltaTime);','float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);',
-         'paused native menu follows actual one-hand carry on the unscaled tracking clock'),
+         'paused menu follows changed laser aim with stationary palm after fresh-open'),
         ('readiness-mask-edge-lost','Hands/HandsDriver.cs','_menuWorldReady = menuReady;\n            ApplyMode(VRModeStateMachine.CurrentMode);','_menuWorldReady = menuReady;',
          'actual HandsDriver readiness edge enables both real near-grabbers without a mode transition'),
         ('late-background-detached','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','        if (_backQuad != null)\n        {\n            Transform back = _backQuad.transform;',
@@ -138,6 +156,40 @@ def main():
          'captured camera with null target is not proof of menu ownership'),
     ]
     cases=[('production',raw,'')]
+    mutations.extend([
+        ('map-missing-hands-broad-mask','WorldUI/MapRoom/MapLocationInteractor.cs',
+         '_maskWasLeft = left != null ? left.Ray.Mask.value : Physics.DefaultRaycastLayers & ~VRLayers.ModLayerMask;',
+         '_maskWasLeft = left != null ? left.Ray.Mask.value : Physics.DefaultRaycastLayers;',
+         'missing-hand map fallback restores the same native-only default on return to menu'),
+        ('old-native-menu-physics-mask','Hands/Interact/RayInteractor.cs',
+         'public LayerMask Mask = Physics.DefaultRaycastLayers & ~Core.VRLayers.ModLayerMask;',
+         'public LayerMask Mask = Physics.DefaultRaycastLayers;',
+         'ready main-menu laser resolves the visible production rod before native pointer delivery'),
+        ('menu-laser-disconnected','Hands/Interact/RayGrabDriver.cs',
+         'if (!_hand.Ray.Active || VRHands.Primary != _hand || !_hand.Grabber.Enabled)\n        {\n            ClearHover();',
+         'if (_hand.HasPose || !_hand.Ray.Active || VRHands.Primary != _hand || !_hand.Grabber.Enabled)\n        {\n            ClearHover();',
+         'normal laser route starts actual menu carry through ForceGrab'),
+        ('menu-ui-before-rod','Hands/Interact/RayUguiDriver.cs','barDistance <= bestDist','barDistance > bestDist',
+         'normal laser route starts actual menu carry through ForceGrab'),
+        ('menu-rod-steals-native-widget','Hands/Interact/RayGrabDriver.cs',
+         '|| _hand.RayUgui.IsPressing\n            || (_hand.RayUgui.HasHit && _hand.RayUgui.HitDistance < bestDist)',
+         '|| (_hand.RayUgui.IsPressing && !_hand.HasPose)',
+         'nearer native widget receives its press and blocks menu laser carry'),
+        ('menu-carry-screen-clickthrough','WorldUI/FlatScreen/FlatScreen.6.Pointer.cs',
+         'if (hand != null && hand.RayGrab.OwnsPointerFrame)',
+         'if (hand != null && hand.RayGrab.OwnsPointerFrame && !hand.HasPose)',
+         'active menu laser carry parks native screen pointer without click-through'),
+        ('menu-laser-reach-shortened','Hands/Interact/RayGrabDriver.cs','internal const float MaxDistanceMeters = 20f;',
+         'internal const float MaxDistanceMeters = 5f;',
+         'ordinary twenty-metre laser reach still admits a seven-metre menu handle'),
+        ('menu-native-widget-release-lost','Hands/Interact/RayUguiDriver.cs',
+         'if (_pressing && _canvas != null)','if (_pressing && _canvas != null && !_hand.HasPose)',
+         'latched native widget keeps original trigger-up before later menu grab'),
+        ('paused-menu-laser-reel-frozen','WorldUI/Grab/PanelGrab.cs',
+         'Rig.ComfortSettings.LaserCarryReelSpeed.Value * Time.unscaledDeltaTime;',
+         'Rig.ComfortSettings.LaserCarryReelSpeed.Value * Time.deltaTime;',
+         'paused native menu stick reel actually pushes the carried window farther after fresh-open'),
+    ])
     if not args.production_only:
         for name,file,before,after,expected in mutations:
             if raw[file].count(before)!=1:raise RuntimeError('Control binding drift: '+name)
