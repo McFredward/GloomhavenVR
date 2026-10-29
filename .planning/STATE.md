@@ -1,3 +1,60 @@
+**Producer confirmations, stable character AA and a world main menu, Build742, 2026-10-29.**
+
+The maintainer accepts740's small level-up prompt but reports Perks floating
+separately, whole-character-window aliasing, a room during the intro and eyes at
+floor height. Perks and every proved native confirmation producer now use the
+same shallow32px owner member, exact original widgets/callbacks/home and owner
+sorting tier+1. Synchronous, deferred, item and actor-only requests retain exact
+provenance; map/NPC/external transfers retire or refuse complete leases atomically.
+
+Native main-menu visibility after actual first tracked recenter admits the chosen
+surroundings. Closed rooms center the ready eyes between their real central
+Floor/Ceiling meshes once; map/scenario proportions and same-rig room anchoring
+remain. The original main-menu capture uses the standard movable/two-hand-scalable
+grip. Walking, turning and world drag/zoom retain its absolute pose/size; native
+Menu2D authority remains. Carries use unscaled tracking time through native pause.
+
+Character head captures retain a fixed2x absolute pixel grid with cropped storage
+and1x final pairs, one native content render per eye. Explicit raster projection
+keeps storage crops out of native view/normal/clip metrics. Native UI also retains
+its original unit metric for real TMP/SDF glyphs. Each source sample keeps the
+existing glass/foreground/annotation permission before color integration, removing
+70-pixel mixed-color fringe without admitting unrelated UI. All4 old serialized
+shaders remain exact; only the added resolve changes (87819B bank, Unity2021.3.5).
+
+Strict Debug/Release and metadata pass0W0E on the final production; source16 pass.
+Compiled review finds28runtime+9exactModBuild-only existing types,5added0removed;
+the post-complete bounded repairs change exactly4head-rendering types. Config670,
+223patch classes/338methods,12frame orders and5EN/DEdoc pairs pass. Surface adds
+only2producer attributes and2bounded menu tokens, without removals.
+
+Complete local invocation records264PASS/3FAIL across267 in3505.462s. Failures
+are the expanded level-up harness deadline, legacy desktop1x/alpha expectations
+and its newly exposed real color fringe, and a menu fixture measuring editor time
+rather than consumed native frame deltas. The bounded repairs'14final affected
+scopes all pass, including the complete83-case head container, level-up39cases
+1056/38, menu19cases120/18, capture419/29 and rotation integration156/4. Reuse253
+unchanged successful closures; this is verified complete aggregate267coverage,
+not a new successful single full invocation. Actual retained golden executable
+passes306431 assertions with262compile inputs unchanged except verified comments.
+All failed attempts remain evidence; outer-wrapper exit143 after267completion
+was recovered with exact source/child/FD checks and explicit cleanup receipts.
+
+RGBA32/D24 fixture storage at4040 is441.05MiB front with outboard annotations,
+peaking1245.24MiB close/coplanar;640motion peaks24,576,000B. Six high-water growth
+steps remain fixed-quality; ledgers separately include retirement/regrowth and
+independent model churn controls. These exclude driver/internal/effect allocation
+and establish no HMD frame-pacing claim. Original native font/atlas/material/DLL
+and canonical SDF execute; native model art/provider/session and Windows shader
+programs remain qualified. Root inspected final GL font/front/rear/edge captures;
+actual D3D11/HMD acceptance remains outstanding.
+
+All3owned worker worktrees are archived/content-and-hash verified/retired; per-run
+caches and task-private processes/sockets are cleaned while retaining evidence,
+inputs and current artifacts. See MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md and
+ignored menu742/validation-final.json. Source delivery is origin/dev; Windows
+builds the archive. Quest741 receives the final pushed SHA/new resolve API handoff.
+
 **Selected surroundings across all VR contexts, Build740, 2026-10-29.**
 
 The maintainer extends the selected environment to main menu, 3D map and scenario,

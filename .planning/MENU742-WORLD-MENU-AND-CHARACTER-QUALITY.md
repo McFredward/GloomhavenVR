@@ -115,54 +115,111 @@ title witness is isolated from an existing synthetic blue comparison label.
 Its new0.999 glyph threshold distinguishes both known old-projection omissions;
 all existing whole-window/motion thresholds remain unchanged.
 
-Only`NativeUiScope.HeadCapture` needs the additional production repair. Its one
+Only`NativeUiScope.HeadCapture` needed the font-metric repair. Its one
 production call is the original native-UI route in`FlatScreen.8.MenuDepth.cs`;
-converted windows use their separate capture. Keep the complete invocation on
-the frozen baseline, then validate this bounded method repair and its affected
-consumers. Final coverage must identify that follow-up and unchanged inherited
-closures explicitly; it cannot be called one successful final-tree invocation.
+converted windows use their separate capture. The complete invocation retained its frozen baseline; the bounded repair and
+affected consumers were then verified independently. The final aggregate records that follow-up and unchanged inherited closures;
+it is not one successful final-tree invocation.
 
-## Validation status
+## Final validation
 
-The runtime is frozen at`ddd6719ff8285e33d32d858c33ee28865095f300`; the final
-complete267-suite invocation and actual golden executable are running on that
-integrated candidate. This remains pending delivery. Strict Debug/Release pass
-0 warnings/errors in28.19/14.49 seconds; metadata compilation passes in25.93
-seconds. All16 source suites pass in30.9 seconds. Docs-i18n covers5 pairs.
+The final runtime is frozen at`9371bf027885d3f95231a2f5853fe9836f9bbb00`.
+A subsequent fixture-only commit95f568e66 rebinds the existing right-eye omission
+from its old inline expression to the named sampled eye; production is unchanged.
+Strict Debug/Release pass0 warnings/errors in43.45/19.83 seconds; metadata passes
+in36.58 seconds. All16 source suites pass in39.0 seconds;12 locked frame orders,
+223 patch classes/338 methods and670 configuration keys remain verified.
+Docs-i18n covers5 pairs. Surface attributes263 to265 and tokens4833 to4835 add
+only the explicit item/persistent origin hooks and two bounded menu markers.
+
+The complete invocation records264 PASS/3 FAIL over all267 local scopes in
+3505.462 seconds. Level-up's old420-second editor limit cut off active work at
+32/39 PASS; the original limit dates to14 cases. The bounded complete39-case
+follow-up passes1056 production assertions and38 causal controls in525.682
+seconds with its original30-second-per-case completion allowance. No assertion
+or pixel criterion is relaxed. Flushed BEGIN/END timing receipts record progress.
+
+The world-menu fixture used editor elapsed time while manually updating disabled
+native components on selected player frames. Its unchanged movement criterion
+could therefore see too little integrated native time. Count the actual distinct
+frame deltas consumed by flight/world drag/pinch, with an independent wall bound.
+The complete19-case follow-up passes120 assertions/18 controls in51.631 seconds;
+a new scaled-clock control detects blocked paused motion. Flight code is unchanged.
+
+The desktop suite's six legacy failures exposed old1x target-size assumptions,
+a reference without the original CanvasGroup alpha/2x integration, and the real
+mixed-color boundary defect described below. The final complete83-case desktop
+scope passes in709.1 seconds. It retains the3.5-pixel independent anchor and95%
+coverage/IoU criteria, adds hard RGB0 native/converted boundary checks and their
+own omission controls, and includes the original native font/normal/copy/lifetime/
+allocation/4k proofs. Its900-second editor bound accommodates the larger actual
+pixel workload; per-case timings are retained. This does not measure HMD pacing.
+
+The final affected union contains14 passing local scopes:12 head-window families,
+the complete level-up suite and the complete world-menu suite. The first11-scope
+head invocation records10 PASS/1 stale mutation-binding FAIL; the complete
+capture follow-up passes419 assertions/29 controls in101.452 seconds. Rotation
+integration separately passes156/4. All253 remaining full-invocation closures are
+unchanged and retained. This is verified complete aggregate267-suite coverage,
+not one successful complete invocation on the final source tree. The actual
+retained golden executable independently passes306431 assertions; its262 explicit
+compile inputs are identical except verified full-line Build742 comments.
 
 Compiled review against delivered740 finds28 existing runtime types,9 exact
-ModBuild-only consumers,5 added types and0 removals. The late projection repair
-changes exactly7 of those runtime types from the previously reviewed candidate.
-All32 extracted resources are compared; only the75934-byte menu shader bank
-changes. Its4 original serialized shader objects remain byte-identical; the new
-one-pass resolve is the sole addition. Default's native bank remains unchanged.
-Config670 is unchanged; Harmony attributes263 to265 and log tokens4833 to4835
-add only the explicit item/persistent producer hooks and two bounded menu markers.
-Generated inventory is223 patch classes/338 methods, each registered once.
+ModBuild-only consumers,5 added types and0 removals. The post-complete bounded
+repairs change exactly4 known head-rendering types. All32 extracted resources
+are compared; only the87819-byte menu shader bank changes (SHA256
+9698e2dd0bac9d6966265861c44b5c8e2c008732877e898612ee52fa25ead3d1).
+All4 previous serialized shaders remain byte-identical; only the added resolve
+program changes. UnityFS7/2021.3.5f1 validation passes. Default's2219921-byte
+original native bank remains unchanged.
 
-Focused final environment evidence is custom107 assertions/8 controls, Default
-plus menu depth98/16 and real menu coordinator/controls117/17 across18 builds.
-Confirmation evidence includes1056 assertions,36 original plus2 destroyed-input
-controls and240 zero-difference final-head samples, plus pure323/26 and legacy
-native114/13. These are worker/focused proofs, not a complete root pass. Earlier
-boot/motion consumer results live in ignored`menu742/menu-consumers/results.json`.
+Focused environment evidence is custom107 assertions/8 controls, Default plus
+menu depth98/16 and real menu coordinator/controls120/18. Confirmation evidence
+includes240 zero-difference final-head samples, plus pure323/26 and legacy
+native114/13. The final source/input manifests, failed attempts, executed binaries,
+shader audits, per-case timings and pixel comparisons remain in ignored
+`menu742/validation-final.json` and its linked run directories.
 
-Failed preflight/control/timeout attempts remain preserved. New conservative
-card bounds duplicated the old fit-depth mutation's short suffix; the fixture
-now targets only its original draw assignment and retains the same native pixel
-oracle. The capture fixture expects the correct2x source domain while retaining
-its1x final-eye checks. The complete desktop fixture grew to75 cases; its old
-420-second editor deadline stopped after39/70. A bounded900-second deadline and
-per-case timing receipts preserve every render, pixel threshold and control.
-Timed far-view retirement is compared with the actually observed near peak,
-allowing retirement during a slow motion trace without weakening image checks.
+## Color permission, storage and hardware boundaries
 
-Unity GL camera/geometry/pixel execution uses explicitly declared native input,
-bootstrap and decoder ports. It does not establish D3D11 headset appearance,
-motion-to-photon behavior or hardware frame pacing. The maintainer's headset
-review remains separate from automated evidence.
+The new independent alpha/2x geometric reference gives exact silhouette IoU1 for
+all four front/rear eye samples. It also exposed70 mixed-blue pixels per outer
+eye: nearest foreground depth admitted color already blended with an unrelated
+off-window UI neighbor. Hiding only that blue widget changed exactly those70
+pixels, with unchanged geometry. Apply the existing foreground/glass/annotation
+rule separately to each quarter-pixel before integrating color/depth. Both actual
+coordinators now measure mixed RGB0; their own omitted-sample-clip controls restore
+the defect. No extra render target, camera or native content render is introduced.
+The final display clip remains an additional guard.
 
-Source delivery is a normal push to `origin/dev`. The Windows installation
-script builds its archive; no local ZIP is requested. Build741 remains reserved
-for the coordinated Quest standalone lane, which receives the final dev SHA
-after this integration is validated and pushed.
+For RGBA32/D24, the actual4040-pixel front fixture with intentionally outboard
+quest/tooltip bounds owns100663296 bytes each for UI and model scratch plus
+261145600 bytes for its eye pair:441.05MiB. Extreme close/coplanar views peak at
+1305728000 bytes (1245.24MiB);640-pixel motion peaks at24576000 bytes. These
+exclude Unity/native effect temporaries, driver/program allocation and in-flight
+retirement. Six high-water growth steps during52 poses replace the older eleven
+small growth steps; complete ledgers additionally count timed shrink/regrowth and
+the explicit post-motion retirement. UI and model allocation events are observed
+independently; a model churn omission proves the guard. This is measured storage
+for these formats, not hardware VRAM or performance acceptance.
+
+The original game TMP DLL/font/atlas/material and hash-verified canonical SDF
+source execute in the GL fixture. The native atlas's external8MiB stream span,
+all Managed metadata and actual decoder modules are pinned; every run exports
+its inputs from read-only references rather than a discovery cache. Model art is
+independent synthetic geometry, with separately verified native view/normal/clip
+inputs. XR/provider, actor/session/bootstrap and original Windows programs remain
+explicit limits. No automated green result establishes D3D11/HMD image quality,
+comfort or frame pacing; maintainer acceptance remains separate.
+
+Owned test processes stop before per-attempt cache cleanup. Evidence, inputs,
+current binaries and `.keep` pins remain preserved. All three clean owned worker
+worktrees are archived, content/hash verified and retired; the clarity archive
+verifier explicitly handles its3090 hardlinks. Final task-private process/socket
+and cache audit is recorded with delivery. Historical unrelated worktrees and
+read-only game references are preserved.
+
+Delivery is a normal push to`origin/dev`; the Windows installation script builds
+its archive. No local ZIP is requested. Quest741 remains the coordinated separate
+lane; send its owner the final pushed dev SHA and new resolve-bank/API handoff.
