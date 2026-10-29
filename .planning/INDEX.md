@@ -1,11 +1,11 @@
 # Planning index
 
-Updated 2026-10-29: Build746 isolates local environments from shared NPC geometry,
-removes exact native narrative dimmers, converges shared grabs and authority
-handovers, restores last-releaser facing, and fits the city-event badge/votes.
-Strict builds, source16, actual306739 goldens and qualified aggregate267 coverage
-are recorded. Passive map-stall cause remains open; bounded Debug attribution
-closes known measurement gaps without claiming a pacing fix. Windows builds
+Updated 2026-10-29: Build747 repairs native More Cards preview clipping and the
+additional loadout-owned backing behind composed story illustration/dialog.
+Affected native callback, pool, lifecycle and final-eye checks cover the new
+source; unchanged broad evidence comes from the qualified Build746 checkpoint.
+Integration verification is recorded in MENU747-COMPLETE-PREVIEWS-AND-STORY.md.
+Passive map-stall cause remains open in MP746-PERFORMANCE.md. Windows builds
 its archive from the dev source delivery.
 
 Hardware outcomes remain separate from source/runtime evidence. This
@@ -16,6 +16,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU747-COMPLETE-PREVIEWS-AND-STORY.md](MENU747-COMPLETE-PREVIEWS-AND-STORY.md) | Complete native More Cards previews, exact composed loadout backing lease and bounded verification |
 | [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |

@@ -4646,8 +4646,8 @@ internal static class StoryComposite
                               + "end of the intro) that means it simply disappears, which is the user's "
                               + "\"Da der Dialog fertig ist soll er darin verschwinden\". THE CLAIM ON THE "
                               + "STORY WINDOW GOES WITH IT: the refusal is conditional on this park and "
-                              + "lapses on the same tick. The loadout viewer's desktop dimmer lease is "
-                              + "retired before hand-back. The loadout window keeps floating in the same panel and pose; its "
+                              + "lapses on the same tick. THE HOST IS NOT TOUCHED AT ALL in its panel, pose "
+                              + "or native controls. The viewer's desktop dimmer lease retires before hand-back; its "
                               + "paper-expand tween and confirm button were never ours.");
         }
         catch (System.Exception e)

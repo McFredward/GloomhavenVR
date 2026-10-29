@@ -26,6 +26,23 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build747: complete native More Cards previews
+
+WorldUI registers `MenuDepthFurtherAbilityHoverObserver` on the original
+`UILevelUpCard.MouseEnter`. This browse path skips the ordinary ability-card
+position hook and writes its position after the native preview toggle. Its
+temporary sorting Canvas initially escapes the inventory mask, but conversion
+adoption subsequently exposes the missing raise and cuts the preview.
+
+The postfix runs after that final native writer and uses the existing tooltip
+placement, top ordering and pooled-home restoration. Native navigation,
+highlight, selectable/gamepad, preview visibility and exact converted-owner
+guards retain permission. It creates no card, callback, per-frame census or
+capture target. The existing native hide observer releases the original lease.
+Failures retain native behavior and report bounded context. See
+[the review](../.planning/MENU747-COMPLETE-PREVIEWS-AND-STORY.md) for causal
+render evidence and the separate composed-story backing repair.
+
 ## Build733: shared city-event readiness
 
 WorldUI registers `MapCityEventReadyUp` before native map proposals can arrive.

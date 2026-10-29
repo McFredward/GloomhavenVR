@@ -632,7 +632,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 746;
+    public const ushort ModBuild = 747;
+
+    // ModBuild747 — complete More Cards previews and the composed story foreground.
+    // Singleplayer746/8e8a6c50d reports clipped further-card previews and a
+    // remaining translucent backing behind the composed quest illustration/text.
+    // Further-ability browsing skips the ordinary card-position seam, then
+    // rewrites its preview pose after ToggleFullCardPreview. Its transient Canvas
+    // escapes the inventory mask only until native Canvas adoption. Settle the
+    // original preview after the row's last writer through the existing tooltip
+    // raise/restore path; retain native eligibility, pool, fade and pointer input.
+    // The native loadout quest-info host owns another full-screen Black_Backdrop
+    // outside StoryDock. Lease that exact visual role only while composing story,
+    // preserving Paper, illustration, dialog, buttons and original hand-back.
+    // Apply the same presentation policy in singleplayer and multiplayer. Keep
+    // capture quality/cadence/budgets, native progression and wire grammar intact.
 
     // ModBuild746 — isolate environments and converge shared window gestures.
     // Paired745 hardware uses the same c3bb18117 build on both participants.
