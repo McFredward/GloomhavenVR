@@ -359,7 +359,7 @@ internal static partial class PerfFrameSplit
         SetNativeProbesActive(enabled && VRLog.WantsDebug);
         bool sampledFrame = _probeFrameOpen;
         long now = Stopwatch.GetTimestamp();
-        CaptureCompletedFrame(enabled && record, now, Time.frameCount);
+        CaptureCompletedFrame(enabled && record && VRLog.WantsDebug, now, Time.frameCount);
 
         if (enabled && record && _logicStart != 0L)
         {
