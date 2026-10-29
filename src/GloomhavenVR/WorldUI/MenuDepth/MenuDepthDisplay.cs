@@ -20,6 +20,10 @@ internal sealed class MenuDepthDisplay : IDisposable
     private const string NativeCardShaderPath = "assets/menudepth/menudepthnativecard.shader";
     private static readonly int EyeId = Shader.PropertyToID("_GvrMenuDepthEye");
     private static readonly int RightTextureId = Shader.PropertyToID("_RightTex");
+    private static readonly int SampleInverseId = Shader.PropertyToID("_GvrHeadSampleInverse");
+    private static readonly int SampleEyeId = Shader.PropertyToID("_GvrHeadSampleEye");
+    private static readonly int PlanePointId = Shader.PropertyToID("_GvrPlanePoint");
+    private static readonly int PlaneNormalId = Shader.PropertyToID("_GvrPlaneNormal");
     private static readonly Stack<int> PreviousEyes = new(4);
     private static readonly List<Graphic> BoundGraphics = new(16);
     private static readonly List<MenuDepthDisplay> HeadDisplays = new(8);
@@ -209,11 +213,18 @@ internal sealed class MenuDepthDisplay : IDisposable
         {
             RectInt region = MenuDepthSources.HeadRegion(plane, plane.localToWorldMatrix, frame, left, right);
             filter = MenuDepthHeadRaster.Filter(original.descriptor, size, region, HeadResolveShader);
-            CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(left), filter.Value.Pixels);
-            filter.Value.Resolve(_headLeft!);
+            MenuDepthEye sampledLeft = filter.Value.Eye(left), sampledRight = filter.Value.Eye(right);
+            CaptureHeadEye(capture, plane, filter.Value.Target, sampledLeft, filter.Value.Pixels);
+            MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
+            filter.Value.Resolve(_headLeft!, sampledLeft, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
+                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
+                plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
-            CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(right), filter.Value.Pixels);
-            filter.Value.Resolve(_headRight!);
+            CaptureHeadEye(capture, plane, filter.Value.Target, sampledRight, filter.Value.Pixels);
+            MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
+            filter.Value.Resolve(_headRight!, sampledRight, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
+                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
+                plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
@@ -279,6 +290,19 @@ internal sealed class MenuDepthDisplay : IDisposable
         material.SetVectorArray("_GvrHeadAnnotationRects", AnnotationRects);
         material.SetFloat("_GvrHeadAnnotationCount", count);
         material.SetFloat("_GvrHeadClipActive", 1f);
+    }
+
+    internal static void SetHeadSampleClip(Material material, MenuDepthEye sampledEye, Vector3 point, Vector3 normal,
+        Matrix4x4 worldToFrame, Rect frame, IReadOnlyList<IMenuDepthWindowAnnotationSource> annotations,
+        Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? nativeToPhysical = null)
+    {
+        // Filter each physical quarter-pixel before combining color. Reusing
+        // the final carrier's exact inverse/permission contract prevents an
+        // opaque foreground neighbor from admitting unrelated off-window UI.
+        material.SetMatrix(SampleInverseId, GpuClip(sampledEye).inverse);
+        material.SetVector(SampleEyeId, sampledEye.WorldPosition);
+        material.SetVector(PlanePointId, point); material.SetVector(PlaneNormalId, normal);
+        SetHeadClip(material, worldToFrame, frame, annotations, nativeToPhysical);
     }
 
     private static Matrix4x4 GpuClip(MenuDepthEye eye)

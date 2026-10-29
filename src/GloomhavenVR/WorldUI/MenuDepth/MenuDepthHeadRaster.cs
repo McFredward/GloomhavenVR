@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR;
 
@@ -114,6 +115,7 @@ internal static class MenuDepthHeadRaster
     private static RenderTexture? _filterScratch;
     private static Material? _filterMaterial;
     private static readonly int ResolveDepthId = Shader.PropertyToID("_GvrResolveDepth");
+    private static readonly int ResolveColorId = Shader.PropertyToID("_GvrResolveColor");
     private static readonly int ResolveStepId = Shader.PropertyToID("_GvrResolveStep");
     private static readonly int ResolveUvId = Shader.PropertyToID("_GvrResolveUV");
     private static readonly int ResolveRectId = Shader.PropertyToID("_GvrResolveRect");
@@ -226,7 +228,9 @@ internal static class MenuDepthHeadRaster
                 new Vector2(Pixels.x, Pixels.y), crop * original.WorldToHeadClip, crop * original.RasterProjection);
         }
 
-        internal void Resolve(RenderTexture destination)
+        internal void Resolve(RenderTexture destination, MenuDepthEye sampledEye, Vector3 planePoint, Vector3 planeNormal,
+            Matrix4x4 worldToFrame, Rect frame, IReadOnlyList<IMenuDepthWindowAnnotationSource> annotations,
+            Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? nativeToPhysical = null)
         {
             RenderTexture? previous = RenderTexture.active;
             RenderBuffer previousColor = Graphics.activeColorBuffer, previousDepth = Graphics.activeDepthBuffer;
@@ -236,12 +240,15 @@ internal static class MenuDepthHeadRaster
                 Graphics.SetRenderTarget(destination); GL.Clear(true, true, Color.clear);
                 GL.sRGBWrite = destination.sRGB;
                 _material.mainTexture = Target;
+                _material.SetTexture(ResolveColorId, Target);
                 _material.SetTexture(ResolveDepthId, Target, UnityEngine.Rendering.RenderTextureSubElement.Depth);
                 _material.SetFloat(ResolveStepId, SamplesPerAxis > 1 ? .5f : 0f);
                 _material.SetVector(ResolveUvId, new Vector4(_region.width * (float)SamplesPerAxis / Pixels.x,
                     _region.height * (float)SamplesPerAxis / Pixels.y, 0, 0));
                 _material.SetVector(ResolveRectId, new Vector4(_region.x / (float)_head.x, _region.y / (float)_head.y,
                     _region.width / (float)_head.x, _region.height / (float)_head.y));
+                MenuDepthDisplay.SetHeadSampleClip(_material, sampledEye, planePoint, planeNormal,
+                    worldToFrame, frame, annotations, nativeToPhysical);
                 DrawResolve(_head, _material);
             }
             finally

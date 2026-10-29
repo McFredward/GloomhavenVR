@@ -187,22 +187,24 @@ internal sealed partial class FlatScreen
                 leftEye, rightEye, _menuDepthBoundsMapper, _menuDepthBoundsApplies);
             using (var filter = MenuDepthHeadRaster.Filter(_uiRt.descriptor, pixels, region, MenuDepthDisplay.HeadResolveShader))
             {
-                CaptureMenuDepthUi(filter.Target, filter.Eye(leftEye)); filter.Resolve(_menuDepthCarrierLeft ?? _uiRt);
-                CaptureMenuDepthUi(filter.Target, filter.Eye(rightEye)); filter.Resolve(_menuDepthRight!);
+                MenuDepthEye sampledLeft = filter.Eye(leftEye), sampledRight = filter.Eye(rightEye);
+                CaptureMenuDepthUi(filter.Target, sampledLeft);
+                CollectMenuDepthHeadAnnotations();
+                filter.Resolve(_menuDepthCarrierLeft ?? _uiRt, sampledLeft, _quad.transform.position,
+                    Vector3.Cross(_quad.transform.TransformVector(Vector3.right), _quad.transform.TransformVector(Vector3.up)).normalized,
+                    _quad.transform.worldToLocalMatrix, new Rect(-.5f, -.5f, 1f, 1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
+                CaptureMenuDepthUi(filter.Target, sampledRight);
+                CollectMenuDepthHeadAnnotations();
+                filter.Resolve(_menuDepthRight!, sampledRight, _quad.transform.position,
+                    Vector3.Cross(_quad.transform.TransformVector(Vector3.right), _quad.transform.TransformVector(Vector3.up)).normalized,
+                    _quad.transform.worldToLocalMatrix, new Rect(-.5f, -.5f, 1f, 1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
             }
             _menuDepthHeadMaterial ??= MenuDepthDisplay.CreateDisplayMaterial(_menuDepthCarrierLeft!, _menuDepthRight!);
             if (_glassMaterial.HasProperty("_Color")) _menuDepthHeadMaterial.SetColor("_Color", _glassMaterial.GetColor("_Color"));
             MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,
                 new MenuDepthEye(false,left,head), new MenuDepthEye(true,right,head), _quad.transform.position,
                 Vector3.Cross(_quad.transform.TransformVector(Vector3.right),_quad.transform.TransformVector(Vector3.up)).normalized);
-            MenuDepthSources.CollectWindowAnnotations(_menuDepthAnnotations);
-            for (int i = _menuDepthAnnotations.Count - 1; i >= 0; i--)
-            {
-                Camera? camera = NativeUiCamera(_menuDepthAnnotations[i].Graphic);
-                if (camera == null || !camera.isActiveAndEnabled || !CapturedSet.TryGetValue(camera, out CapturedCamera captured)
-                    || !captured.IsUi) _menuDepthAnnotations.RemoveAt(i);
-            }
-            _menuDepthAnnotationMapper ??= MapHeadAnnotation;
+            CollectMenuDepthHeadAnnotations();
             MenuDepthDisplay.SetHeadClip(_menuDepthHeadMaterial, _quad.transform.worldToLocalMatrix,
                 new Rect(-.5f,-.5f,1f,1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
             _menuDepthHeadCarrier ??= new MenuDepthHeadCarrier(_quad.transform, _menuDepthHeadMaterial);
@@ -228,6 +230,18 @@ internal sealed partial class FlatScreen
                     catch (Exception fallback) { if (count <= 2) VRLog.Warn("WorldUI", "MENU DEPTH DESKTOP RESTORE: " + fallback.GetType().Name); }
                 }
         }
+    }
+
+    private void CollectMenuDepthHeadAnnotations()
+    {
+        MenuDepthSources.CollectWindowAnnotations(_menuDepthAnnotations);
+        for (int i = _menuDepthAnnotations.Count - 1; i >= 0; i--)
+        {
+            Camera? camera = NativeUiCamera(_menuDepthAnnotations[i].Graphic);
+            if (camera == null || !camera.isActiveAndEnabled || !CapturedSet.TryGetValue(camera, out CapturedCamera captured)
+                || !captured.IsUi) _menuDepthAnnotations.RemoveAt(i);
+        }
+        _menuDepthAnnotationMapper ??= MapHeadAnnotation;
     }
 
     private void ValidateMenuDepthMappings(Vector3 left, Vector3 right)

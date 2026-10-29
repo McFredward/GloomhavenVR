@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MenuDepth;
 using UnityEngine;
 using UnityEngine.UI;
@@ -9,6 +10,10 @@ using Object=UnityEngine.Object;
 public static partial class MenuDepthDesktopProgram
 {
     public static IEnumerator OuterCarrier728(string output,Action<int> complete)
+        => OuterCarrierCore728(output,complete,false);
+    public static IEnumerator OuterCarrierConverted742(string output,Action<int> complete)
+        => OuterCarrierCore728(output,complete,true);
+    private static IEnumerator OuterCarrierCore728(string output,Action<int> complete,bool converted)
     {
         _count=0;DesktopEyeInput.Available=true;GloomhavenVR.Core.VRSession.IsRunning=true;
         using(var scene=new Scene())
@@ -45,6 +50,24 @@ public static partial class MenuDepthDesktopProgram
             Canvas.ForceUpdateCanvases();
             Vector2 originalRawSize=raw.rectTransform.sizeDelta;Matrix4x4 originalCanvas=nativeRoot.localToWorldMatrix;
             Rect originalRootRect=nativeRoot.rect;Matrix4x4 originalCorner=cornerRect.localToWorldMatrix;bool liveLayoutExact=true;
+            PanelSupersample.Entry? entry=null;GameObject? panelDisplay=null;
+            if(converted)
+            {
+                Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,Vector3.zero,
+                    out _,out Matrix4x4 nativeToPhysical),"the converted outer-color witness retains its original physical window metric");
+                Matrix4x4 matrix=nativeToPhysical*nativeRoot.localToWorldMatrix;
+                Vector2 size=nativeRoot.rect.size,pivot=nativeRoot.pivot;
+                scene.Flat.End();scene.Screen.GetComponent<Renderer>().enabled=false;
+                nativeRoot.GetComponent<Canvas>().renderMode=RenderMode.WorldSpace;
+                nativeRoot.anchorMin=nativeRoot.anchorMax=Vector2.zero;nativeRoot.pivot=pivot;nativeRoot.sizeDelta=size;Pose730(nativeRoot,matrix);
+                panelDisplay=new GameObject("original converted outer-color photograph",typeof(RectTransform),typeof(Canvas),typeof(CanvasRenderer),typeof(RawImage));
+                panelDisplay.layer=27;panelDisplay.GetComponent<Canvas>().renderMode=RenderMode.WorldSpace;
+                var rect=(RectTransform)panelDisplay.transform;rect.sizeDelta=size;rect.pivot=pivot;Pose730(rect,matrix);
+                panelDisplay.GetComponent<RawImage>().texture=scene.Ui;scene.OriginalA.targetTexture=scene.Ui;
+                entry=PanelSupersample.BindHead(nativeRoot,scene.OriginalA,scene.Ui,panelDisplay.GetComponent<RawImage>());
+                MenuDepthCharacters.Tick();
+                originalCanvas=nativeRoot.localToWorldMatrix;originalCorner=cornerRect.localToWorldMatrix;
+            }
             Camera.CameraCallback nativeLayout=c=>{if(c==scene.OriginalA)liveLayoutExact&=nativeRoot.rect==originalRootRect&&Same(cornerRect.localToWorldMatrix,originalCorner);};
             Camera.onPostRender+=nativeLayout;
             try
@@ -57,10 +80,12 @@ public static partial class MenuDepthDesktopProgram
                     for(int eye=0;eye<2;eye++)
                     {
                         Vector3 position=scene.Head.GetStereoViewMatrix(eye==0?Camera.StereoscopicEye.Left:Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero);
-                        Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,position,out Vector3 nativeEye),"original partial UI viewport admits the actual outer-figure eye");
+                        Vector3 nativeEye=position;
+                        if(!converted)Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,position,out nativeEye),"original partial UI viewport admits the actual outer-figure eye");
+                        else Check(nativeRoot.GetComponent<Canvas>().renderMode==RenderMode.WorldSpace,"converted outer figure uses the actual physical eye in its world-space source");
                         Vector3 origin=scene.ModelCamera.transform.InverseTransformPoint(actor.transform.position);
                         Check(MenuDepthCharacterProjection.TryBuild(scene.ModelCamera,holder,raw.rectTransform,raw.uvRect,nativeEye,origin,out var view),"independent native main-actor calibration establishes the actual physical figure");
-                        Vector3 physical=PhysicalBody728(scene,raw,view,body.transform.position);
+                        Vector3 physical=PhysicalBody728(scene,raw,view,body.transform.position,converted);
                         // The final head now reads the real stored eye view.
                         // Aim both supplied eyes at the same fixed body before
                         // the first eye prepares this complete stereo pair.
@@ -79,13 +104,15 @@ public static partial class MenuDepthDesktopProgram
                             &&scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each outer eye preserves native model and UI image effects without an extra render");
                         Check(liveLayoutExact,"expanded GPU rendering retains original native root dimensions and edge-anchored controls during the capture itself");
-                        Check(scene.Flat.Right!=null&&scene.Flat.Right.width==scene.HeadTarget.width&&scene.Flat.Right.height==scene.HeadTarget.height,
+                        if(!converted)Check(scene.Flat.Right!=null&&scene.Flat.Right.width==scene.HeadTarget.width&&scene.Flat.Right.height==scene.HeadTarget.height,
                             "actual original character foreground uses the complete fixed head raster outside the old FlatScreen carrier");
+                        else Check(entry!.MenuDepthDisplay!=null&&entry.MenuDepthBytes==MenuDepthHeadRaster.Bytes(scene.Ui.descriptor,new Vector2Int(640,480)),
+                            "actual converted outer figure retains its complete fixed head pair and original owner budget");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation
                             &&raw.rectTransform.sizeDelta==originalRawSize&&Same(nativeRoot.localToWorldMatrix,originalCanvas),
                             "outer visual carrier leaves original native window hit layout and world pose exact");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"outer-"+side+"-"+eye+".png"));
-                        Texture2D expected=ReferenceBody728(scene,raw,view,body,Path.Combine(output,"reference-"+side+"-"+eye+".png"));
+                        Texture2D expected=ReferenceBody728(scene,raw,view,body,Path.Combine(output,"reference-"+side+"-"+eye+".png"),converted);
                         Color32[] a=actual.GetPixels32(),b=expected.GetPixels32();int total=0,found=0,intersection=0,union=0,outside=0,ordinaryLeak=0,mixedOutside=0;
                         for(int i=0;i<a.Length;i++)
                         {
@@ -107,12 +134,17 @@ public static partial class MenuDepthDesktopProgram
                         Check(total>100&&outside>30,"real native foreground pixels remain visible outside the whole original window from either physical side");
                         Check(found>=total*.95f&&intersection/(float)Math.Max(1,union)>.95f,"the complete original 3D figure matches its independent physical geometry instead of outer-frame clipping");
                         Check(ordinaryLeak==0,"expansion never reveals ordinary native UI beyond the original screen");
+                        Check(mixedOutside==0,"head antialias samples never blend unrelated native UI into off-window figure edges");
                         LateMeshPanel728(scene,physical,b,eye!=0,Path.Combine(output,"panel-"+side+"-"+eye));
                         Object.DestroyImmediate(actual);Object.DestroyImmediate(expected);
                     }
                 }
             }
-            finally {Camera.onPostRender-=nativeLayout;Object.DestroyImmediate(bodyMaterial);}
+            finally
+            {
+                Camera.onPostRender-=nativeLayout;Object.DestroyImmediate(bodyMaterial);
+                if(entry!=null)PanelSupersample.EndHead(entry);if(panelDisplay!=null)Object.DestroyImmediate(panelDisplay);
+            }
         }
         complete(_count);
     }
@@ -155,9 +187,10 @@ public static partial class MenuDepthDesktopProgram
     }
 
     private static bool Cyan728(Color32 c)=>c.r<70&&c.g>100&&c.b>100;
-    private static Vector3 PhysicalBody728(Scene scene,RawImage raw,MenuDepthCharacterProjection.View view,Vector3 nativePoint)
+    private static Vector3 PhysicalBody728(Scene scene,RawImage raw,MenuDepthCharacterProjection.View view,Vector3 nativePoint,bool converted=false)
     {
         Vector3 graphic=raw.rectTransform.TransformPoint(view.NativeToGraphic.MultiplyPoint3x4(nativePoint));
+        if(converted)return graphic;
         Camera ui=scene.OriginalA;Vector3 uv=ui.WorldToViewportPoint(graphic);Rect r=ui.rect;
         Vector3 plane=scene.Screen.TransformPoint(new Vector3(r.x+uv.x*r.width-.5f,r.y+uv.y*r.height-.5f));
         float nativeWidth=(ui.ViewportToWorldPoint(new Vector3(1,.5f,uv.z))-ui.ViewportToWorldPoint(new Vector3(0,.5f,uv.z))).magnitude;
@@ -167,13 +200,13 @@ public static partial class MenuDepthDesktopProgram
         float depth=Vector3.Dot(graphic-raw.rectTransform.TransformPoint(raw.rectTransform.rect.center),ui.transform.forward)/units;
         return plane+scene.Screen.forward*depth;
     }
-    private static Texture2D ReferenceBody728(Scene scene,RawImage raw,MenuDepthCharacterProjection.View view,GameObject native,string path)
+    private static Texture2D ReferenceBody728(Scene scene,RawImage raw,MenuDepthCharacterProjection.View view,GameObject native,string path,bool converted=false)
     {
         var reference=GameObject.CreatePrimitive(PrimitiveType.Cube);reference.layer=28;
-        Vector3 centre=PhysicalBody728(scene,raw,view,native.transform.position);
-        Vector3 x=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.right)-centre;
-        Vector3 y=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.up)-centre;
-        Vector3 z=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.forward)-centre;
+        Vector3 centre=PhysicalBody728(scene,raw,view,native.transform.position,converted);
+        Vector3 x=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.right,converted)-centre;
+        Vector3 y=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.up,converted)-centre;
+        Vector3 z=PhysicalBody728(scene,raw,view,native.transform.position+Vector3.forward,converted)-centre;
         reference.transform.SetPositionAndRotation(centre,Quaternion.LookRotation(z,y));
         reference.transform.localScale=new Vector3(x.magnitude*native.transform.lossyScale.x,y.magnitude*native.transform.lossyScale.y,z.magnitude*native.transform.lossyScale.z);
         reference.GetComponent<MeshRenderer>().sharedMaterial=native.GetComponent<MeshRenderer>().sharedMaterial;

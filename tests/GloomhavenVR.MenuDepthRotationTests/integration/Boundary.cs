@@ -73,6 +73,13 @@ namespace GloomhavenVR.WorldUI.MenuDepth
     {
         internal static Shader? CharacterShader => null;
         internal static void RequireCharacterShader() { }
+        // Compile-only port for the generic raster helper's unused Resolve
+        // member. This scope observes original model Camera.Render; actual
+        // final color/depth resolution executes in the desktop rendering suite.
+        internal static void SetHeadSampleClip(Material material, MenuDepthEye eye, Vector3 point, Vector3 normal,
+            Matrix4x4 worldToFrame, Rect frame, IReadOnlyList<IMenuDepthWindowAnnotationSource> annotations,
+            Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? nativeToPhysical = null)
+            => throw new InvalidOperationException("Final head resolution is outside the rotation-only fixture boundary.");
         internal static bool TryGetEyePositions(Camera camera, out Vector3 left, out Vector3 right)
         { left = right = default; return false; }
     }

@@ -260,6 +260,15 @@ internal static class MenuDepthCharacterRotation
         ('desktop-small-shrink-churn728', 'MenuDepthDesktopResources.cs', 'wanted.width <= current.width * .75f || wanted.height <= current.height * .75f',
          'wanted.width < current.width || wanted.height < current.height', 'small silhouette jitter never reallocates even after the old two-second timeout'),
         ('outer-carrier728', '', '', '', ''),
+        ('outer-converted-sample-clip742', '', '', '', ''),
+        ('outer-converted-sample-clip-lost742', 'MenuDepthHeadRaster.cs',
+         'worldToFrame, frame, annotations, nativeToPhysical);',
+         'worldToFrame, frame, annotations, nativeToPhysical); _material.SetFloat("_GvrHeadClipActive", 0f);',
+         'head antialias samples never blend unrelated native UI into off-window figure edges'),
+        ('outer-sample-clip-lost742', 'MenuDepthHeadRaster.cs',
+         'worldToFrame, frame, annotations, nativeToPhysical);',
+         'worldToFrame, frame, annotations, nativeToPhysical); _material.SetFloat("_GvrHeadClipActive", 0f);',
+         'head antialias samples never blend unrelated native UI into off-window figure edges'),
         ('outer-bounds-lost728', 'MenuDepthCharacterSource.cs',
          'view = MenuDepthCharacterProjection.Head(view, _image.rectTransform, eye);',
          'view = view.Expanded(new Rect(-1f,-1f,2f,2f));',
@@ -387,14 +396,14 @@ internal static class MenuDepthCharacterRotation
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
                                       'method': ('HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
-                                          'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
+                                          'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
                                           'Anchors724' if name.startswith('window-anchors-') else 'Run')})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
-        # The complete80-case scope now includes repeated real two-route head
+        # The complete83-case scope now includes repeated real two-route head
         # motion, independent supersampled references and allocation controls.
         # The old420s editor deadline stopped after39 cases on llvmpipe. Keep
         # every render/assertion and bound this expanded fixture at900s instead.
