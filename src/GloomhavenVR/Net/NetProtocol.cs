@@ -649,6 +649,9 @@ internal static class NetProtocol
     // publisher handover retains its original opening only with exact native-role
     // evidence; changing the eligible room-making author retires old automatic
     // writes while preserving accepted manual placement and native authority.
+    // A valid Initial's existing sequence carries the publisher's observed claim
+    // clock, so a late viewer's real grab can succeed prior placements. Preserve
+    // zero initialization and serial wrap without adding a wire field or gesture.
     // The accepted releaser's existing facing setting authors the common upright
     // release turn; observers follow the same pose without private corrections.
     // Remove only proven story/event full-frame dimmer Images and their Blur,
