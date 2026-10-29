@@ -645,6 +645,8 @@ internal static class NetProtocol
     // storage growth must preserve model normals, near/far and UI pixel density.
     // Normalize only the native UI head view's common unit scale as well: original
     // TMP UV2/SDF metrics must match its unchanged Canvas and glyph geometry.
+    // Apply the original glass/annotation permission before averaging each source
+    // sample, so foreground depth cannot admit an unrelated UI neighbor's color.
     // The startup rig predates tracking and the actual main menu. Admit selected
     // surroundings only after the original menu appears and tracked recenter
     // completes; centre a closed room on its real Floor/Ceiling clearance once.
