@@ -252,6 +252,7 @@ namespace GloomhavenVR.WorldUI
         private const float ScreenAspect=16f/9f,BackplaneGapMeters=.06f,FollowAngleDegrees=45,FollowDwellSeconds=1,FollowSettledDegrees=5,MapPanStartPixels=8;
         private GameObject? _quad,_backQuad;
         private Renderer? _quadRenderer;
+        private Material? _screenMaterial=null;
         private RenderTexture? _rt,_uiRt;
         private bool _visible=true,_splitRouting=false;
         private bool SplitActive=>_backQuad!=null;

@@ -82,6 +82,7 @@ public static class DefaultSkyFixture
         var initial=Capture(head,Path.Combine(output,"cold-menu-default.png"));
         Check(ColorPixels(initial,Color.magenta)==0,"cold menu sky fills the head raster instead of exposing the clear color");
         Object.DestroyImmediate(initial);
+        var cross=MenuBackdropProbe.Run(head,output);while(cross.MoveNext())yield return cross.Current;_checks+=MenuBackdropProbe.Assertions;cold=NativeDefaultSky.Renderer!;
         var cube=GameObject.CreatePrimitive(PrimitiveType.Quad);cube.name="native foreground at original floor queue";cube.layer=26;
         var ink=new Material(Shader.Find("DefaultSkyFixture/Foreground"));ink.color=Color.red;ink.renderQueue=1900;
         cube.GetComponent<Renderer>().sharedMaterial=ink;cube.transform.localScale=Vector3.one*18;

@@ -129,6 +129,11 @@ def cleanup_run_compilers(run, *, editor_reaped=False):
             os.close(fd)
 
 
+def method(source,signature):
+    start=source.index('    '+signature);end=source.index('\n    }',start)+len('\n    }')
+    return source[start:end]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', choices=('production',))
@@ -142,20 +147,44 @@ def main():
     world = ROOT / 'src/GloomhavenVR/Core/Environment'
     files = {name: world / name for name in ('SkyBackdrop.cs', 'NativeDefaultSky.cs')}
     originals = {name: path.read_text() for name, path in files.items()}
+    screen_core=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.1.Core.cs'
+    screen_lifecycle=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.4.Lifecycle.cs'
+    world_menu=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs'
+    core=screen_core.read_text();lifecycle=screen_lifecycle.read_text();menu=world_menu.read_text()
+    begin=lifecycle.index('            Shader? shader = Shader.Find("Hidden/BlitCopy")')
+    end=lifecycle.index('            _quadRenderer.sharedMaterial = _screenMaterial;',begin)+len('            _quadRenderer.sharedMaterial = _screenMaterial;')
+    coverage=core[core.index('    internal static Renderer? OpaqueBackdrop'):core.index('    // Shader.name marshals')]
+    originals['ScreenBackdrop.cs']='using GloomhavenVR.Core; using GloomhavenVR.Core.Events; using GloomhavenVR.Hands; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+coverage+'\n'+method(core,'private void RefreshOpaqueBackdropMaterial()')+'\n'+method(core,'private void TickBackdropDepth()')+'\n'+method(menu,'private void TickWorldMenuBackdrop()')+'\n'+method(menu,'private void RestoreWorldMenuBackdrop()')+'\ninternal void BindOpaque(GameObject quad,RenderTexture rt) { _coverageOwner=this; _worldMenuHost=quad; _quadRenderer=quad.GetComponent<Renderer>();_rt=rt;\n'+lifecycle[begin:end]+'\n}\n}'
     bank = ROOT / 'src/GloomhavenVR/Assets/DefaultSky/native-default-sky.bundle'
     exporter = ROOT / 'tools/default-sky-native/export.py'
     overlay = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
-    inputs = [*files.values(), bank, bank.with_suffix('.provenance.json'), exporter, overlay,
+    inputs = [*files.values(), screen_core, screen_lifecycle, world_menu, bank, bank.with_suffix('.provenance.json'), exporter, overlay,
               *[p for p in HERE.iterdir() if p.is_file()]]
     pins = {str(p.relative_to(ROOT)): sha(p) for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     cases = [('production', None, None, '')]
     controls = [
+        ('world-window-depth-lost', 'ScreenBackdrop.cs', '        TickWorldMenuBackdrop();', '        /* world window material omitted */',
+         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-before-sky-reset', 'ScreenBackdrop.cs', '+ (_worldMenuBackdropDepth ? 2 : 0)', '+ 0',
+         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-zwrite-lost', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_ZWrite", 1f);', '_screenMaterial.SetFloat("_ZWrite", 0f);',
+         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-alpha-blend-lost', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);',
+         '_screenMaterial.SetFloat("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);',
+         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-rear-cull', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Off);',
+         '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Back);',
+         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-coverage-lost', 'ScreenBackdrop.cs', '|| (_worldMenuBackdropDepth && shader == _worldMenuBackdropShader)', '|| false',
+         'world-menu depth material remains authoritative opaque MR coverage'),
+        ('world-window-intro-restore-lost', 'ScreenBackdrop.cs', '            RestoreWorldMenuBackdrop();', '            /* original intro shader restore omitted */',
+         'leaving ready menu restores the original intro material identity shader and queue'),
         ('direct-intro-admission-lost', 'NativeDefaultSky.cs', '!Events.MenuWorldContext.AllowsSurroundings',
          'bool.Parse("false")', 'direct default acquisition cannot reveal surroundings before the actual menu is ready'),
         ('backdrop-intro-admission-lost', 'SkyBackdrop.cs', 'if (!Events.MenuWorldContext.AllowsSurroundings)',
          'if (!Events.MenuWorldContext.AllowsSurroundings && _sky == null)',
-         'loss of ready menu admission removes an already acquired default environment'),
+         'intro admission removes the actual default environment while restoring the stock screen'),
         ('cold-acquisition-lost', 'SkyBackdrop.cs', 'FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer ?? NativeDefaultSky.Acquire()', 'FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer',
          'cold main menu acquires its original default sky without a native scene'),
         ('native-handback-lost', 'SkyBackdrop.cs', 'arrived = FindNativeSky(headVisibleOnly: true);', 'arrived = null;',
