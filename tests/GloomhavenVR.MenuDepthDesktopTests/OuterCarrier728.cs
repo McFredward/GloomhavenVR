@@ -86,20 +86,24 @@ public static partial class MenuDepthDesktopProgram
                             "outer visual carrier leaves original native window hit layout and world pose exact");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"outer-"+side+"-"+eye+".png"));
                         Texture2D expected=ReferenceBody728(scene,raw,view,body,Path.Combine(output,"reference-"+side+"-"+eye+".png"));
-                        Color32[] a=actual.GetPixels32(),b=expected.GetPixels32();int total=0,found=0,intersection=0,union=0,outside=0,ordinaryLeak=0;
+                        Color32[] a=actual.GetPixels32(),b=expected.GetPixels32();int total=0,found=0,intersection=0,union=0,outside=0,ordinaryLeak=0,mixedOutside=0;
                         for(int i=0;i<a.Length;i++)
                         {
                             bool ac=Cyan728(a[i]),bc=Cyan728(b[i]);if(ac)found++;if(bc)total++;if(ac&&bc)intersection++;if(ac||bc)union++;
-                            if(!ac&&!(a[i].b>100&&a[i].g<60))continue;
+                            if(!ac&&!(a[i].b>100&&a[i].g<60)&&!(a[i].g>0&&a[i].b-a[i].g>25))continue;
                             Ray ray=scene.Head.ViewportPointToRay(new Vector3((i%actual.width+.5f)/actual.width,(i/actual.width+.5f)/actual.height));
                             var plane=new Plane(scene.Screen.forward,scene.Screen.position);
                             if(plane.Raycast(ray,out float distance))
                             {
                                 Vector3 local=scene.Screen.InverseTransformPoint(ray.GetPoint(distance));
-                                if(Mathf.Abs(local.x)>.501f||Mathf.Abs(local.y)>.501f){if(ac)outside++;else ordinaryLeak++;}
+                                if(Mathf.Abs(local.x)>.501f||Mathf.Abs(local.y)>.501f)
+                                {
+                                    if(ac)outside++;else if(a[i].b>100&&a[i].g<60)ordinaryLeak++;
+                                    if(a[i].g>0&&a[i].b-a[i].g>25)mixedOutside++;
+                                }
                             }
                         }
-                        File.AppendAllText(Path.Combine(output,"outer-coverage.txt"),side+","+eye+",sampled="+scene.Flat.SampleFrame+",actual="+found+",reference="+total+",outside="+outside+",IoU="+(intersection/(float)Math.Max(1,union))+",flatLeak="+ordinaryLeak+"\n");
+                        File.AppendAllText(Path.Combine(output,"outer-coverage.txt"),side+","+eye+",sampled="+scene.Flat.SampleFrame+",actual="+found+",reference="+total+",outside="+outside+",IoU="+(intersection/(float)Math.Max(1,union))+",flatLeak="+ordinaryLeak+",mixedOutside="+mixedOutside+"\n");
                         Check(total>100&&outside>30,"real native foreground pixels remain visible outside the whole original window from either physical side");
                         Check(found>=total*.95f&&intersection/(float)Math.Max(1,union)>.95f,"the complete original 3D figure matches its independent physical geometry instead of outer-frame clipping");
                         Check(ordinaryLeak==0,"expansion never reveals ordinary native UI beyond the original screen");
@@ -175,8 +179,35 @@ public static partial class MenuDepthDesktopProgram
         reference.GetComponent<MeshRenderer>().sharedMaterial=native.GetComponent<MeshRenderer>().sharedMaterial;
         var camera=new GameObject("independent actual physical body reference").AddComponent<Camera>();camera.CopyFrom(scene.Head);camera.enabled=false;camera.cullingMask=1<<28;
         camera.transform.SetPositionAndRotation(scene.Head.transform.position,scene.Head.transform.rotation);
-        var target=new RenderTexture(scene.HeadTarget.width,scene.HeadTarget.height,24);target.Create();camera.targetTexture=target;
-        try {camera.Render();return Read(target,path);}
-        finally {Object.DestroyImmediate(reference);Object.DestroyImmediate(camera.gameObject);target.Release();Object.DestroyImmediate(target);}
+        // Independent absolute2x samples, matching the head lattice rather than
+        // the former point-sampled silhouette. Preserve the original RawImage's
+        // inherited alpha through its UI photograph and final carrier; otherwise
+        // a fixed cyan threshold compares unlike partial-coverage edge pixels.
+        int width=scene.HeadTarget.width,height=scene.HeadTarget.height;
+        var target=new RenderTexture(width*2,height*2,24);target.Create();camera.targetTexture=target;
+        Texture2D? high=null;
+        try
+        {
+            camera.Render();high=Read(target,Path.ChangeExtension(path,"high.png"));
+            Color32[] source=high.GetPixels32(),pixels=new Color32[width*height];
+            float inherited=raw.canvasRenderer.GetInheritedAlpha()*raw.color.a;
+            for(int py=0;py<height;py++)for(int px=0;px<width;px++)
+            {
+                int red=0,green=0,blue=0,alpha=0;
+                for(int sy=0;sy<2;sy++)for(int sx=0;sx<2;sx++)
+                {Color32 p=source[(py*2+sy)*target.width+px*2+sx];red+=p.r;green+=p.g;blue+=p.b;alpha+=p.a;}
+                float coverage=alpha/(4f*255f)*inherited;
+                pixels[py*width+px]=new Color32((byte)Mathf.RoundToInt(red*.25f*inherited*coverage),
+                    (byte)Mathf.RoundToInt(green*.25f*inherited*coverage),(byte)Mathf.RoundToInt(blue*.25f*inherited*coverage),
+                    (byte)Mathf.RoundToInt(coverage*255f));
+            }
+            var result=new Texture2D(width,height,TextureFormat.RGBA32,false);result.SetPixels32(pixels);result.Apply();
+            File.WriteAllBytes(path,result.EncodeToPNG());return result;
+        }
+        finally
+        {
+            if(high!=null)Object.DestroyImmediate(high);
+            Object.DestroyImmediate(reference);Object.DestroyImmediate(camera.gameObject);target.Release();Object.DestroyImmediate(target);
+        }
     }
 }

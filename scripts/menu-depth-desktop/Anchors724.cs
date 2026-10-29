@@ -113,13 +113,30 @@ public static partial class MenuDepthDesktopProgram
                 offsetToPane + new Vector3(-.23f, -.08f, 3.5f) };
             var sampled = new DesktopSamples725(raw); MenuDepthSources.Register(sampled);
             bool observing = false; var sizes = new List<int>();
+            bool fixedSourceGrid = true;
             Camera.CameraCallback observer = camera =>
             {
                 if (observing && camera == scene.ModelCamera && camera.targetTexture != scene.ModelTarget)
+                {
+                    int side = sizes.Count & 1;
                     sizes.Add(camera.targetTexture.width);
+                    var pixels = MenuDepthHeadRaster.Pixels;
+                    fixedSourceGrid &= MenuDepthHeadRaster.Active && camera.targetTexture.width == pixels.x
+                        && camera.targetTexture.height == pixels.y;
+                    // Head() retains the raster projection's XY rows while
+                    // normalizing only its native-unit translation. Actual
+                    // P*RT dimensions therefore measure absolute sample density
+                    // independently of a cropped/high-water storage extent.
+                    float densityX = Mathf.Abs(camera.projectionMatrix.m00 * camera.targetTexture.width
+                        / (scene.Head.projectionMatrix.m00 * scene.HeadTarget.width));
+                    float densityY = Mathf.Abs(camera.projectionMatrix.m11 * camera.targetTexture.height
+                        / (scene.Head.projectionMatrix.m11 * scene.HeadTarget.height));
+                    fixedSourceGrid &= Mathf.Abs(densityX - 2f) < .0001f && Mathf.Abs(densityY - 2f) < .0001f;
+                    File.AppendAllText(Path.Combine(output, "fixed-source-grid.csv"), side + "," + camera.targetTexture.width + ","
+                        + camera.targetTexture.height + "," + densityX + "," + densityY + "\n");
+                }
             };
             Camera.onPreRender += observer;
-            int farSize = 0, farSamplingEdge = 0;
             try
             {
             for (int i = 0; i < offsets.Length; i++)
@@ -141,16 +158,11 @@ public static partial class MenuDepthDesktopProgram
                     {
                         Check(sizes.Count == priorSizes + 2 && sampled.Left.x > 0 && sampled.Left.y > 0,
                             "the calibrated original renders both sampled eye targets from a mapped physical pixel demand");
-                        // Head captures keep one fixed final pixel grid. Physical
-                        // demand still maps through the native UI camera, but no
-                        // head translation may alter the admitted raster size.
+                        // Storage may crop/grow while the source retains the
+                        // absolute2x head lattice and its final1x head pair.
                         var sources = (IEnumerable<MenuDepthCharacterSource>)typeof(MenuDepthCharacters)
                             .GetField("Sources", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
                         int samplingEdge = sources.Single(source => ReferenceEquals(source.Graphic, raw)).SamplingEdge;
-                        if (i == 0) { farSize = sizes[priorSizes]; farSamplingEdge = samplingEdge; }
-                        if (i == 4) Check(farSize == sizes[priorSizes] && farSamplingEdge == samplingEdge
-                            && farSize == scene.HeadTarget.width && samplingEdge == Math.Max(scene.HeadTarget.width, scene.HeadTarget.height),
-                            "the real original character eye targets retain full fixed head detail from far to near");
                         File.AppendAllText(Path.Combine(output, "725-native-screen-samples.csv"), i + "," + sampled.Left.x + ","
                             + sampled.Left.y + "," + sizes[priorSizes] + "," + sizes[priorSizes + 1] + "," + samplingEdge + "\n");
                     }
@@ -165,6 +177,10 @@ public static partial class MenuDepthDesktopProgram
                         + "," + expected.x + "," + expected.y + "," + error + "\n");
                     Check(error < 3.5f,
                         "final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion");
+                    if (eye == 0)
+                        Check(fixedSourceGrid && scene.Flat.Right != null
+                            && scene.Flat.Right.width == scene.HeadTarget.width && scene.Flat.Right.height == scene.HeadTarget.height,
+                            "the real original character eye targets retain full fixed head detail from far to near");
                     Object.DestroyImmediate(image);
                 }
             }
