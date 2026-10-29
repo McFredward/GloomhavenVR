@@ -170,7 +170,8 @@ internal sealed partial class FlatScreen
                 || !owner._coverageMaterialOpaque
                 || owner._screenMaterial != owner._coverageMaterial
                 || owner._screenMaterial.shader != owner._coverageShader) return null;
-            Renderer? renderer = !ReferenceEquals(owner._backQuad, null) ? owner._backRenderer : owner._quadRenderer;
+            Renderer? renderer = owner.WorldMenuBackdropForHead(
+                !ReferenceEquals(owner._backQuad, null) ? owner._backRenderer : owner._quadRenderer);
             return renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
                 && renderer.sharedMaterial == owner._screenMaterial ? renderer : null;
         }
@@ -513,6 +514,7 @@ internal sealed partial class FlatScreen
         if (_visible && _quad == null)
         {
             VRLog.Warn("WorldUI", "FlatScreen quad was destroyed externally — rebuilding.");
+            ReleaseWorldMenu();
             _visible = false;
         }
 
