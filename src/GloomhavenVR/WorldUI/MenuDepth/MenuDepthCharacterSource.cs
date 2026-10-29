@@ -15,7 +15,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// targets under a strict finally-restored lease. Its Update/animation is never
 /// advanced here, and its native target remains the normal game's mono output.
 /// </summary>
-internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDepthBoundsSource, IMenuDepthHeadBoundsSource, IDisposable
+internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDepthBoundsSource, IMenuDepthHeadBoundsSource, IMenuDepthRaycastSource, IDisposable
 {
     private const long MaxPoolBytes = 96L * 1024 * 1024;
     private static readonly int[] ResolutionTiers = { 256, 512, 768, 1024, 1536, 2048 };
@@ -35,6 +35,19 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private readonly List<(Renderer Renderer, UnityEngine.Rendering.ShadowCastingMode Casting, bool Receive, bool ForceOff)> _rendererShadows = new(32);
     private readonly List<(Light Light, LightShadows Shadows)> _lightShadows = new(8);
     private readonly CalibrationCache _calibration;
+    private readonly Dictionary<Renderer, RayMesh> _rayMeshes = new();
+    private object? _rayIdentity, _headBoundsIdentity;
+    private readonly Dictionary<Renderer, RayWitness> _rayWitnesses = new();
+    private readonly HashSet<Renderer> _rayMembers = new(), _rayPending = new();
+    private object? _rayRenderedIdentity, _rayWitnessIdentity;
+    private int _rayRenderedFrame = -1;
+    private bool _rayCollecting;
+    private int _rayBakes, _rayTriangles;
+    private static int _rayFailures;
+    internal int RayBakes => _rayBakes;
+    internal int RayTriangles => _rayTriangles;
+    internal int RayVisibleMembers => _rayMembers.Count;
+    internal int RayReceiptFrame => _rayRenderedFrame;
     private readonly MenuDepthCharacterSurface _surface;
     private readonly BoundsClipper _boundsClipper = new();
     private RenderTexture? _left, _right, _borrowed;
@@ -76,6 +89,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     }
 
     public Graphic Graphic => _image;
+    public Transform RayRoot => _image.transform;
     internal bool BindingAlive => !_disposed && _image != null && _surface != null && _camera != null && _manager != null
         && _holder != null && _nativeTarget != null && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))
         && (ReferenceEquals(_image.texture, _nativeTarget) || ReferenceEquals(_image.texture, _borrowed));
@@ -381,6 +395,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             foreach (Renderer renderer in _shadowRenderers)
                 if (!_headBoundsRenderers.Contains(renderer)) _headBoundsRenderers.Add(renderer);
         }
+        _headBoundsIdentity = identity;
         bool any = false;
         foreach (Renderer renderer in _headBoundsRenderers)
         {
@@ -391,6 +406,143 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             any = true;
         }
         return any;
+    }
+
+    public bool TryRaycast(Vector3 origin, Vector3 direction, float maxDistance, out MenuDepthRayHit hit)
+    {
+        hit = default;
+        object? identity = ReadyIdentity;
+        if (identity == null || _rendering || !ReferenceEquals(identity, _rayRenderedIdentity)
+            || _rayRenderedFrame < Time.frameCount - 1 || !_calibration.TryGet(identity, out Vector3 nativeOrigin)
+            || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect,
+                origin, nativeOrigin, out var view, allowCoplanar: true)) return false;
+        float yaw = YawProvider?.Invoke(_image, identity) ?? 0f;
+        if (yaw != 0f)
+        {
+            Vector3 ground = _camera.transform.TransformPoint(nativeOrigin);
+            Vector3 up = _camera.cameraToWorldMatrix.MultiplyVector(Vector3.up).normalized;
+            view = MenuDepthCharacterProjection.Rotated(view, Matrix4x4.Translate(ground)
+                * Matrix4x4.Rotate(Quaternion.AngleAxis(yaw, up)) * Matrix4x4.Translate(-ground));
+        }
+        if (!ReferenceEquals(_rayIdentity, identity))
+        { ReleaseRayMeshes(); _rayIdentity = identity; }
+        Matrix4x4 nativeToPhysical = _image.transform.localToWorldMatrix * view.NativeToGraphic;
+        Matrix4x4 inverse = nativeToPhysical.inverse;
+        Vector3 nativeRayOrigin = inverse.MultiplyPoint3x4(origin);
+        Vector3 nativeDirection = inverse.MultiplyVector(direction);
+        var ray = new Ray(nativeRayOrigin, nativeDirection.normalized);
+        float nativePerWorld = nativeDirection.magnitude;
+        if (!(nativePerWorld > 1e-8f)) return false;
+        // Reuse the renderer census already maintained by the real head-bound
+        // path. Before its first draw, the original identity's cached discovery
+        // provides the same native model members. Never search the scene here.
+        IReadOnlyList<Renderer> renderers = ReferenceEquals(_headBoundsIdentity, identity)
+            ? _headBoundsRenderers : _calibration.SamplingRenderers(identity);
+        bool any = false;
+        for (int i = 0; i < renderers.Count; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
+                || !_rayMembers.Contains(renderer)
+                || renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly
+                || (_camera.cullingMask & (1 << renderer.gameObject.layer)) == 0
+                || !(renderer is MeshRenderer || renderer is SkinnedMeshRenderer)
+                || !renderer.bounds.IntersectRay(ray, out float entry) || entry >= maxDistance * nativePerWorld) continue;
+            if (!_rayMeshes.TryGetValue(renderer, out RayMesh? mesh))
+            { mesh = new RayMesh(); _rayMeshes.Add(renderer, mesh); }
+            try
+            {
+                if (!mesh.TryHit(renderer, nativeRayOrigin, nativeDirection, maxDistance, out float distance,
+                    ref _rayBakes, ref _rayTriangles)) continue;
+                Vector3 physical = origin + direction * distance;
+                Vector3 local = _image.transform.InverseTransformPoint(physical);
+                Rect rect = _image.rectTransform.rect;
+                // Foreground ink may escape the old RawImage aperture. Its
+                // existing native rotation receiver still owns the input;
+                // clamp only its logical event coordinate, never the beam.
+                Vector3 input = _image.transform.TransformPoint(new Vector3(Mathf.Clamp(local.x, rect.xMin + .001f, rect.xMax - .001f),
+                    Mathf.Clamp(local.y, rect.yMin + .001f, rect.yMax - .001f), 0f));
+                float side = _image.transform.InverseTransformPoint(origin).z;
+                bool foreground = Mathf.Abs(side) <= 1e-5f || local.z * side > 0f;
+                hit = new MenuDepthRayHit(_image, physical, input, distance, preferGraphic: true,
+                    unclippedForeground: foreground);
+                maxDistance = distance; any = true;
+            }
+            catch (Exception error)
+            {
+                if (mesh.Refused) continue;
+                mesh.Refused = true;
+                int count = ++_rayFailures;
+                if (count <= 3 || (count & (count - 1)) == 0)
+                    GloomhavenVR.Core.VRLog.Warn("WorldUI", "MENU DEPTH RAY MESH unavailable for native renderer '"
+                        + renderer.name + "': " + error.GetType().Name + ": " + error.Message + "; occurrence=" + count + ".");
+            }
+        }
+        return any;
+    }
+
+    private void ReleaseRayMeshes()
+    {
+        foreach (RayMesh mesh in _rayMeshes.Values) mesh.Dispose();
+        _rayMeshes.Clear(); _rayIdentity = null;
+    }
+
+    /// <summary>No collider/BVH rebuild. A potentially hit live skin is baked once per input frame.</summary>
+    private sealed class RayMesh : IDisposable
+    {
+        private Mesh? _source, _baked;
+        private int _frame = -1;
+        private readonly List<Vector3> _vertices = new();
+        private readonly List<int> _triangles = new(), _submesh = new();
+        internal bool Refused;
+
+        internal bool TryHit(Renderer renderer, Vector3 origin, Vector3 direction, float maxDistance,
+            out float distance, ref int bakes, ref int triangles)
+        {
+            distance = 0f;
+            Mesh? source = renderer is SkinnedMeshRenderer skin ? skin.sharedMesh
+                : renderer.GetComponent<MeshFilter>()?.sharedMesh;
+            if (source == null || source.vertexCount == 0) return false;
+            bool changed = source != _source;
+            if (changed) { _source = source; _frame = -1; _triangles.Clear(); Refused = false; }
+            if (Refused) return false;
+            Mesh readable = source;
+            if (renderer is SkinnedMeshRenderer skinned)
+            {
+                _baked ??= new Mesh { name = "GloomhavenVR.MenuDepthRaySkin", hideFlags = HideFlags.HideAndDontSave };
+                if (_frame != Time.frameCount)
+                {
+                    skinned.BakeMesh(_baked); bakes++;
+                    _baked.GetVertices(_vertices); _frame = Time.frameCount;
+                }
+                readable = _baked;
+            }
+            else if (changed) source.GetVertices(_vertices);
+            if (_triangles.Count == 0)
+                for (int submesh = 0; submesh < readable.subMeshCount; submesh++)
+                {
+                    if (readable.GetTopology(submesh) != MeshTopology.Triangles) continue;
+                    readable.GetTriangles(_submesh, submesh); _triangles.AddRange(_submesh);
+                }
+            Matrix4x4 inverse = renderer.transform.worldToLocalMatrix;
+            Vector3 localOrigin = inverse.MultiplyPoint3x4(origin), localDirection = inverse.MultiplyVector(direction);
+            bool any = false;
+            for (int i = 0; i + 2 < _triangles.Count; i += 3)
+            {
+                triangles++;
+                if (!MenuDepthRayGeometry.Triangle(localOrigin, localDirection, _vertices[_triangles[i]],
+                    _vertices[_triangles[i + 1]], _vertices[_triangles[i + 2]], maxDistance,
+                    out float next, out _)) continue;
+                distance = next; maxDistance = next; any = true;
+            }
+            return any;
+        }
+
+        public void Dispose()
+        {
+            if (_baked != null) Object.Destroy(_baked);
+            _baked = null; _source = null; _vertices.Clear(); _triangles.Clear(); _submesh.Clear();
+        }
     }
 
     private Rect ImageClip()
@@ -642,6 +794,12 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         for (int i = 0; i < _shadowRenderers.Count; i++)
         {
             Renderer renderer = _shadowRenderers[i];
+            if (renderer != null && (renderer is MeshRenderer || renderer is SkinnedMeshRenderer)
+                && !_rayWitnesses.ContainsKey(renderer))
+            {
+                RayWitness witness = renderer.GetComponent<RayWitness>() ?? renderer.gameObject.AddComponent<RayWitness>();
+                witness.Bind(this, renderer); _rayWitnesses.Add(renderer, witness);
+            }
             if (renderer == null || (renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off
                 && !renderer.receiveShadows)) continue;
             _rendererShadows.Add((renderer, renderer.shadowCastingMode, renderer.receiveShadows, renderer.forceRenderingOff));
@@ -715,6 +873,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         try
         {
             _rendering = true;
+            if (!ReferenceEquals(_rayWitnessIdentity, original))
+            { ReleaseRayWitnesses(); _rayWitnessIdentity = original; }
             SuppressPreviewShadows(original);
             RenderTexture.active = target;
             GL.Clear(true, true, _camera.backgroundColor);
@@ -733,10 +893,15 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             // This reflected view needs the opposite winding so the original
             // model's actual back surfaces remain visible through that same UV.
             GL.invertCulling = originalCullingInverted ^ view.Reflected;
+            _rayPending.Clear(); _rayCollecting = true; _rayRenderedFrame = -1;
             _camera.Render();
+            _rayMembers.Clear();
+            foreach (Renderer renderer in _rayPending) _rayMembers.Add(renderer);
+            _rayRenderedIdentity = original; _rayRenderedFrame = Time.frameCount;
         }
         finally
         {
+            _rayCollecting = false; _rayPending.Clear();
             RestorePreviewShadows();
             GL.invertCulling = originalCullingInverted;
             if (_camera != null)
@@ -766,6 +931,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             try { _surface.Retire(); }
             finally
             {
+                ReleaseRayMeshes();
+                ReleaseRayWitnesses();
                 if (--_calibration.References == 0) Calibrations.Remove(_manager);
                 if (!_rendering) ReleaseTargets();
                 if (_image != null) _image.SetMaterialDirty();
@@ -790,6 +957,42 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             new[] { typeof(Character3DDisplayManager) }, typeof(MenuDepthCharacterSource), true);
         ILGenerator il = method.GetILGenerator(); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, field); il.Emit(OpCodes.Ret);
         return (Func<Character3DDisplayManager, object?>)method.CreateDelegate(typeof(Func<Character3DDisplayManager, object?>));
+    }
+
+    private void ReleaseRayWitnesses()
+    {
+        foreach (RayWitness witness in _rayWitnesses.Values)
+            if (witness != null) witness.Unbind(this);
+        _rayWitnesses.Clear(); _rayMembers.Clear(); _rayPending.Clear();
+        _rayRenderedIdentity = _rayWitnessIdentity = null; _rayRenderedFrame = -1;
+    }
+
+    /// <summary>Receipt of this source's actual culling, including native Unity LOD selection.</summary>
+    private sealed class RayWitness : MonoBehaviour
+    {
+        private readonly List<(MenuDepthCharacterSource Source, Renderer Renderer)> _owners = new(1);
+        internal void Bind(MenuDepthCharacterSource source, Renderer renderer)
+        {
+            for (int i = 0; i < _owners.Count; i++)
+                if (ReferenceEquals(_owners[i].Source, source)) return;
+            _owners.Add((source, renderer));
+        }
+        internal void Unbind(MenuDepthCharacterSource source)
+        {
+            for (int i = _owners.Count-1; i >= 0; i--)
+                if (ReferenceEquals(_owners[i].Source, source)) _owners.RemoveAt(i);
+            if (_owners.Count == 0) Object.Destroy(this);
+        }
+        private void OnWillRenderObject()
+        {
+            Camera current = Camera.current;
+            for (int i = 0; i < _owners.Count; i++)
+            {
+                var owner = _owners[i];
+                if (owner.Source._rayCollecting && owner.Source._camera == current)
+                    owner.Source._rayPending.Add(owner.Renderer);
+            }
+        }
     }
 
     private sealed class CalibrationCache

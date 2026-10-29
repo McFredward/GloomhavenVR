@@ -34,6 +34,7 @@ internal static class MenuDepthSources
     private static MenuDepthDirectCleanup? _directCleanup;
     internal static int ExcludedDirectLayers { get; set; }
     internal static event Action<Camera>? BeforeHeadCapture;
+    private static readonly List<Component> RayFilters = new(8);
     internal static bool HasPreparedSources => _startedCount != 0;
 
     /// <summary>One active driver's pending identity/readiness work; never a capture-time scene census.</summary>
@@ -128,6 +129,94 @@ internal static class MenuDepthSources
             if (Visible(source.Graphic) && source.IsReady
                 && !destination.Contains(source.Graphic)) destination.Add(source.Graphic);
         }
+    }
+
+    /// <summary>Only registered, currently visible geometry of this original window participates.</summary>
+    internal static bool TryRaycast(Canvas canvas, Vector3 origin, Vector3 direction,
+        float maxDistance, out MenuDepthRayHit hit)
+    {
+        hit = default;
+        if (canvas == null || !canvas.isActiveAndEnabled || !MenuDepthProjection.Finite(origin)
+            || !MenuDepthProjection.Finite(direction) || direction.sqrMagnitude < 1e-8f) return false;
+        FlushPendingContent();
+        bool any = false;
+        for (int i = 0; i < Sources.Count; i++)
+        {
+            IMenuDepthSource source = Sources[i];
+            if (!(source is IMenuDepthRaycastSource raycast) || !Visible(source.Graphic) || !source.IsReady) continue;
+            Transform owner = source is IMenuDepthOwnedWindowSource member ? member.CaptureOwner : source.Graphic.transform;
+            if (owner == null || !owner.IsChildOf(canvas.transform)) continue;
+            if (!raycast.TryRaycast(origin, direction, maxDistance, out MenuDepthRayHit candidate)) continue;
+            Graphic graphic = candidate.Graphic;
+            Camera camera = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+            Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, candidate.NativePoint);
+            // Native masks and CanvasGroup permission still apply. raycastTarget
+            // is intentionally not required for a visible decorative surface;
+            // its click, if any, is resolved separately by the native raycaster.
+            if (graphic == null || !RayVisible(graphic, screen, camera, candidate.UnclippedForeground)) continue;
+            hit = candidate; maxDistance = candidate.Distance; any = true;
+        }
+        return any;
+    }
+
+    internal static bool RayVisible(Graphic graphic, Vector2 screen, Camera? camera, bool unclippedForeground = false)
+    {
+        if (graphic == null || !graphic.isActiveAndEnabled || !graphic.gameObject.activeInHierarchy
+            || graphic.color.a * graphic.canvasRenderer.GetAlpha() * graphic.canvasRenderer.GetInheritedAlpha() <= .001f) return false;
+        // Permission belongs to the original GraphicRaycaster. A visible
+        // read-only CanvasGroup remains a physical surface, even when it does
+        // not accept a click. Actual foreground intentionally escapes its old
+        // aperture in the same way as the existing character colour shader.
+        if (unclippedForeground) return true;
+        Transform current = graphic.transform;
+        while (current != null)
+        {
+            RayFilters.Clear(); current.GetComponents(RayFilters);
+            for (int i = 0; i < RayFilters.Count; i++)
+            {
+                Component filter = RayFilters[i];
+                if (filter is Mask mask && mask.isActiveAndEnabled && !mask.IsRaycastLocationValid(screen, camera)) return false;
+                if (filter is RectMask2D rect && rect.isActiveAndEnabled && !rect.IsRaycastLocationValid(screen, camera)) return false;
+            }
+            current = current.parent;
+        }
+        RayFilters.Clear();
+        return true;
+    }
+
+    /// <summary>Original UI already seated at real depth, such as the producer's confirmation.</summary>
+    internal static bool TryNativeRaycast(Canvas host, Canvas canvas, Vector3 origin, Vector3 direction,
+        float maxDistance, out MenuDepthRayHit hit)
+    {
+        hit = default;
+        if (canvas == null || !canvas.isActiveAndEnabled) return false;
+        var graphics = GraphicRegistry.GetGraphicsForCanvas(canvas);
+        Camera camera = host.worldCamera != null ? host.worldCamera : Camera.main;
+        bool any = false;
+        float epsilon = host.transform.TransformVector(Vector3.forward).magnitude * .05f;
+        for (int i = 0; i < graphics.Count; i++)
+        {
+            Graphic graphic = graphics[i];
+            if (!Visible(graphic) || Mathf.Abs(Vector3.Dot(graphic.transform.position-host.transform.position,
+                host.transform.forward)) <= epsilon) continue;
+            bool spatial = false;
+            for (int s = 0; s < Sources.Count; s++)
+                if (Sources[s] is IMenuDepthRaycastSource source && source.IsReady
+                    && graphic.transform.IsChildOf(source.RayRoot)) { spatial = true; break; }
+            if (spatial) continue;
+            Matrix4x4 matrix = graphic.transform.localToWorldMatrix, inverse = matrix.inverse;
+            Vector3 localOrigin = inverse.MultiplyPoint3x4(origin), localDirection = inverse.MultiplyVector(direction);
+            if (Mathf.Abs(localDirection.z) <= 1e-8f) continue;
+            float distance = -localOrigin.z/localDirection.z;
+            if (!(distance > 1e-6f) || !(distance < maxDistance)) continue;
+            Vector3 point = origin+direction*distance;
+            Vector3 local = localOrigin+localDirection*distance;
+            if (!graphic.rectTransform.rect.Contains(new Vector2(local.x,local.y))
+                || !RayVisible(graphic,RectTransformUtility.WorldToScreenPoint(camera,point),camera)) continue;
+            hit = new MenuDepthRayHit(graphic,point,point,distance,preferGraphic:true);
+            maxDistance=distance;any=true;
+        }
+        return any;
     }
 
     internal static RectInt HeadRegion(Transform? root, Matrix4x4 frameToWorld, Rect frame, MenuDepthEye left, MenuDepthEye right,

@@ -798,6 +798,10 @@ internal static class CardFaceMipBake
     /// <summary>Content identity of a texture: dedupes distinct instances wrapping the same atlas.</summary>
     private static string IdentityOf(Texture2D tex) => $"{tex.name}|{tex.width}x{tex.height}|{tex.format}";
 
+    /// <summary>Read an existing sampling receipt only; a miss never starts a bake/readback.</summary>
+    internal static bool TryGetCachedAtlasPixels(Texture2D original, out Color32[]? pixels)
+        => s_atlasPixelsByIdentity.TryGetValue(IdentityOf(original), out pixels) && pixels != null;
+
     /// <summary>
     /// Full-atlas CPU readback (mip 0, bottom-left row order — Unity texture layout),
     /// cached by content identity under <see cref="MaxAtlasPixelCacheBytes"/>. This is

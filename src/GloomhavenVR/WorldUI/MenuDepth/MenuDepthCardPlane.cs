@@ -12,7 +12,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// The temporary root pose is restored before native input/animation resumes.
 /// </summary>
 [DisallowMultipleComponent]
-internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSource, IMenuDepthDirectSource, IMenuDepthHeadBoundsSource
+internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSource, IMenuDepthDirectSource, IMenuDepthHeadBoundsSource, IMenuDepthRaycastSource
 {
     private MonoBehaviour? _owner;
     private RectTransform? _card;
@@ -60,6 +60,49 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
         return true;
     }
 
+    public bool TryRaycast(Vector3 origin, Vector3 direction, float maxDistance, out MenuDepthRayHit hit)
+    {
+        hit = default;
+        if (!IsReady || _card == null) return false;
+        // Nested native card roots share their outer card's physical plane.
+        // Derive it from the original pose even if a Canvas batch currently
+        // holds the temporary capture pose; a pointer must never depend on eye.
+        MenuDepthCardPlane plane = this;
+        while (plane._parentPlane != null && plane._parentPlane.IsReady) plane = plane._parentPlane;
+        RectTransform root = plane._card!;
+        Matrix4x4 native = root.parent != null ? root.parent.localToWorldMatrix : Matrix4x4.identity;
+        native *= Matrix4x4.TRS(plane._borrowed ? plane._position : root.localPosition,
+            root.localRotation, plane._borrowed ? plane._scale : root.localScale);
+        float xScale = native.MultiplyVector(Vector3.right).magnitude;
+        float zScale = native.MultiplyVector(Vector3.forward).magnitude;
+        if (!(xScale > 1e-8f) || !(zScale > 1e-8f)) return false;
+        float depth = -Mathf.Abs(root.rect.width) * plane._depthWidthRatio * xScale / zScale;
+        Matrix4x4 physical = native * Matrix4x4.Translate(new Vector3(0f, 0f, depth));
+        if (plane != this) physical *= root.worldToLocalMatrix * _card.localToWorldMatrix;
+        Matrix4x4 inverse = physical.inverse;
+        Vector3 localOrigin = inverse.MultiplyPoint3x4(origin), localDirection = inverse.MultiplyVector(direction);
+        if (Mathf.Abs(localDirection.z) <= 1e-8f) return false;
+        float distance = -localOrigin.z / localDirection.z;
+        if (!(distance > 1e-6f) || !(distance < maxDistance)) return false;
+        Vector3 local = localOrigin + localDirection * distance;
+        if (!_card.rect.Contains(new Vector2(local.x, local.y))) return false;
+        bool ink = false;
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+        {
+            var surface = _depthSurfaces[i];
+            if (surface.Image == null || surface.Surface == null || !surface.Image.isActiveAndEnabled
+                || surface.Image.canvasRenderer.GetInheritedAlpha() <= 0f) continue;
+            Matrix4x4 relative = _card.worldToLocalMatrix * surface.Image.transform.localToWorldMatrix;
+            if (!surface.Surface.RayContainsLocal(relative.inverse.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)))) continue;
+            ink = true; break;
+        }
+        if (!ink) return false;
+        Matrix4x4 original = plane == this ? native : native * root.worldToLocalMatrix * _card.localToWorldMatrix;
+        hit = new MenuDepthRayHit(Graphic, origin + direction * distance,
+            original.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)), distance, nativeRoot: _card);
+        return true;
+    }
+
     private void RebindDepthSurfaces()
     {
         bool same = _backgrounds.Count == _depthSurfaces.Count;
@@ -83,6 +126,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     }
 
     public Graphic Graphic => Printed() ?? _backgrounds[0];
+    public Transform RayRoot => _card!;
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
     public bool IsReady => _configured && isActiveAndEnabled && _owner != null && _owner.gameObject.activeInHierarchy
         && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Printed() != null && Eligible();

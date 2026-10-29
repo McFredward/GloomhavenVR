@@ -275,6 +275,42 @@ internal sealed class UguiPointer
         return true;
     }
 
+    /// <summary>A physical foreground supplies geometry, never permission or a synthetic callback.</summary>
+    internal bool TryRaycastSurface(Canvas canvas, Vector2 screenPos, Graphic surface, bool preferSurface,
+        Vector3 physicalPoint, float physicalDistance, out RaycastResult topHit)
+    {
+        topHit = default;
+        GraphicRaycaster host = canvas != null ? canvas.GetComponent<GraphicRaycaster>() : null!;
+        if (host == null || !host.isActiveAndEnabled) return false;
+        bool any = false;
+        PointerEventData data = GetData(); data.position = screenPos;
+        // A real 3D portrait can cover a flat button which sorts above its old
+        // mono RawImage. Select the portrait only if the ORIGINAL raycaster
+        // itself returns that exact graphic: locks, CanvasGroup/mask/reversed
+        // face tests and native raycastTarget are not bypassed.
+        Canvas logical = surface != null ? surface.canvas : null!;
+        List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas!);
+        if (_farRay && preferSurface && surface != null && logical != null && logical.isActiveAndEnabled
+            && (logical == canvas || nested != null && nested.Contains(logical)))
+        {
+            GraphicRaycaster original = logical.GetComponent<GraphicRaycaster>();
+            if (original != null && original.isActiveAndEnabled)
+            {
+                _hits.Clear(); original.Raycast(data, _hits);
+                for (int i = 0; i < _hits.Count; i++)
+                    if (ReferenceEquals(_hits[i].gameObject, surface.gameObject))
+                    { topHit = _hits[i]; any = true; break; }
+            }
+        }
+        if (!any) any = TryRaycast(canvas!, screenPos, out topHit);
+        if (any)
+        {
+            topHit.worldPosition = physicalPoint; topHit.distance = physicalDistance;
+            data.pointerCurrentRaycast = topHit;
+        }
+        return any;
+    }
+
     /// <summary>Top hit of a single raycaster, if any.</summary>
     private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)
     {
