@@ -17,6 +17,7 @@ internal sealed partial class FlatScreen
     private Vector3 _savedMenuPosition;
     private Quaternion _savedMenuRotation;
     private float _savedMenuScale;
+    private float _savedMenuUnit;
 
     /// <summary>
     /// Keep the original captured menu and its pointer mapping, but mount the screen on the
@@ -42,6 +43,8 @@ internal sealed partial class FlatScreen
             _worldMenuOpening = MenuWorldContext.Opening;
             float width = _quad.transform.TransformVector(Vector3.right).magnitude;
             _worldMenuUnit = width / 1920f;
+            if (_savedMenuPose && _savedMenuOpening == _worldMenuOpening)
+                _worldMenuUnit = _savedMenuUnit;
             _worldMenuHost = new GameObject("GloomhavenVR.MainMenuWindow", typeof(RectTransform));
             Object.DontDestroyOnLoad(_worldMenuHost);
             var rect = (RectTransform)_worldMenuHost.transform;
@@ -105,6 +108,8 @@ internal sealed partial class FlatScreen
             _savedMenuPosition = frame.position;
             _savedMenuRotation = frame.rotation;
             _savedMenuScale = frame.localScale.x;
+            _savedMenuUnit = _worldMenuHost != null
+                ? _worldMenuHost.transform.lossyScale.x / frame.lossyScale.x : _worldMenuUnit;
         }
         // Hide/recovery retains ownership of its own quads. Detach before destroying only
         // our wrapper; a movie or options round-trip can restore this same opening's pose.
@@ -125,7 +130,8 @@ internal sealed partial class FlatScreen
         panel = null;
         FlatScreen? owner = _coverageOwner;
         if (owner == null || !owner._visible || !MenuWorldContext.IsReady
-            || owner._worldMenuPanel == null || owner._worldMenuHost == null)
+            || owner._worldMenuPanel == null || owner._worldMenuHost == null
+            || !owner._worldMenuHost.activeInHierarchy)
             return false;
         Canvas? canvas = source.GetComponentInParent<Canvas>();
         if (canvas == null || canvas.rootCanvas == null
@@ -133,7 +139,8 @@ internal sealed partial class FlatScreen
             return false;
         Camera? camera = canvas.worldCamera != null ? canvas.worldCamera : canvas.rootCanvas.worldCamera;
         if (camera == null || !CapturedSet.TryGetValue(camera, out CapturedCamera capture)
-            || !capture.IsUi || (camera.targetTexture != owner._uiRt && camera.targetTexture != owner._rt))
+            || !capture.IsUi || !((owner._uiRt != null && camera.targetTexture == owner._uiRt)
+                || (owner._rt != null && camera.targetTexture == owner._rt)))
             return false;
         panel = owner._worldMenuPanel;
         return true;

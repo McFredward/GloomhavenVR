@@ -119,6 +119,9 @@ namespace GloomhavenVR.WorldUI
         private void TickManualChord() { }
         private void UpdateScreenTakeover() { }
         private void FollowHead() { }
+        // Boot movies have no ready world-menu wrapper. The menu-world runtime
+        // scope owns real wrapper/grab/release behavior.
+        private void ReleaseWorldMenu() { }
         private void TickPointer() { }
         private void TickBackdropDepth() { if (_screenMaterial != null) _screenMaterial.renderQueue = 1000; }
         private bool IsConfirmationBoxOpen() => throw new Exception("Unexpected gameplay dialog");
