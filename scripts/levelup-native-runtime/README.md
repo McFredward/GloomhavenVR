@@ -137,3 +137,12 @@ does not execute the general target allocator or an actual capacity refusal.
 The owner overlap is a real ordinary Unity canvas, not the complete spatial
 character-window head compositor. These native geometry and GL pixels do not
 certify original D3D11 fragment programs, the real HMD image or frame pacing.
+
+Build742 expands the containing confirmation inventory to39 variants. The editor
+completion limit preserves the original14-case allowance of30 seconds per case:
+`max(420, 30 * case_count)` seconds. A32/39 PASS execution was still producing
+new generic head captures less than one second before the old420-second cutoff;
+the complete invocation remains failed, with its captures and cleanup retained.
+The runner now flushes monotonic BEGIN/END case timings to`case-timings.csv`.
+No case, pixel threshold, callback permission or causal-control oracle is removed
+or relaxed by this harness budget adjustment.

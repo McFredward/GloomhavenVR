@@ -255,7 +255,15 @@ def main():
         command = [str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'LevelUpRunner.Start', '-levelUpManifest', str(path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', *command]
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=env); reaped = False
-        try: result = process.wait(timeout=420)
+        # Preserve the original14-case budget of30 seconds per variant as the
+        # ownership/foreground control inventory grows. This is only the editor
+        # completion limit; every pixel/callback/control oracle remains intact.
+        editor_timeout = max(420, 30 * len(cases))
+        (run / 'editor-budget.json').write_text(json.dumps({
+            'cases': len(cases), 'seconds': editor_timeout,
+            'formula': 'max(420,30*case_count)',
+            'reason': 'The old420s limit cut off an active32/39-case pass before the remaining controls.'}, indent=2) + '\n')
+        try: result = process.wait(timeout=editor_timeout)
         finally:
             try: os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError: pass

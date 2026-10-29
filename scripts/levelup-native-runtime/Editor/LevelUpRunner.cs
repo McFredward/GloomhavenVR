@@ -11,7 +11,9 @@ public static class LevelUpRunner
     [Serializable] private sealed class Case { public string name, dll, expected; }
     [Serializable] private sealed class Manifest { public string result, evidence, harmony, managed, inputs; public Case[] cases; }
     private static Manifest manifest;
-    private static StreamWriter writer;
+    private static StreamWriter writer, timings;
+    private static readonly System.Diagnostics.Stopwatch runClock = new System.Diagnostics.Stopwatch();
+    private static readonly System.Diagnostics.Stopwatch caseClock = new System.Diagnostics.Stopwatch();
     private static IEnumerator pending;
     private static Type program;
     private static Case active;
@@ -33,6 +35,8 @@ public static class LevelUpRunner
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         writer = new StreamWriter(manifest.result);
+        timings = new StreamWriter(Path.Combine(manifest.evidence, "case-timings.csv"));
+        timings.WriteLine("event,case,elapsedMs,runElapsedMs"); timings.Flush(); runClock.Restart();
         writer.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
         EditorApplication.update += Tick;
         EditorApplication.EnterPlaymode();
@@ -47,6 +51,8 @@ public static class LevelUpRunner
                 if (pending == null)
                 {
                     active = manifest.cases[index++];
+                    caseClock.Restart();
+                    timings.WriteLine("BEGIN," + active.name + ",0," + runClock.ElapsedMilliseconds); timings.Flush();
                     string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
                     program = Assembly.LoadFile(active.dll).GetType("LevelUpNativeProgram");
                     program.GetMethod("Inputs").Invoke(null, new object[] { manifest.inputs });
@@ -70,9 +76,10 @@ public static class LevelUpRunner
             }
             try { (pending as IDisposable)?.Dispose(); program?.GetMethod("Cleanup").Invoke(null, null); }
             catch (Exception error) { passed = false; writer.WriteLine("FAIL cleanup: " + error); }
+            timings.WriteLine("END," + active.name + "," + caseClock.ElapsedMilliseconds + "," + runClock.ElapsedMilliseconds); timings.Flush();
             pending = null; program = null; writer.Flush();
             return; // Destruction, deferred Unity callbacks and async scene retirement get a real frame.
         }
-        writer.Dispose(); EditorApplication.update -= Tick; EditorApplication.Exit(passed ? 0 : 1);
+        timings.Dispose(); writer.Dispose(); EditorApplication.update -= Tick; EditorApplication.Exit(passed ? 0 : 1);
     }
 }
