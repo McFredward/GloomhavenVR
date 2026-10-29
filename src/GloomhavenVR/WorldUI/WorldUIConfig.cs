@@ -929,14 +929,16 @@ internal static class WorldUIConfig
             "'starting...' indicator in the void.");
         ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", Defaults.ScreenWidth,
             new ConfigDescription(
-                "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
+                "Initial width of the floating 2D screen in real-world meters (16:9, height follows). " +
+                "Resize the main menu with both hands on its window handle. " +
                 "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m). " +
                 "Bounded because this screen is the ONLY surface that carries the main menu and " +
                 "the A/X rescue: a 0 m screen is a rescue you cannot see. Range 0.4-8.",
                 new AcceptableValueRange<float>(0.4f, 8f)));
         ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", Defaults.ScreenDistance,
             new ConfigDescription(
-                "Distance from the head to the floating 2D screen in real-world meters. Bounded " +
+                "Initial distance from the head to the floating 2D screen in real-world meters. " +
+                "Move the main menu freely using its window handle. Bounded " +
                 "for the same reason as ScreenWidth, and at the near end also because a screen " +
                 "inside your own head renders as nothing at all. Range 0.3-8.",
                 new AcceptableValueRange<float>(0.3f, 8f)));

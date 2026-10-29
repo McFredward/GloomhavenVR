@@ -141,7 +141,8 @@ bleibt, bemerkt vielleicht noch etwas anderes.
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
 Spiels, gar kein Himmel und Mixed Reality. Deine Auswahl gilt im Hauptmenü, auf der 3D-Karte
-und in Szenarien, einschließlich des originalen Standardhimmels des Spiels. Wähle **Mixed Reality** unter
+und in Szenarien, einschließlich des originalen Standardhimmels des Spiels. Die Umgebung erscheint
+mit dem Hauptmenü nach dem Intro. Wähle **Mixed Reality** unter
 **VR-Optionen → Umgebung → Schauplatz**, um den Tisch in dein Zimmer zu stellen.
 
 - **Steam Frame standalone:** Natives Passthrough ist integriert und benötigt keinen zusätzlichen
@@ -212,6 +213,9 @@ drei Stile. Änderungen wirken sofort und sind für andere Spieler sichtbar.
 Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange, und du bewegst es, indem du die
 Stange greifst, mit der Hand oder mit dem Zeigestrahl von weiter weg. Das Brett von jemand anderem
 behält dessen Stange, nicht deine.
+
+Auch das Hauptmenü ist ein Fenster in der Welt. Verschiebe es an seiner Stange, ändere seine Größe
+mit beiden Händen und bewege dich mit den gewohnten Steuerungen darum herum. Es bleibt an seinem Platz.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

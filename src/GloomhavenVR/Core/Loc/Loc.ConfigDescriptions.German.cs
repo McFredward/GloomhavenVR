@@ -497,7 +497,8 @@ internal static partial class Loc
                 + "sofort der normale dunkle Look zurück.",
             // ---- [Sky] ----
             ["Sky/Style"] =
-                "Wählt die Umgebung für Hauptmenü, 3D-Karte und Szenarien. Default zeigt "
+                "Wählt die Umgebung für Hauptmenü, 3D-Karte und Szenarien. "
+                + "Die Umgebung erscheint mit dem Hauptmenü nach dem Intro. Default zeigt "
                 + "den originalen animierten Himmel des Spiels. Cellar zeigt einen "
                 + "kerzenbeleuchteten Steinkeller; SwampNight eine nächtliche Sumpflichtung "
                 + "mit Sternschnuppen, Bodennebel und Glühwürmchen. OffBlack zeigt nur Schwarz "
@@ -2711,10 +2712,11 @@ internal static partial class Loc
                 + "Bildschirm. Aus = altes Verhalten: das Intro läuft nur auf dem Desktop und im HMD steht eine "
                 + "\"startet…\"-Anzeige in der Leere.",
             ["WorldUI/ScreenWidth"] =
-                "Breite der schwebenden 2D-Leinwand in echten Metern (16:9, die Höhe folgt daraus). Ersetzt "
+                "Anfängliche Breite der schwebenden 2D-Leinwand in echten Metern (16:9, die Höhe folgt daraus). "
+                + "Das Hauptmenü lässt sich mit beiden Händen an seiner Fensterstange skalieren. Ersetzt "
                 + "den Schlüssel \"FlatScreenWidth\" von vor Test #6 (1.4 m wirkte auf 1.6 m Entfernung zu "
                 + "klein).",
-            ["WorldUI/ScreenDistance"] = "Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern.",
+            ["WorldUI/ScreenDistance"] = "Anfänglicher Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern. Das Hauptmenü lässt sich frei an seiner Fensterstange verschieben.",
             ["WorldUI/MapWindOpacity"] =
                 "Deckkraft der treibenden Wind-/Wolken-Ambiente-Partikel auf der Kampagnenkarte (0..1). Die "
                 + "flache Kartenkamera des Spiels bearbeitet/maskiert sie per Post-Processing, sodass sie "

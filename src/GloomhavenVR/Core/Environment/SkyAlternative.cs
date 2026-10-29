@@ -700,7 +700,8 @@ internal static class SkyAlternative
             return;
         _bound = true;
         Style = file.Bind("Sky", "Style", FrameDefaults.Active ? (SkyStyle)FrameDefaults.SkyStyleCode : Defaults.SkyStyle,
-            "Surroundings shown in the main menu, 3D map and scenarios. Default uses the game's " +
+            "Surroundings shown in the main menu, 3D map and scenarios. They appear with the main " +
+            "menu after the intro. Default uses the game's " +
             "original animated sky. Cellar is a candle-lit stone room; SwampNight is a moonlit " +
             "forest with stars, ground fog and fireflies. OffBlack shows no surroundings and " +
             "does not enable mixed reality. Rooms stay fixed while you move through them; " +

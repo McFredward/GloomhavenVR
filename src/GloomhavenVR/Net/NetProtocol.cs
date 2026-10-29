@@ -629,7 +629,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 740;
+    public const ushort ModBuild = 742;
+
+    // ModBuild742 — confirmations remain on their producer; a real world main menu.
+    // Local740 hardware accepts the small level-up prompt but exposes the Perks
+    // cross-scene type exclusion. Use the same persistent, shallow foreground
+    // member for proved producers, retaining original buttons/home/callbacks.
+    // Restore spatial antialiasing on the character-window head carrier while
+    // retaining its fixed final head grid and all existing 3D presentation.
+    // The startup rig predates tracking and the actual main menu. Admit selected
+    // surroundings only after the original menu appears and tracked recenter
+    // completes; centre a closed room on its real Floor/Ceiling clearance once.
+    // The main menu keeps its original desktop capture and widgets on a standard
+    // movable/scalable window grip. Walking/turning/world zoom never re-place it.
+    // A presentation-only readiness latch admits menu locomotion and near grips;
+    // do not pretend a scenario table exists or grant native gameplay authority.
+    // Window carries use the unscaled tracking clock through native pause.
+    // Keep map/scenario placement, video playback, MR precedence and wire intact.
+    // Build741 is reserved for the coordinated Quest standalone development lane.
 
     // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
     // The maintainer extends the environment choice to every VR context, including
