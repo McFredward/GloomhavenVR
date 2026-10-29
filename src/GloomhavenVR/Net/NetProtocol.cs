@@ -629,7 +629,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 744;
+    public const ushort ModBuild = 745;
+
+    // ModBuild745 — correct won-card reveal, sharp confirmations and visible card-list access.
+    // Local744 hardware accepts character-window AA but reports rough confirmation
+    // buttons and first-frame won-card rotation. The existing pooled-card postfix
+    // excluded !immediately even though both native paths spawn synchronously;
+    // align the reveal before its original alpha tween's first visible frame too.
+    // A producer-owned DDOL confirmation requested a second mono capture and was
+    // refused at the session budget. Explicitly bind its original graphics to
+    // that exact producer's admitted private layer and fixed2x head capture. Keep
+    // actual member bounds, native home/input and depth order; recheck lifetime,
+    // permissions and pooled target identity. No allocator/cap/resolve/shader change.
+    // The native closed-list arrow lived in the still-closed offscreen inventory;
+    // waiting for that inventory to open stranded its only opener outside VR.
+    // Lease the original toggle into the character Cards view with a localized
+    // More Cards caption; retain original value/listeners/permissions and home.
+    // Preserve accepted hover, fade/continuation, character depth and menu controls.
 
     // ModBuild744 — normal menu laser carry, finite Default and stable pause opening.
     // Local742 hardware confirms the world menu's palm grip but refuses its laser
