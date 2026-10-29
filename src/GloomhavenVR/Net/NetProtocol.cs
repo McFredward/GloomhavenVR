@@ -635,13 +635,19 @@ internal static class NetProtocol
     // Local740 hardware accepts the small level-up prompt but exposes the Perks
     // cross-scene type exclusion. Use the same persistent, shallow foreground
     // member for proved producers, retaining original buttons/home/callbacks.
-    // Restore spatial antialiasing on the character-window head carrier while
-    // retaining its fixed final head grid and all existing 3D presentation.
+    // Restore fixed2x absolute-head sampling on the character-window carrier,
+    // retaining its1x final grid and all existing3D presentation. Shared occupied-
+    // region storage and integrated color/nearest depth avoid moving sample phases;
+    // bucket capacities reduce approach allocations without reducing quality/rate.
+    // A dedicated resolve adds no native content render; the original four shaders
+    // remain byte-identical. Retire first-failure/idle/deferred filter ownership.
     // The startup rig predates tracking and the actual main menu. Admit selected
     // surroundings only after the original menu appears and tracked recenter
     // completes; centre a closed room on its real Floor/Ceiling clearance once.
     // The main menu keeps its original desktop capture and widgets on a standard
     // movable/scalable window grip. Walking/turning/world zoom never re-place it.
+    // Fixed opposing backings retain original world UVs and keep native glass ink
+    // visible from both sides; depth-tested image color follows sky/reset draws.
     // A presentation-only readiness latch admits menu locomotion and near grips;
     // do not pretend a scenario table exists or grant native gameplay authority.
     // Window carries use the unscaled tracking clock through native pause.
