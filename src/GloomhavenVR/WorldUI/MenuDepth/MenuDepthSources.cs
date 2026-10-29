@@ -108,8 +108,14 @@ internal static class MenuDepthSources
         && graphic.gameObject.activeInHierarchy && graphic.canvas != null && graphic.canvas.isActiveAndEnabled
         && graphic.color.a > 0f && !graphic.canvasRenderer.cull && graphic.canvasRenderer.GetInheritedAlpha() > 0f;
 
+    internal static bool IsVisible(Graphic graphic) => Visible(graphic);
+
+    private static bool Belongs(IMenuDepthSource source, Transform root)
+        => source is IMenuDepthOwnedWindowSource member ? ReferenceEquals(member.CaptureOwner, root)
+            : source.Graphic.transform.IsChildOf(root);
+
     private static bool Applies(IMenuDepthSource source, Transform root) => Visible(source.Graphic)
-        && source.Graphic.transform.IsChildOf(root) && source.IsReady;
+        && Belongs(source, root) && source.IsReady;
 
     internal static void CollectReadyGraphics(List<Graphic> destination)
     {
@@ -135,7 +141,7 @@ internal static class MenuDepthSources
         {
             IMenuDepthSource source = Sources[i];
             Graphic graphic = source.Graphic;
-            if (!Visible(graphic) || !source.IsReady || (root != null && !graphic.transform.IsChildOf(root))
+            if (!Visible(graphic) || !source.IsReady || (root != null && !Belongs(source, root))
                 || (applies != null && !applies(graphic))) continue;
             for (int side = 0; side < 2; side++)
             {
@@ -176,7 +182,7 @@ internal static class MenuDepthSources
                 && Visible(annotation.Graphic) && annotation.IsReady && annotation.AnnotationRect != null
                 && annotation.AnnotationRect.gameObject.activeInHierarchy
                 && annotation.Graphic.transform.IsChildOf(annotation.AnnotationRect)
-                && (root == null || annotation.Graphic.transform.IsChildOf(root)))
+                && (root == null || Belongs(annotation, root)))
                 destination.Add(annotation);
     }
 

@@ -53,6 +53,20 @@ def export_font(root, output):
         'keywords': material_data.get('m_ValidKeywords', []), 'renderQueue': material_data['m_CustomRenderQueue'],
         'floats': [{'name': key, 'value': value} for key, value in saved['m_Floats']],
         'colors': [{'name': key, 'value': value} for key, value in saved['m_Colors']]}, indent=2) + '\n')
+    # The confirmation witness uses the game's actual button print as well as
+    # its static SDF font. Its listener is an explicit presentation-test port;
+    # no original gameplay controller is instantiated here.
+    button_image = objects[17670]
+    button_data = profile.authored_tree(button_image)
+    original_sprite = pointer(button_data['m_Sprite'], button_image).read()
+    original_sprite.image.save(output / 'button-sprite.png')
+    (output / 'button-sprite.json').write_text(json.dumps({
+        'original': profile.object_id(original_sprite.object_reader),
+        'image': profile.object_id(button_image), 'imageType': button_data['m_Type'],
+        'border': profile.vector(original_sprite.m_Border, 'xyzw'),
+        'pivot': profile.vector(original_sprite.m_Pivot, 'xy'),
+        'ppu': original_sprite.m_PixelsToUnits,
+        'size': [original_sprite.m_Rect.width, original_sprite.m_Rect.height]}, indent=2) + '\n')
     (output / 'original-provenance.json').write_text(json.dumps({
         'font': profile.object_id(font), 'atlas': profile.object_id(atlas.object_reader),
         'atlas_stream': {'source': str(stream_source), 'offset': stream.offset, 'bytes': stream.size,

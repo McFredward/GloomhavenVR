@@ -22,6 +22,13 @@ internal interface IMenuDepthWindowAnnotationSource : IMenuDepthSource
     RectTransform AnnotationRect { get; }
 }
 
+/// <summary>An explicitly owned native window member whose scene/root must remain independent.
+/// Its original graphics belong only to this exact capture owner, never a neighbouring window.</summary>
+internal interface IMenuDepthOwnedWindowSource : IMenuDepthWindowAnnotationSource
+{
+    Transform CaptureOwner { get; }
+}
+
 /// <summary>A source that renders into its own sampled texture and needs a per-consumer pixel demand.</summary>
 internal interface IMenuDepthSampledSource : IMenuDepthSource { }
 

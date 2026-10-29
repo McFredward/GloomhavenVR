@@ -192,6 +192,7 @@ internal static partial class ConfirmationOnOwner
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one;
             Apply(seat);
+            PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);
             if (_reports++ < 24)
                 VRLog.Info("WorldUI", $"CONFIRMATION OWNER: '{box.name}' is part of native producer "
                     + $"'{request.Source.name}' inside '{panel.Target.name}'; original buttons and callbacks retained.");

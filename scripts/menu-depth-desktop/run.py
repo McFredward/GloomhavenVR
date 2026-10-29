@@ -93,6 +93,17 @@ internal static class MenuDepthCharacterRotation
 """
     sources['CaptureStack.cs'] = body + '}\n'
     sources['PanelDepth.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
+    sources['OwnedMembers.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.7.OwnedMembers.cs').read_text()
+    ownership = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
+    sources['PanelOwnership.cs'] = 'namespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + ''.join(
+        member(ownership, signature) for signature in ('    internal static bool OwnsPanelLayers(', '    internal static void NoticeRelease(')) + '}\n'
+    # Execute the exact outer admission loop, stopping before its unchanged cap
+    # diagnostic. Eligibility, failure ledgers and allocation are explicit ports;
+    # the owned-member branch must prevent even reaching that allocation port.
+    consider = member(ownership, '    private static void Consider()')
+    tail = '        if (Entries.Count >= cap && !_capLogged)'
+    assert consider.count(tail) == 1
+    sources['PanelConsider.cs'] = 'using System.Collections.Generic;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + consider[:consider.index(tail)] + '    }\n}\n'
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
     budget_at = sources['DesktopCapture.cs'].index('MenuDepthHeadRaster.WindowBudget(')
@@ -115,14 +126,47 @@ internal static class MenuDepthCharacterRotation
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
+    inputs += [source_root / 'src/GloomhavenVR/WorldUI/Sharpness' / name for name in
+               ('PanelSupersample.1.Core.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
-    wants_native_tmp = not args.case or any(name.startswith('head-native-tmp') for name in args.case)
+    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation')) for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
     variants = [
+        ('head-confirmation745', '', '', '', ''),
+        ('head-confirmation-membership-lost745', 'MenuDepthSources.cs',
+         '=> source is IMenuDepthOwnedWindowSource member ? ReferenceEquals(member.CaptureOwner, root)',
+         '=> source is IMenuDepthOwnedWindowSource member ? source.Graphic.transform.IsChildOf(root)',
+         'owned native confirmation joins the exact producer head route at an already exhausted mono budget'),
+        ('head-confirmation-ownership-lost745', 'PanelOwnership.cs',
+         'if (CapturedOwnedMember(panel)) return true;', '/* no native member layer/admission ownership */',
+         'the actual generic conversion and mono admission seam respects its captured native member'),
+        ('head-confirmation-admission-lost745', 'PanelConsider.cs',
+         '!Eligible(panel) || OwnsPanelLayers(panel)', '!Eligible(panel)',
+         'actual generic admission never requests a second confirmation allocation at the exhausted mono budget'),
+        ('head-confirmation-visible-anchor-lost745', 'OwnedMembers.cs',
+         'if (MenuDepthSources.IsVisible(graphic) && OwnedTree(member, graphic.transform))', 'if (graphic != null && graphic.isActiveAndEnabled)',
+         'owned native confirmation joins the exact producer head route at an already exhausted mono budget'),
+        ('head-confirmation-layer-lost745', 'OwnedMembers.cs',
+         'node.gameObject.layer = entry.Layer;', 'node.gameObject.layer = observed;',
+         'both final head eyes retain original native confirmation button and font pixels at every movement pose'),
+        ('head-confirmation-aa-lost745', 'MenuDepthHeadRaster.cs', 'SamplesPerAxis = 2;', 'SamplesPerAxis = 1;',
+         'actual final head native TMP glyphs retain independent original-font pixel detail'),
+        ('head-confirmation-restore-lost745', 'OwnedMembers.cs',
+         'record.Transform.gameObject.layer = record.OriginalLayer;', 'record.Transform.gameObject.layer = layer;',
+         'member release restores only its own native root and preserves a pooled foreign capture handoff'),
+        ('head-confirmation-pooled-restore-lost745', 'OwnedMembers.cs',
+         'record.Transform != null && OwnedTree(member, record.Transform)', 'record.Transform != null',
+         'member release restores only its own native root and preserves a pooled foreign capture handoff'),
+        ('head-confirmation-permission-lost745', 'OwnedMembers.cs',
+         '&& !member.Owner.RenderHidden && !member.Owner.OwnerRenderHidden', '&& true',
+         'owner render permission loss immediately restores native member layers and retains its input'),
+        ('head-confirmation-generation-lost745', 'OwnedMembers.cs',
+         'if (!SameBinding(member) || !LiveConversion(member.Owner)', 'if (!LiveConversion(member.Owner)',
+         'a pooled native identity change revokes and forgets the old exact capture binding'),
         ('head-native-tmp742', '', '', '', ''),
         ('head-native-tmp-native-metric-lost742', 'MenuDepthNativeUiScope.cs',
          'float scale = Mathf.Pow(sx * sy * sz, 1f / 3f);', 'float scale = Mathf.Pow(sx * sy * sz, 0f);',
@@ -395,7 +439,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

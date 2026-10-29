@@ -1911,6 +1911,7 @@ internal static partial class PanelSupersample
         e.NestedTotal = nested;
         e.NestedCaptured = Mathf.Min(nestedOnLayer, nested);
         e.Sweeps++;
+        SyncOwnedMembers(e);
         double sweepMs = (Time.realtimeSinceStartup - sweepStart) * 1000.0;
         e.SweepMs += sweepMs;
         // Split the cost by what the window was doing, because that is the ONLY way the log can
@@ -2863,6 +2864,7 @@ internal static partial class PanelSupersample
 
     private static void StandDown(Entry e, int index, string why)
     {
+        ReleaseOwnedMembers(e);
         int refusedRestores = RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
         MipBiasNextReport.Remove(e.Window); // a re-engaged window reports its bias immediately
         // ModBuild 204: the target-life record dies with the entry, for the same reason. Its counters

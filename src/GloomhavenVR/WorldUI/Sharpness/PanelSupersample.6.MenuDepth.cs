@@ -58,6 +58,7 @@ internal static partial class PanelSupersample
         {
             if (i >= Entries.Count) continue;
             Entry e = Entries[i];
+            SyncOwnedMembers(e); // live permission/lifetime before either actual head eye
             if (e.MenuDepthFrame == Time.frameCount) { e.MenuDepthDisplay?.PrepareHead(head); continue; }
             e.MenuDepthFrame = Time.frameCount;
             if (e.Panel.HostRect == null || e.Cam == null || e.Rt == null || e.DisplayImage == null

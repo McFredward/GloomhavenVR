@@ -2110,8 +2110,9 @@ internal static partial class PanelSupersample
     /// </summary>
     internal static bool OwnsPanelLayers(ConvertedPanel? panel)
     {
-        if (panel == null || Entries.Count == 0)
+        if (panel == null)
             return false;
+        if (CapturedOwnedMember(panel)) return true;
         for (int i = 0; i < Entries.Count; i++)
         {
             if (ReferenceEquals(Entries[i].Panel, panel))
@@ -2127,8 +2128,9 @@ internal static partial class PanelSupersample
     /// </summary>
     internal static void NoticeRelease(ConvertedPanel? panel)
     {
-        if (panel == null || Entries.Count == 0)
+        if (panel == null)
             return;
+        ForgetOwnedPanel(panel);
         for (int i = Entries.Count - 1; i >= 0; i--)
         {
             if (ReferenceEquals(Entries[i].Panel, panel))
@@ -2238,6 +2240,7 @@ internal static partial class PanelSupersample
         {
             for (int i = Entries.Count - 1; i >= 0; i--)
                 StandDown(Entries[i], i, "module shutdown");
+            ResetOwnedMembers();
             RestoreMaskedCameras();
             UninstallHooks();
             Refused.Clear();
