@@ -14,6 +14,15 @@ namespace GloomhavenVR.Core
     internal static class SkyAlternative { }
     internal static class VRCameraPolicy { }
 }
+namespace GloomhavenVR.Core.Events
+{
+    // Explicit port for the native menu/recenter lifecycle owned by MenuWorldContext.
+    internal static class MenuWorldContext
+    {
+        internal static bool IsReady=true;
+        internal static bool AllowsSurroundings=>IsReady;
+    }
+}
 namespace GloomhavenVR.Cards
 {
     internal static class PlayTray { internal static Shader? OverlayShader()=>Shader.Find("GloomhavenVR/Overlay"); }

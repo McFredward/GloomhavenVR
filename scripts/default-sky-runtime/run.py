@@ -151,6 +151,11 @@ def main():
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     cases = [('production', None, None, '')]
     controls = [
+        ('direct-intro-admission-lost', 'NativeDefaultSky.cs', '!Events.MenuWorldContext.AllowsSurroundings',
+         'bool.Parse("false")', 'direct default acquisition cannot reveal surroundings before the actual menu is ready'),
+        ('backdrop-intro-admission-lost', 'SkyBackdrop.cs', 'if (!Events.MenuWorldContext.AllowsSurroundings)',
+         'if (!Events.MenuWorldContext.AllowsSurroundings && _sky == null)',
+         'loss of ready menu admission removes an already acquired default environment'),
         ('cold-acquisition-lost', 'SkyBackdrop.cs', 'FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer ?? NativeDefaultSky.Acquire()', 'FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer',
          'cold main menu acquires its original default sky without a native scene'),
         ('native-handback-lost', 'SkyBackdrop.cs', 'arrived = FindNativeSky(headVisibleOnly: true);', 'arrived = null;',

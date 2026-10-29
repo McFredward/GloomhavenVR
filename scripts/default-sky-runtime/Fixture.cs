@@ -3,6 +3,7 @@ using System.Collections;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -65,6 +66,13 @@ public static class DefaultSkyFixture
         Check(material!.GetTexture("_Map00").width==4096&&material.GetTexture("_Map2").width==512,"original native streamed cloud and noise textures resolve");
         File.AppendAllText(Path.Combine(output,"native-assets.txt"),"api="+SystemInfo.graphicsDeviceType+"; originalShaderSupported="+material.shader.isSupported+"; originalColdAcquisition="+(originalAttempt!=null)+"\n");
         var sourceTexture=material.GetTexture("_Map00");InstallWitness(mesh!,material,bank,witness!);
+        MenuWorldContext.IsReady=false;
+        Check(NativeDefaultSky.Acquire()==null,"direct default acquisition cannot reveal surroundings before the actual menu is ready");
+        SkyBackdrop.Tick(false);
+        Check(NativeDefaultSky.Renderer==null&&Get<Renderer>(typeof(SkyBackdrop),"_sky")==null,"studio intro retains a geometry-free default surroundings state");
+        var intro=Capture(head,Path.Combine(output,"intro-no-default.png"));
+        Check(ColorPixels(intro,Color.magenta)==256*256,"no default environment contributes pixels during the intro");Object.DestroyImmediate(intro);
+        MenuWorldContext.IsReady=true;
         SkyBackdrop.Tick(false);var cold=NativeDefaultSky.Renderer;
         Check(cold!=null&&cold.enabled&&cold.gameObject.layer==26,"cold main menu acquires its original default sky without a native scene");
         Check(cold!.GetComponents<Component>().Length==3,"default sky has render components only without native controllers or callbacks");
@@ -90,10 +98,17 @@ public static class DefaultSkyFixture
             yield return null;
         }
         Object.Destroy(cube);Object.Destroy(ink);yield return null;
+        MenuWorldContext.IsReady=false;SkyBackdrop.Tick(false);
+        Check(NativeDefaultSky.Renderer==null&&Get<Renderer>(typeof(SkyBackdrop),"_sky")==null,"loss of ready menu admission removes an already acquired default environment");
+        yield return null;
+        var hiddenAgain=Capture(head,Path.Combine(output,"not-ready-no-default.png"));
+        Check(ColorPixels(hiddenAgain,Color.magenta)==256*256,"retired default geometry leaves no not-ready head pixels");Object.DestroyImmediate(hiddenAgain);
+        MenuWorldContext.IsReady=true;SkyBackdrop.Tick(false);cold=NativeDefaultSky.Renderer;
+        Check(cold!=null,"actual menu readiness can reacquire default after a complete admission transition");
         // A new real rig is distinct from motion on the same rig.
         var mapRig=new GameObject("map rig").transform;var mapHead=Head(mapRig);VRRigDriver.RigRoot=mapRig;VRRigDriver.HeadCamera=mapHead;
         SkyBackdrop.Tick(false);var map=NativeDefaultSky.Renderer;
-        Check(map!=null&&!ReferenceEquals(map,cold)&&!cold.gameObject.activeSelf,"real menu-to-map rig replacement retires the old default presentation");
+        Check(map!=null&&!ReferenceEquals(map,cold)&&!cold!.gameObject.activeSelf,"real menu-to-map rig replacement retires the old default presentation");
         Check(mapHead.cullingMask==(1<<26)&&mapHead.nearClipPlane==.05f&&mapHead.farClipPlane==100,"default sky preserves the owned camera policy");
         var hidden=GameObject.CreatePrimitive(PrimitiveType.Sphere);hidden.name="GH_SkySphere_invisible_native";
         Check(SkyBackdrop.FindSky()==hidden.GetComponent<Renderer>(),"native hiding queries remain independent of the head visibility mask");

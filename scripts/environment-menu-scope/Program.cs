@@ -13,6 +13,7 @@ using Object=UnityEngine.Object;
 public static class EnvironmentScopeProgram
 {
     private static readonly List<Object> Owned=new();private static int checks;
+    private static AssetBundle? shipping;
     private static readonly FieldInfo RoomField=typeof(SkyAlternative).GetField("_roomGo",BindingFlags.NonPublic|BindingFlags.Static)!;
     private static readonly FieldInfo PrefabsField=typeof(SkyAlternative).GetField("Prefabs",BindingFlags.NonPublic|BindingFlags.Static)!;
     private static void Check(bool value,string why){checks++;if(!value)throw new Exception(why);}
@@ -44,7 +45,7 @@ public static class EnvironmentScopeProgram
         head.nearClipPlane=.01f*scale;head.farClipPlane=1000*scale;head.fieldOfView=75;head.enabled=false;
         VRRigDriver.RigRoot=root;VRRigDriver.HeadCamera=head;VRRigDriver.RigPoseVersion++;return root;
     }
-    private static int Capture(string path,Color expected)
+    private static int Capture(string path,Color expected,bool requireCenter=true)
     {
         var head=VRRigDriver.HeadCamera!;var target=new RenderTexture(320,240,24,RenderTextureFormat.ARGB32);target.Create();
         var read=new Texture2D(320,240,TextureFormat.RGBA32,false);var prior=RenderTexture.active;
@@ -54,18 +55,45 @@ public static class EnvironmentScopeProgram
             File.WriteAllBytes(path,read.EncodeToPNG());int colored=0;
             foreach(Color32 pixel in read.GetPixels32())if(pixel.r+pixel.g+pixel.b>30)colored++;
             Check(colored>10000,"selected menu environment contributes real head-camera pixels on the mod layer");
-            Color center=read.GetPixel(160,120);Check(expected.r>expected.g?center.r>center.g+.1f:center.g>center.r+.1f,"live style changes show the selected menu room color");return colored;
+            Color center=read.GetPixel(160,120);if(requireCenter)Check(expected.r>expected.g?center.r>center.g+.1f:center.g>center.r+.1f,"live style changes show the selected menu room color");return colored;
         }
         finally{head.targetTexture=null;RenderTexture.active=prior;Object.DestroyImmediate(read);target.Release();Object.DestroyImmediate(target);}
     }
+    private static float SurfaceY(GameObject room,string name)
+    {
+        foreach(var filter in room.GetComponentsInChildren<MeshFilter>(true))
+            if(filter.name==name&&filter.sharedMesh!=null)
+                return filter.transform.TransformPoint(filter.sharedMesh.bounds.center).y;
+        throw new Exception("missing packaged central "+name+" surface");
+    }
+    private static void Witness(GameObject room,Color color)
+    {
+        // Only the graphics API is ported: the shipped Windows-only programs are
+        // not GL executable. Keep every authored mesh/transform and its bounds.
+        var material=Keep(new Material(Shader.Find("Unlit/Color")));material.color=color;
+        foreach(var renderer in room.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var materials=renderer.sharedMaterials;
+            for(int i=0;i<materials.Length;i++)materials[i]=material;
+            renderer.sharedMaterials=materials;
+        }
+    }
     public static IEnumerator Run(string output)
     {
-        checks=0;VRSession.IsRunning=true;VRModeStateMachine.TableInFrontOfPlayer=false;MapRoomDriver.Active=false;
+        checks=0;VRSession.IsRunning=true;VRModeStateMachine.TableInFrontOfPlayer=false;MenuWorldContext.IsReady=false;MapRoomDriver.Active=false;
         SkyAlternative.BindConfig(new BepInEx.Configuration.ConfigFile());
         var prefabs=(GameObject?[])PrefabsField.GetValue(null)!;
         prefabs[1]=Prefab("fixture Cellar",new Color(.8f,.2f,.1f));prefabs[2]=Prefab("fixture Swamp",new Color(.1f,.7f,.25f));
         Transform rig=Rig(new Vector3(13,4,-9),1,37);var head=VRRigDriver.HeadCamera!;
         SkyAlternative.Style.Value=SkyStyle.Cellar;
+        Check(!SkyAlternative.Tick()&&RoomField.GetValue(null)==null,"studio intro never reveals custom surroundings before the real menu is ready");
+        Vector3 provisional=rig.position;
+        head.transform.localPosition=Vector3.zero;rig.position+=new Vector3(0,1,0);
+        Check(!SkyAlternative.Tick()&&RoomField.GetValue(null)==null,"untracked startup cannot seat a room at a provisional camera anchor");
+        head.transform.localPosition=new Vector3(.4f,1.6f,-.3f);rig.position=provisional;
+        VRRigDriver.RigPoseVersion++;
+        Check(!SkyAlternative.Tick()&&RoomField.GetValue(null)==null,"completed recenter alone cannot reveal the environment behind the intro");
+        MenuWorldContext.IsReady=true;
         Check(SkyAlternative.Tick(),"selected custom room is visible in the main menu without a native board");
         GameObject room=Room();Check(room.activeInHierarchy,"cold main-menu room completes its placement before reveal");
         Vector3 floor=rig.TransformPoint(new Vector3(.4f,0,-.3f));
@@ -93,6 +121,49 @@ public static class EnvironmentScopeProgram
         SkyAlternative.Style.Value=SkyStyle.SwampNight;SkyAlternative.Tick();GameObject swamp=Room();
         Check(!ReferenceEquals(swamp,room),"switching styles replaces the previous room");yield return null;
         Capture(Path.Combine(output,"menu-swamp.png"),new Color(.1f,.7f,.25f));
+
+        // The original fixture had only tiny synthetic open rooms and missed the
+        // actual cellar's closed ceiling/outdoor bounds and seated 1.01m pose.
+        shipping=AssetBundle.LoadFromFile(Environment.GetEnvironmentVariable("GHVR_SCOPE_ENVIRONMENT_BUNDLE"));
+        Check(shipping!=null,"actual packaged environment bank loads in the game-exact Unity runtime");
+        var realCellar=shipping!.LoadAsset<GameObject>("Assets/Bundle/Environments/Env_Cellar.prefab");
+        var realSwamp=shipping.LoadAsset<GameObject>("Assets/Bundle/Environments/Env_Swamp.prefab");
+        Check(realCellar!=null&&realSwamp!=null,"both actual shipped RoomGeo/PlaySpace prefabs resolve");
+        prefabs[1]=realCellar;prefabs[2]=realSwamp;
+        var oldRig=rig;rig=Rig(new Vector3(0,1,-10),1,0);head=VRRigDriver.HeadCamera!;
+        Object.DestroyImmediate(oldRig.gameObject);head.transform.localPosition=Vector3.zero;
+        MenuWorldContext.IsReady=false;
+        Check(!SkyAlternative.Tick()&&RoomField.GetValue(null)==null,"packaged room is absent while the fresh startup rig has not recentered");
+        head.transform.localPosition=new Vector3(.11f,1.01f,.10f);
+        rig.position=new Vector3(-.11f,-.01f,-10.10f);VRRigDriver.RigPoseVersion++;
+        MenuWorldContext.IsReady=true;SkyAlternative.Style.Value=SkyStyle.Cellar;
+        Check(SkyAlternative.Tick(),"actual packaged cellar appears after native menu and recenter admission");
+        var cellar=Room();float floorY=SurfaceY(cellar,"Floor"),ceilingY=SurfaceY(cellar,"Ceiling");
+        Near(head.transform.position.y,(floorY+ceilingY)*.5f,"packaged cellar eye is vertically centered between its actual floor and ceiling");
+        Check(head.transform.position.y-floorY>1.3f&&ceilingY-head.transform.position.y>1.3f,"seated hardware pose leaves generous real floor and ceiling clearance");
+        Near(cellar.transform.position.x,head.transform.position.x,"packaged cellar starts horizontally centered at the ready eye X");
+        Near(cellar.transform.position.z,head.transform.position.z,"packaged cellar starts horizontally centered at the ready eye Z");
+        Near(cellar.transform.localScale.x,5.4f/6.5f,"actual cellar uses its shipped 6.5m PlaySpace rather than its outdoor art extent");
+        Check(cellar.GetComponentsInChildren<Collider>(true).Length==0,"actual packaged geometry remains noninteractive to laser rays");
+        Witness(cellar,new Color(.8f,.2f,.1f));yield return null;
+        Capture(Path.Combine(output,"packaged-cellar-ready.png"),new Color(.8f,.2f,.1f));
+        Vector3 fixedPosition=cellar.transform.position,fixedScale=cellar.transform.localScale;Quaternion fixedRotation=cellar.transform.rotation;
+        for(int pose=0;pose<4;pose++)
+        {
+            head.transform.localPosition+=new Vector3(.02f,.015f,-.01f);rig.position+=new Vector3(.03f,.01f,.02f);
+            SkyAlternative.Tick();Check(cellar.transform.position==fixedPosition&&cellar.transform.rotation==fixedRotation,"packaged cellar never follows the player after its one centered spawn");
+            Capture(Path.Combine(output,"packaged-cellar-motion-"+pose+".png"),new Color(.8f,.2f,.1f));yield return null;
+        }
+        SkyAlternative.Style.Value=SkyStyle.SwampNight;SkyAlternative.Tick();var actualSwamp=Room();
+        Near(actualSwamp.transform.localScale.x,5.4f/9f,"actual open-air room retains its shipped 9m clearing metric");
+        Near(actualSwamp.transform.position.y,rig.TransformPoint(new Vector3(head.transform.localPosition.x,0,head.transform.localPosition.z)).y,"open-air menu room keeps the completed tracking floor without an invented ceiling");
+        Witness(actualSwamp,new Color(.1f,.7f,.25f));yield return null;
+        Capture(Path.Combine(output,"packaged-swamp-ready.png"),new Color(.1f,.7f,.25f),false);
+        File.WriteAllText(Path.Combine(output,"packaged-placement.txt"),"readyEye="+head.transform.position+";cellarFloor="+floorY+";cellarCeiling="+ceilingY+";cellarPosition="+fixedPosition+";cellarScale="+fixedScale+"\nThe packaged meshes/transforms/PlaySpace execute unmodified; an explicit Unlit/Color GL witness replaces only Windows-authored room materials.\n");
+        prefabs[1]=Prefab("fixture Cellar after shipping check",new Color(.8f,.2f,.1f));prefabs[2]=Prefab("fixture Swamp after shipping check",new Color(.1f,.7f,.25f));
+        // Restore a synthetic menu room before retaining the original native
+        // map/scenario arithmetic checks and their exact fixed-art reference.
+        SkyAlternative.Style.Value=SkyStyle.Cellar;SkyAlternative.Tick();SkyAlternative.Style.Value=SkyStyle.SwampNight;SkyAlternative.Tick();swamp=Room();
 
         Transform priorRig=rig;rig=Rig(new Vector3(71,23,-41),200,18);Object.DestroyImmediate(priorRig.gameObject);
         VRModeStateMachine.TableInFrontOfPlayer=true;MapRoomDriver.Active=true;
@@ -123,7 +194,7 @@ public static class EnvironmentScopeProgram
         Check(RoomField.GetValue(null)==null&&SkyAlternative.MinFarWorldUnits(10)==0,"mixed-reality stand-down leaves no room geometry or budget");
         SkyAlternative.Tick();Check(RoomField.GetValue(null)!=null,"selected room resumes after mixed-reality ownership ends");
         VRSession.IsRunning=false;Check(!SkyAlternative.Tick()&&RoomField.GetValue(null)==null,"VR stop restores a geometry-free environment state");
-        File.WriteAllText(Path.Combine(output,"limits.txt"),"The whole production SkyAlternative class executes with actual Unity transforms, instantiation, layers, graphics and deferred destruction. Native/config/session/Haunt/audio/MR-owner boundaries are explicit ports. Tiny synthetic prefabs follow the original RoomGeo/PlaySpace contract; this fixture does not certify bundled art, original Default sky, headset presentation, networking or audio. First colored pixels="+first);
+        File.WriteAllText(Path.Combine(output,"limits.txt"),"The whole production SkyAlternative class executes with actual Unity transforms, instantiation, layers, graphics and deferred destruction. Native menu readiness/config/session/Haunt/audio/MR-owner boundaries are explicit ports. The actual packaged cellar and swamp geometry, PlaySpace and central floor/ceiling execute; their Windows-authored materials use an explicit unlit GL color witness. Synthetic rooms retain the existing map/scenario placement controls. This fixture does not certify native lifecycle admission, original shader appearance, Default sky, HMD timing, networking or audio. First colored pixels="+first);
         yield return checks;
     }
     public static void Cleanup()
@@ -131,5 +202,7 @@ public static class EnvironmentScopeProgram
         SkyAlternative.RestoreAll();VRRigDriver.HeadCamera=null;VRRigDriver.RigRoot=null;
         foreach(var value in Owned)if(value!=null)Object.DestroyImmediate(value);Owned.Clear();
         Singleton<ObjectCacheService>.Instance.Tiles.Clear();
+        var prefabs=(GameObject?[])PrefabsField.GetValue(null)!;Array.Clear(prefabs,0,prefabs.Length);
+        if(shipping!=null)shipping.Unload(true);shipping=null;MenuWorldContext.IsReady=false;
     }
 }

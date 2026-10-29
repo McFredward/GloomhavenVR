@@ -803,6 +803,18 @@ internal static class SkyAlternative
             return false;
         }
 
+        // Build742: a live menu rig also exists while the studio movie/logos are
+        // playing, before its first tracked recenter. Build740 seated the room in
+        // that provisional pose and the later recenter left the player's eyes at
+        // its floor (local740 ROOM placed precedes menu recenter). The native menu
+        // and completed initial recenter now jointly admit the surroundings. This
+        // does not grant table/gameplay permission, nor re-seat an occupied room.
+        if (!Events.MenuWorldContext.AllowsSurroundings)
+        {
+            Deactivate();
+            return false;
+        }
+
         // Ensure the dial is bound (RenderQuality.Bind rides SkyAlternative.BindConfig along).
         if (!_bound)
             Rig.RenderQuality.Bind();
@@ -1590,6 +1602,19 @@ internal static class SkyAlternative
         // gap below it, so the board hovers over the ground like a tabletop diorama at EVERY zoom.
         float floatGap = FloatGapToBoardRatio * extent;
         float floorY = undersideY - floatGap;
+        // A seated player's tracking-origin height is not the visual centre of a
+        // closed room. Centre the ready eye between this prefab's actual central
+        // Floor/Ceiling surfaces, once; never use the full art bounds (the cellar
+        // also contains a large outdoor wood). Open-air rooms keep their tracking
+        // floor because they have no ceiling to define a vertical middle.
+        if (!Events.VRModeStateMachine.TableInFrontOfPlayer && Events.MenuWorldContext.AllowsSurroundings
+            && TryMenuClearance(room, out float authoredFloor, out float authoredCeiling)
+            && VRRigDriver.HeadCamera != null)
+        {
+            floorY = VRRigDriver.HeadCamera.transform.position.y
+                - (authoredFloor + authoredCeiling) * .5f * roomScale;
+            floatGap = undersideY - floorY;
+        }
         // Guildmaster has native floor-standing furniture. The generic diorama float gap
         // leaves all its feet suspended; anchor only this room to their measured base instead.
         if (WorldUI.MapRoom.GuildmasterRoomGeometry.TryFloor(out float furnitureFloor))
@@ -1781,10 +1806,10 @@ internal static class SkyAlternative
     }
 
     /// <summary>
-    /// A menu's one placement subject: a fixed metre-scale footprint on the live tracking
-    /// floor. Its synthetic underside cancels the existing proportional float gap, placing
-    /// the room floor exactly on that floor. This is used only without a native table;
-    /// scenario/map geometry and gameplay permission remain authoritative for their modes.
+    /// A ready no-table view's one placement subject: a fixed metre-scale footprint
+    /// on the settled tracking floor. Its synthetic underside cancels the existing
+    /// proportional float gap; a closed room's actual clearance then centres the eye
+    /// in TryPlaceRoom. Scenario/3D-map geometry and gameplay permission stay native.
     /// The caller stops measuring as soon as the room stands, so head movement cannot drag it.
     /// </summary>
     private static bool TryMeasureMenuSubject(out Vector3 center, out float undersideY,
@@ -1795,7 +1820,8 @@ internal static class SkyAlternative
         yaw = Quaternion.identity;
         Transform? rig = VRRigDriver.RigRoot;
         Camera? head = VRRigDriver.HeadCamera;
-        if (Events.VRModeStateMachine.TableInFrontOfPlayer || rig == null || head == null)
+        if (Events.VRModeStateMachine.TableInFrontOfPlayer || !Events.MenuWorldContext.AllowsSurroundings
+            || rig == null || head == null)
             return false;
 
         float scale = rig.lossyScale.x;
@@ -1811,6 +1837,41 @@ internal static class SkyAlternative
         center = new Vector3(floor.x, undersideY, floor.z);
         yaw = VRRigDriver.YawOnly(rig.rotation);
         return true;
+    }
+
+    /// <summary>
+    /// Read the existing closed-room surface contract at its authored centre.
+    /// These meshes are render assets, not physics or gameplay objects. Their
+    /// local bounds include only the small authored floor/ceiling undulation;
+    /// walls, outdoor ground and particles cannot enlarge the measured clearance.
+    /// A missing/open/invalid pair leaves the original tracking-floor placement.
+    /// </summary>
+    private static bool TryMenuClearance(GameObject room, out float floor, out float ceiling)
+    {
+        floor = ceiling = 0f;
+        bool hasFloor = false, hasCeiling = false;
+        foreach (MeshFilter filter in room.GetComponentsInChildren<MeshFilter>(true))
+        {
+            bool isFloor = string.Equals(filter.name, "Floor", System.StringComparison.Ordinal);
+            bool isCeiling = string.Equals(filter.name, "Ceiling", System.StringComparison.Ordinal);
+            if ((!isFloor && !isCeiling) || filter.sharedMesh == null)
+                continue;
+            Bounds bounds = filter.sharedMesh.bounds;
+            Vector3 midpoint = room.transform.InverseTransformPoint(filter.transform.TransformPoint(bounds.center));
+            Vector3 half = bounds.extents;
+            // The authored room is upright. Requiring the named surface to span
+            // its centre excludes an unrelated prop's floor/ceiling decoration.
+            Vector3 min = room.transform.InverseTransformPoint(filter.transform.TransformPoint(bounds.min));
+            Vector3 max = room.transform.InverseTransformPoint(filter.transform.TransformPoint(bounds.max));
+            if (Mathf.Min(min.x, max.x) > 0f || Mathf.Max(min.x, max.x) < 0f
+                || Mathf.Min(min.z, max.z) > 0f || Mathf.Max(min.z, max.z) < 0f
+                || float.IsNaN(midpoint.y) || float.IsInfinity(midpoint.y)
+                || half.x <= 0f || half.z <= 0f)
+                continue;
+            if (isFloor) { floor = midpoint.y; hasFloor = true; }
+            else { ceiling = midpoint.y; hasCeiling = true; }
+        }
+        return hasFloor && hasCeiling && ceiling > floor + .5f;
     }
 
     /// <summary>

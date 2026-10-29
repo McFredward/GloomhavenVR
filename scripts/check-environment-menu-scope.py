@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Execute the whole custom-environment owner in Unity across menu/map/scenario rigs.
 
-Native/config/audio/gameplay boundaries and tiny RoomGeo/PlaySpace prefabs are
-explicit surrogates. This proves current lifecycle/placement and real GL head
-pixels, not bundled artwork, original Default sky, HMD timing or peer audio.
+Native menu readiness/config/audio/gameplay boundaries are explicit surrogates.
+Actual shipping RoomGeo/PlaySpace meshes prove spawn clearance, with a declared
+GL material witness; synthetic rooms retain map/scenario placement controls.
+Original shader appearance, Default sky, HMD timing and peer audio remain separate.
 """
 import argparse
 import hashlib
@@ -127,12 +128,15 @@ def main():
     root = args.source_root.resolve()
     fixture = root / 'scripts/environment-menu-scope'
     source_path = root / 'src/GloomhavenVR/Core/Environment/SkyAlternative.cs'
+    environment_bank = root / 'prebuilt/gloomhavenvr.bundle'
     source = source_path.read_text()
     mutations = [
+        ('intro-gate-lost', 'if (!Events.MenuWorldContext.AllowsSurroundings)',
+         'if (bool.Parse("false"))', 'studio intro never reveals custom surroundings before the real menu is ready'),
         ('old-menu-gate', '        // OFF (BLACK) — the whole style, in full',
          '        if (!Events.VRModeStateMachine.TableInFrontOfPlayer) { Deactivate(); return false; }\n        // OFF (BLACK) — the whole style, in full',
          'selected custom room is visible in the main menu without a native board'),
-        ('menu-subject-lost', 'if (Events.VRModeStateMachine.TableInFrontOfPlayer || rig == null || head == null)',
+        ('menu-subject-lost', 'if (Events.VRModeStateMachine.TableInFrontOfPlayer || !Events.MenuWorldContext.AllowsSurroundings\n            || rig == null || head == null)',
          'if (rig == null || head == null || !Events.VRModeStateMachine.TableInFrontOfPlayer)',
          'cold main-menu room completes its placement before reveal'),
         ('menu-floor-buried', 'undersideY = floor.y + FloatGapToBoardRatio * extent;',
@@ -142,8 +146,11 @@ def main():
         ('room-follows-rig', '            HealScaleDrift(_skyGo.transform, anchor);',
          '            _roomGo.transform.position = anchor.position;\n            HealScaleDrift(_skyGo.transform, anchor);',
          'menu room remains world-fixed under head and rig motion'),
-        ('menu-overrides-native-table', 'if (Events.VRModeStateMachine.TableInFrontOfPlayer || rig == null || head == null)',
+        ('menu-overrides-native-table', 'if (Events.VRModeStateMachine.TableInFrontOfPlayer || !Events.MenuWorldContext.AllowsSurroundings\n            || rig == null || head == null)',
          'if (rig == null || head == null)', 'native map width keeps the existing room proportions'),
+        ('closed-room-not-centered', '&& TryMenuClearance(room, out float authoredFloor, out float authoredCeiling)',
+         '&& bool.Parse("false") && TryMenuClearance(room, out float authoredFloor, out float authoredCeiling)',
+         'packaged cellar eye is vertically centered between its actual floor and ceiling'),
     ]
     cases = [('production', source, '')]
     for name, before, after, expected in mutations:
@@ -155,7 +162,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     print('Evidence: ' + str(run), flush=True)
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
-    paths = [source_path, Path(__file__), *fixture.rglob('*.cs'), fixture / 'EnvironmentScope.csproj']
+    paths = [source_path, environment_bank, Path(__file__), *fixture.rglob('*.cs'), fixture / 'EnvironmentScope.csproj']
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     code = 1; process = None; reaped = True
@@ -164,7 +171,8 @@ def main():
     compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-envscope-', dir='/tmp'))
     (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     env = dict(os.environ, DOTNET_CLI_USE_MSBUILD_SERVER='0', MSBUILDDISABLENODEREUSE='1',
-               UseSharedCompilation='false', TMPDIR=str(compiler_temp))
+               UseSharedCompilation='false', TMPDIR=str(compiler_temp),
+               GHVR_SCOPE_ENVIRONMENT_BUNDLE=str(environment_bank))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     try:
@@ -190,7 +198,7 @@ def main():
             (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/EnvironmentScopeRunner.cs', project / 'Assets/Editor/EnvironmentScopeRunner.cs')
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {name: '1.0.0' for name in
-            ['com.unity.modules.physics', 'com.unity.modules.particlesystem', 'com.unity.modules.imageconversion', 'com.unity.modules.jsonserialize']}}))
+            ['com.unity.modules.physics', 'com.unity.modules.particlesystem', 'com.unity.modules.imageconversion', 'com.unity.modules.jsonserialize', 'com.unity.modules.assetbundle']}}))
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         path = run / 'manifest.json'; path.write_text(json.dumps(manifest, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod',

@@ -51,7 +51,8 @@ internal static class NativeDefaultSky
     {
         Camera? head = VRRigDriver.HeadCamera;
         Transform? rig = VRRigDriver.RigRoot;
-        if (!VRSession.IsRunning || head == null || rig == null) return null;
+        if (!VRSession.IsRunning || !Events.MenuWorldContext.AllowsSurroundings
+            || head == null || rig == null) return null;
         if (_renderer != null) return _renderer;
         if (!EnsureAssets()) return null;
         _rig = rig;

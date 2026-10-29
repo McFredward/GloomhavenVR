@@ -3,7 +3,7 @@
 Run `python3 scripts/check-environment-menu-scope.py` from the checkout. This is a
 local Editor/OpenGL suite; `--production-only` is an explicitly partial development
 run. The full run compiles the complete production `SkyAlternative` class for the
-positive case and six causal controls, then executes them in one Unity session.
+positive case and eight causal controls, then executes them in one Unity session.
 
 The real owner performs its normal prefab instantiation, node split, mod-layer
 assignment, collider removal, sky placement, room placement, retained-room tick,
@@ -17,15 +17,23 @@ covered without invoking gameplay controllers.
 
 Controls restore the old table-only gate, remove the menu subject, bury its floor,
 retain the previous rig's room, make the room follow the rig, or let the menu subject
-override a genuine native table. Each must reach its named runtime assertion;
+override a genuine native table. Two more remove intro admission and closed-room
+eye centering. Each must reach its named runtime assertion;
 compile/import failures are never accepted as controls.
 
-Native scene/config/session/audio/Haunt/MR-owner boundaries are explicit ports.
-Small generated prefabs implement the existing `RoomGeo`/`PlaySpace` contract.
-This suite proves current production lifecycle and placement plus actual Unity
-pixels for that geometry; it does not certify bundled environment art, the original
-Default sky, headset appearance/frame pacing, peer synchronization or sound.
-Original Default rendering has separate coverage.
+Native menu readiness/config/session/audio/Haunt/MR-owner boundaries are explicit
+ports. Small generated prefabs retain the existing native map/scenario reference
+checks. The actual `prebuilt/gloomhavenvr.bundle` then supplies both shipped
+`RoomGeo`/`PlaySpace` prefabs. Their mesh/transform data execute unchanged, including
+the cellar's central `Floor` and `Ceiling`, outdoor woods and seated hardware pose.
+The eye must start horizontally centred and midway between the closed room's
+surfaces; an open-air room retains its completed tracking floor. Real head pixels
+show the retained room through player movement. Only the Windows-authored room
+materials are replaced by an explicit unlit GL color witness.
+
+The root-owned native menu/recenter admission producer, original shader
+appearance, Default sky, HMD timing, peer synchronization and audio remain outside
+this fixture. Original Default rendering has separate coverage.
 
 Every attempt retains source/assembly/input/result/capture evidence and uses
 `cleanup_completed_run` after killing and reaping its own editor process group.

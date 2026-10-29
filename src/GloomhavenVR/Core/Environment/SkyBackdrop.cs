@@ -220,6 +220,16 @@ internal static class SkyBackdrop
             NativeDefaultSky.Reset();
             return;
         }
+        // The startup rig is already live behind the studio movie and logos.
+        // Only the actual ready menu (after tracked recenter), map or scenario
+        // may acquire surroundings; a scene name or camera alone is insufficient.
+        if (!Events.MenuWorldContext.AllowsSurroundings)
+        {
+            if (_mech != Mechanism.Undecided || _applied) FullReset();
+            NativeDefaultSky.Release();
+            _scanNextFrame = 0;
+            return;
+        }
         if (!_watchingScenes)
         {
             SceneManager.sceneLoaded += OnSceneLoaded;

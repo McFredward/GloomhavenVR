@@ -17,7 +17,16 @@ internal sealed class ObjectCacheService
 internal static class UnityGameEditorRuntime { internal static Vector3 s_TileSize=new(2,0,2); }
 
 namespace GloomhavenVR.Core.Events
-{ internal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer=false; } }
+{
+    internal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer=false; }
+    // The root's native-menu/recenter lifecycle is a declared admission port.
+    // This fixture exercises its consumers, not native sign-in/movie callbacks.
+    internal static class MenuWorldContext
+    {
+        internal static bool IsReady=false;
+        internal static bool AllowsSurroundings=>VRModeStateMachine.TableInFrontOfPlayer||IsReady;
+    }
+}
 namespace GloomhavenVR.Rig
 {
     internal static class VRRigDriver
