@@ -112,6 +112,14 @@ internal static partial class RemoteMapStory
             (presence.MapRoomFlags & NetProtocol.MapRoomHostBit) != 0, held, automatic,
             Time.unscaledTime, storyEpoch, storyToken);
         ReflowPeers[sender] = peer;
+        if (SharedWindowMoves.Active)
+        {
+            // The census can restore the host or replace a stale surrogate without a new
+            // hand gesture. Stop a previously admitted local Auto at its existing write boundary.
+            if (StoryLocal.Reflow && !SharedWindowMoves.MayWrite(SharedWindowKind.MapStory)) CancelReflow(StoryLocal);
+            if (QuestLocal.Reflow && !SharedWindowMoves.MayWrite(SharedWindowKind.QuestConfirm)) CancelReflow(QuestLocal);
+            if (EncounterLocal.Reflow && !SharedWindowMoves.MayWrite(SharedWindowKind.Encounter)) CancelReflow(EncounterLocal);
+        }
         if ((CurrentHeldMask(sender, in peer) & 1) != 0) CancelReflow(StoryLocal);
         if ((held & 2) != 0) CancelReflow(QuestLocal);
         if ((held & 4) != 0) CancelReflow(EncounterLocal);

@@ -25,6 +25,7 @@ namespace GloomhavenVR.Net {
     // integration execute in shared-window-pose-runtime, including adversarial77 replay.
     internal static class SharedWindowMoves {
         internal static bool Active => false;
+        internal static bool MayWrite(SharedWindowKind kind) => true;
         internal static bool BeginAutomatic(SharedWindowKind kind) => true;
         internal static bool Accepted(int sender,SharedWindowKind kind,uint key) => true;
         internal static bool MayFollow(int sender,SharedWindowKind kind,uint key) => true;

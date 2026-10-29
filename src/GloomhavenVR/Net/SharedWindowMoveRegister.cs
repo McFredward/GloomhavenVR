@@ -24,7 +24,8 @@ internal sealed class SharedWindowMoveRegister
     private SharedWindowMovePhase _phase;
     private int _winner;
     private uint _winningClaim;
-    private bool _winnerAutomatic;
+    private bool _winnerAutomatic, _closedByAutomatic;
+    private int _automaticAuthor = -1;
     private uint _parentClaim, _winningBaseClaim;
     private int _parentAuthor, _winningBaseAuthor;
 
@@ -82,7 +83,7 @@ internal sealed class SharedWindowMoveRegister
     {
         _openingAuthor = author; _opening = opening;
         _localClaim = false; _claim = 0; _winner = 0; _winningClaim = 0; _winnerAutomatic = false;
-        _winningBaseClaim = 0; _winningBaseAuthor = 0;
+        _winningBaseClaim = 0; _winningBaseAuthor = 0; _closedByAutomatic = false;
         _peers.Clear();
         _phase = SharedWindowMovePhase.Initial;
     }
@@ -105,18 +106,40 @@ internal sealed class SharedWindowMoveRegister
         if (_peers.TryGetValue(sender, out Receipt previous))
         {
             if (!Newer(row.Sequence, previous.Row.Sequence)) return false;
-            if (row.Claim != previous.Row.Claim && !Newer(row.Claim, previous.Row.Claim)) return false;
+            if (row.Claim != previous.Row.Claim && previous.Row.Claim != 0
+                && (row.Claim == 0 || !Newer(row.Claim, previous.Row.Claim))) return false;
         }
+        // The native publisher can change between local samples. Keep the receive-side
+        // initial-pose gate on that current role without replacing the accepted opening/claim.
+        _initialPublisher = openingAuthor;
         _peers[sender] = new Receipt(in row, now);
-        if (row.Claim != 0) See(row.Claim);
+        // Initial has no manual claim. Its existing monotone sequence also carries the
+        // publisher's observed clock, so a cold late viewer can make a genuinely newer grab
+        // after publisher handover. Only fully validated receipts may advance that clock.
+        See(row.Phase == SharedWindowMovePhase.Initial ? row.Sequence : row.Claim);
         Elect(sender, in row, now);
         return true;
     }
 
+    /// <summary>Eligibility belongs to the current native map census. A former automatic
+    /// author cannot retain authority through its larger clock or ID after that census changes.
+    /// The accepted manual release basis remains a watermark, never a fabricated new gesture.</summary>
+    internal void SetAutomaticAuthor(int author, float now)
+    {
+        if (_automaticAuthor == author) return;
+        _automaticAuthor = author;
+        if (!_winnerAutomatic || _winner == author) return;
+        if (_winner == _local && _phase == SharedWindowMovePhase.Automatic) _localClaim = false;
+        _winner = _winningBaseAuthor; _winningClaim = _winningBaseClaim;
+        _winnerAutomatic = false; _closedByAutomatic = _winningBaseClaim != 0;
+        foreach (KeyValuePair<int, Receipt> peer in _peers)
+        { SharedWindowMoveEntry row = peer.Value.Row; Elect(peer.Key, in row, now); }
+    }
+
     private bool WinnerHeld(float now)
-        => _winner == _local ? _localClaim && _phase == SharedWindowMovePhase.Held
+        => !_closedByAutomatic && (_winner == _local ? _localClaim && _phase == SharedWindowMovePhase.Held
             : _peers.TryGetValue(_winner, out Receipt owner) && owner.Row.Phase == SharedWindowMovePhase.Held
-                && now - owner.At <= GripLeaseSeconds;
+                && now - owner.At <= GripLeaseSeconds);
 
     private void Elect(int sender, in SharedWindowMoveEntry row, float now)
     {
@@ -124,6 +147,7 @@ internal sealed class SharedWindowMoveRegister
         // Auto is causally after the manual release it observed. Its own (potentially much
         // higher) Lamport clock never ranks ahead of a fresh manual gesture on an older basis.
         bool automatic = row.Phase == SharedWindowMovePhase.Automatic;
+        if (automatic && _automaticAuthor >= 0 && sender != _automaticAuthor) return;
         uint basis = automatic ? row.ParentClaim : row.Claim;
         int basisAuthor = automatic ? row.ParentAuthor : sender;
         int comparison = Compare(basis, basisAuthor, _winningBaseClaim, _winningBaseAuthor);
@@ -131,7 +155,7 @@ internal sealed class SharedWindowMoveRegister
             && ((automatic && !_winnerAutomatic) || (automatic == _winnerAutomatic
                 && Compare(row.Claim, sender, _winningClaim, _winner) > 0))))
         {
-            _winner = sender; _winningClaim = row.Claim; _winnerAutomatic = automatic;
+            _winner = sender; _winningClaim = row.Claim; _winnerAutomatic = automatic; _closedByAutomatic = false;
             _winningBaseClaim = basis; _winningBaseAuthor = basisAuthor;
         }
         if (_winner != _local) _localClaim = false;
@@ -141,20 +165,19 @@ internal sealed class SharedWindowMoveRegister
     {
         if (!Ready) return false;
         if (_winner == _local && _localClaim) return true;
-        if (_winner > 0 && _peers.TryGetValue(_winner, out Receipt holder)
-            && holder.Row.Phase == SharedWindowMovePhase.Held && now - holder.At <= GripLeaseSeconds) return false;
-        return true;
+        return !WinnerHeld(now);
     }
 
     internal bool Begin(float now, bool automatic = false)
     {
-        if (!CanBegin(now) || (automatic && WinnerHeld(now))) return false;
+        if (!CanBegin(now) || (automatic && (WinnerHeld(now)
+            || (_automaticAuthor >= 0 && _automaticAuthor != _local)))) return false;
         _parentClaim = automatic ? _winningBaseClaim : 0;
         _parentAuthor = automatic ? _winningBaseAuthor : 0;
         _clock = Next(_clock); _claim = _clock; _localClaim = true;
         _phase = automatic ? SharedWindowMovePhase.Automatic : SharedWindowMovePhase.Held;
         _winner = _local; _winningClaim = _claim;
-        _winnerAutomatic = automatic;
+        _winnerAutomatic = automatic; _closedByAutomatic = false;
         _winningBaseClaim = automatic ? _parentClaim : _claim;
         _winningBaseAuthor = automatic ? _parentAuthor : _local;
         return true;
@@ -175,7 +198,11 @@ internal sealed class SharedWindowMoveRegister
     {
         row = default;
         if (!Ready || (!_localClaim && !_announces)) return false;
+        // A claimless current publisher retains the accepted manual clock. Carry it in the
+        // existing sequence without inventing a grab/release or changing the row grammar.
+        if (!_localClaim && Newer(_clock, _sequence)) _sequence = _clock;
         _sequence = Next(_sequence);
+        if (!_localClaim) See(_sequence);
         row = new SharedWindowMoveEntry { Kind = _kind, ContentKey = _key,
             OpeningAuthor = _openingAuthor, Opening = _opening, Claim = _localClaim ? _claim : 0,
             Phase = _localClaim ? _phase : SharedWindowMovePhase.Initial, Sequence = _sequence,
@@ -185,6 +212,9 @@ internal sealed class SharedWindowMoveRegister
 
     internal bool Accepts(int sender, in SharedWindowMoveEntry row) => Ready && row.Kind == _kind
         && row.ContentKey == _key && row.OpeningAuthor == _openingAuthor && row.Opening == _opening
+        // A retired automatic operation leaves only the observed release's causal watermark.
+        // Its old manual samples cannot become a live grip or rewind the settled pose again.
+        && !_closedByAutomatic
         && (row.Phase == SharedWindowMovePhase.Initial ? _winner == 0 && sender == _initialPublisher
             : _winner == sender && _winningClaim == row.Claim);
 

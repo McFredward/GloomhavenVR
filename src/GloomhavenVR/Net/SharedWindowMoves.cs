@@ -43,7 +43,10 @@ internal static class SharedWindowMoves
     {
         int local = NetPlayerActors.LocalPlayerId();
         if (_local != local) { Reset(); _local = local; }
-        return Registers[(int)kind] ??= new SharedWindowMoveRegister(local, (byte)kind);
+        SharedWindowMoveRegister register = Registers[(int)kind] ??= new SharedWindowMoveRegister(local, (byte)kind);
+        if (kind is SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
+            register.SetAutomaticAuthor(RemoteMapStory.SharedReflowAuthor(), Time.unscaledTime);
+        return register;
     }
 
     internal static int OpeningAuthor(SharedWindowKind kind, uint key)
