@@ -80,7 +80,7 @@ class TownRunRetentionTests(unittest.TestCase):
                 runner_spec.loader.exec_module(win_runner)
         self.assertIs(win_runner.acquire_file_lock, win_retention.acquire_file_lock)
 
-    def test_successful_suite_replaces_only_its_previous_success(self):
+    def test_success_marking_preserves_every_previous_run(self):
         with tempfile.TemporaryDirectory() as temp:
             checkout = Path(temp) / 'checkout'
             output = checkout / '.planning/debug/town-activity'
@@ -103,12 +103,79 @@ class TownRunRetentionTests(unittest.TestCase):
             pinned = run('run-dddddddd', 'town-activity')
             (pinned / '.keep').symlink_to('missing-pin-target')
             latest = run('run-eeeeeeee', 'town-activity')
-            self.assertFalse(old.exists())
+            self.assertTrue(old.exists())
             self.assertTrue(failed.exists())
             self.assertFalse((failed / MARKER).exists())
             self.assertTrue(portable.exists())
             self.assertTrue(pinned.exists())
             self.assertTrue(latest.exists())
+
+    def test_new_success_preserves_old_evidence_and_only_completion_cleans_caches(self):
+        with tempfile.TemporaryDirectory() as temp:
+            checkout = Path(temp) / 'checkout'
+            output = checkout / '.planning/debug/town-activity'
+            borrowed = Path(temp) / 'borrowed'
+            borrowed.mkdir()
+            (borrowed / 'Test.csproj').write_text('<Project />')
+            (borrowed / 'bin').mkdir()
+            (borrowed / 'bin/input.dll').write_bytes(b'borrowed input')
+            evidence = {'run.log': b'original log', 'results.json': b'{"passed":true}',
+                        'Sources/Native.cs': b'// original source',
+                        'manifests/inputs.sha256': b'original input hashes',
+                        'captures/head.png': b'original capture'}
+            runs, logs, marked = [], [], []
+            for index, name in enumerate(('run-aaaaaaaa', 'run-bbbbbbbb')):
+                run = output / name
+                project = run / 'production'
+                project.mkdir(parents=True)
+                (project / 'Test.csproj').write_text('<Project />')
+                for cache in ('bin', 'obj'):
+                    (project / cache).mkdir()
+                    (project / cache / 'rebuild.dll').write_bytes(b'regenerable cache')
+                (project / 'bin/compiler.log').write_bytes(b'exact compiler receipt')
+                pinned = run / 'pinned'
+                (pinned / 'bin').mkdir(parents=True)
+                (pinned / 'Test.csproj').write_text('<Project />')
+                (pinned / 'bin/pinned.dll').write_bytes(b'pinned input')
+                (pinned / '.keep').symlink_to('missing-pin-target')
+                (run / 'borrowed').symlink_to(borrowed, target_is_directory=True)
+                for relative, payload in evidence.items():
+                    path = run / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(payload)
+                log = Path(temp) / f'suite-{index}.log'
+                log.write_text(f'PASS; evidence: {run}\n')
+                runs.append(run)
+                logs.append(log)
+                marked.append(record_success('town-activity', 0, log, checkout))
+
+            for run, log, marker in zip(runs, logs, marked):
+                self.assertTrue(run.is_dir(), 'A newer success must preserve older test evidence')
+                for relative, payload in evidence.items():
+                    self.assertEqual(payload, (run / relative).read_bytes())
+                self.assertEqual((run, 0), marker)
+                self.assertEqual({'schema_version': 1, 'suite': 'town-activity'},
+                                 json.loads((run / MARKER).read_text()))
+                project = run / 'production'
+                self.assertTrue((project / 'bin/rebuild.dll').exists())
+                self.assertTrue((project / 'obj/rebuild.dll').exists())
+                pending = cleanup_completed_run('town-activity', 0, log, checkout)
+                self.assertEqual([], pending['removed_paths'])
+                self.assertTrue((project / 'bin/rebuild.dll').exists())
+                cleaned = cleanup_completed_run('town-activity', 0, log, checkout, process_reaped=True)
+                self.assertEqual({str(project / 'bin'), str(project / 'obj')}, set(cleaned['removed_paths']))
+                self.assertEqual([], cleaned['skipped_paths'])
+                self.assertFalse((project / 'bin').exists())
+                self.assertFalse((project / 'obj').exists())
+                self.assertTrue((project / 'Test.csproj').exists())
+                self.assertEqual(b'exact compiler receipt',
+                                 (run / retention.REPORT_DIRECTORY / 'production/bin/compiler.log').read_bytes())
+                for relative, payload in evidence.items():
+                    self.assertEqual(payload, (run / relative).read_bytes())
+                self.assertTrue((run / 'pinned/.keep').is_symlink())
+                self.assertEqual(b'pinned input', (run / 'pinned/bin/pinned.dll').read_bytes())
+                self.assertTrue((run / 'borrowed').is_symlink())
+                self.assertEqual(b'borrowed input', (borrowed / 'bin/input.dll').read_bytes())
 
     def test_ignores_unmarked_runs_and_all_paths_outside_known_generated_root(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -178,9 +245,11 @@ class TownRunRetentionTests(unittest.TestCase):
 
             def execute(index, exit_code):
                 suite = {'id': 'town-service-interaction', 'command': [sys.executable, str(emitter), str(exit_code)]}
-                with redirect_stdout(StringIO()):
-                    return runner.execute([suite], 1, Path(temp) / f'report-{index}', checkout,
+                with redirect_stdout(StringIO()) as output:
+                    code = runner.execute([suite], 1, Path(temp) / f'report-{index}', checkout,
                                           'test-manifest', 'local', (0, 1))
+                self.assertNotIn('older successful runs', output.getvalue())
+                return code
 
             self.assertEqual(0, execute(1, 0))
             output = checkout / '.planning/debug/town-service-interaction'
@@ -189,9 +258,9 @@ class TownRunRetentionTests(unittest.TestCase):
             failed = next(path for path in output.glob('run-*') if path != first)
             self.assertFalse((failed / MARKER).exists())
             self.assertEqual(0, execute(3, 0))
-            self.assertFalse(first.exists())
+            self.assertTrue(first.exists())
             self.assertTrue(failed.exists())
-            self.assertEqual(1, len([path for path in output.glob('run-*') if (path / MARKER).exists()]))
+            self.assertEqual(2, len([path for path in output.glob('run-*') if (path / MARKER).exists()]))
 
 
 class CompletedRunCacheTests(unittest.TestCase):

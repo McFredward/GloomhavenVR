@@ -290,7 +290,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=
                         if retained is not None and removed:
                             print(f'[retention] {name}: removed {removed} older successful runs; kept {retained}', flush=True)
                     except (OSError, ValueError) as exc:
-                        print(f'[retention] {name}: could not prune generated runs: {exc}', flush=True)
+                        print(f'[retention] {name}: could not mark generated run successful: {exc}', flush=True)
                 del running[name]
             if pending or running:
                 time.sleep(.05)
