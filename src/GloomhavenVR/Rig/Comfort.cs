@@ -228,6 +228,11 @@ internal static class RigClamp
         if (ComfortSettings.PositionalClampsDisabled)
             return; // [Comfort] FreeMovement: no positional limits at all (test #10)
 
+        // A ready main menu is a freely navigable room, not a gameplay table. A
+        // retained/native menu camera controller must not clamp its eyes to an old board.
+        if (Core.Events.MenuWorldContext.IsReady)
+            return;
+
         Camera? head = VRRigDriver.HeadCamera;
         CameraController controller = CameraController.s_CameraController;
         if (head == null || controller == null)
