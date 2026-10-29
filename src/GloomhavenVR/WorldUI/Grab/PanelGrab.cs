@@ -865,7 +865,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         ReportCarryToLesson();
         ReportScaleToLesson(root);
 
-        float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);
+        // Window manipulation is a tracking-space UI action. Main menu/paused native
+        // flows may stop the game clock; the grab must still follow the tracked hands.
+        float k = 1f - Mathf.Exp(-Smoothing * Time.unscaledDeltaTime);
 
         // Feature #8: LASER-CARRY (one hand, grabbed via the ray). The window slides ALONG
         // the live aim ray at its captured distance instead of snapping to the palm; the
