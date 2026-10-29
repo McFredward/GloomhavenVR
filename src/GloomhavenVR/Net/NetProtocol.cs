@@ -632,7 +632,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 747;
+    public const ushort ModBuild = 748;
+
+    // ModBuild748 — native menu depth picking and complete story transitions.
+    // Hardware747/c0 accepts complete Further Ability Cards but its native offset
+    // covers the hovered row. Use the free gap left of the measured inventory,
+    // preserving the full card, native row and original pool/fade lifetime.
+    // An open browse-only list survived its character owner's story retirement
+    // and CatchAll floated it independently. Retire that proved browser through
+    // its native reset-window close path before returning its original subtree;
+    // preserve mandatory active level-up selection and native authority.
+    // Laser points must intersect the rendered raised menu surfaces and map back
+    // to their original native graphics, retaining host input locks, occlusion
+    // and original pointer/press/rotation behavior. Capture quality stays fixed.
+    // The loadout dimmer is already visible during pre-reveal fit, before the
+    // composed illustration is ready. Bind its exact native visual role during
+    // conversion admission so first fit/reveal/capture never paints the backing;
+    // preserve original artwork, input and source-owned hand-back in SP and MP.
+    // No wire grammar, actor state, capture cadence, target budget or scale change.
 
     // ModBuild747 — complete More Cards previews and the composed story foreground.
     // Singleplayer746/8e8a6c50d reports clipped further-card previews and a
