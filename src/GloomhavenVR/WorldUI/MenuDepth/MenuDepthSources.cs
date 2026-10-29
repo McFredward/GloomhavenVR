@@ -47,6 +47,7 @@ internal static class MenuDepthSources
     private static void FlushPendingContent()
     {
         if (_capturing || _pumping || _discoveryPump == null) return;
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.ContentRefresh") : default;
         _pumping = true;
         try { _discoveryPump(); }
         catch (Exception error)
@@ -244,6 +245,7 @@ internal static class MenuDepthSources
     /// <summary>Call before the private capture; a failing source is also restored.</summary>
     internal static void BeforeCapture(Transform root, MenuDepthEye eye, Camera? raster = null)
     {
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.SourcePrepare") : default;
         if (_capturing) throw new InvalidOperationException("Nested menu-depth preparation is not owned by this capture.");
         FlushPendingContent();
         _capturing = true;
@@ -370,6 +372,7 @@ internal static class MenuDepthSources
     {
         Camera? head = VRRigDriver.HeadCamera;
         if (_capturing || _primingDirect || head == null || !head.isActiveAndEnabled) return;
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.DirectPrime") : default;
         _primingDirect = true;
         try
         {
@@ -442,6 +445,10 @@ internal static class MenuDepthSources
     private static void BeforeDirectCamera(Camera camera)
     {
         if (camera == null || camera != VRRigDriver.HeadCamera) return;
+        // This callback can run before PerfFrameSplit's first camera timestamp,
+        // and its coordinators can synchronously nest Camera.Render. Keep their
+        // inclusive wall cost visible without changing capture quality or order.
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadPreCull") : default;
         // A missing post callback must not retain a texture lease into the next
         // head render. Unity cannot recursively render that same camera.
         if (_directCamera == camera) { _directCamera = null; AfterCapture(); }

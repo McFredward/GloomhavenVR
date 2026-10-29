@@ -64,6 +64,34 @@ def main():
                  'MenuDepthProjection.cs', 'MenuDepthDisplay.cs')
         originals = {name: (source / name).read_text() for name in names}
         originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
+        perf_root = ROOT / 'src/GloomhavenVR/Core/Perf'
+        monitor = (perf_root / 'PerfMonitor.cs').read_text()
+        split = (perf_root / 'PerfFrameSplit.cs').read_text()
+        # Exercise the actual allocation-free scopes and camera callback bodies.
+        # Only the host/window/profiler lifecycle is a declared boundary here.
+        originals['PerfScopes746.cs'] = ('using System;\nusing System.Collections.Generic;\nusing System.Diagnostics;\n'
+            'namespace GloomhavenVR.Core;\ninternal static partial class PerfMonitor\n{\n'
+            'internal static bool StepsActive = true; private static int _depth; private static double _frameModSeconds;\n'
+            'private static readonly Dictionary<string, Step> Steps = new(); private static readonly List<Step> StepOrder = new();\n'
+            + member(monitor, '    private sealed class Step')
+            + member(monitor, '    internal static long BeginStep()')
+            + member(monitor, '    internal static void EndStep(')
+            + member(monitor, '    internal readonly struct Measure')
+            + 'internal static Measure Scope(string name) => new(name);\n}\n')
+        assert 'internal static Measure Scope(string name) => new(name);' in monitor
+        originals['PerfCameraCallbacks746.cs'] = ('using System.Collections.Generic;\nusing System.Diagnostics;\nusing UnityEngine;\n'
+            'namespace GloomhavenVR.Core;\ninternal static partial class PerfFrameSplit\n{\n'
+            'private static readonly Dictionary<int, CamRec> Cameras = new(); private static readonly List<CamRec> CameraOrder = new();\n'
+            + member(split, '    private sealed class CamRec')
+            + member(split, '    private static void OnPreCull(')
+            + member(split, '    private static void OnPreRender(')
+            + member(split, '    private static void OnPostRender(') + '}\n')
+        for name in ('CameraPasses', 'Spike'):
+            originals['PerfFrameSplit.' + name + '.cs'] = (perf_root / ('PerfFrameSplit.' + name + '.cs')).read_text()
+        roll = member(split, '    internal static void RollFrame(')
+        assert roll.index('CaptureCompletedFrame(') < roll.index('_logicStart = now;')
+        assert 'ResetCameraPasses(Time.frameCount);' in roll
+        assert 'PerfFrameSplit.AppendSpike(sb);' in member(monitor, '    private static void LogSpike(')
         isolation_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.5.Isolation.cs'
         isolation = isolation_path.read_text()
         originals['LayerReservation724.cs'] = ('using System.Collections.Generic;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
@@ -113,6 +141,34 @@ def main():
             'head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Right')
         cases = [
             ('production', '', '', '', ''),
+            ('camera-parent-lost746', 'PerfFrameSplit.CameraPasses.cs',
+             'CameraPassStack[_cameraPassDepth++] = new CameraPass',
+             '_cameraPassDepth = 0; CameraPassStack[_cameraPassDepth++] = new CameraPass',
+             'real nested Camera.Render retains both parent and child callback intervals'),
+            ('camera-frame-mismatch746', 'PerfFrameSplit.CameraPasses.cs',
+             'if (_cameraPassFrame == frame) return;',
+             'if (_cameraPassFrame >= -1) return;',
+             'a stale callback cannot turn a cross-frame interval into camera work'),
+            ('camera-orphan-unreported746', 'PerfFrameSplit.CameraPasses.cs',
+             '_cameraPassFaults += _cameraPassDepth - index - 1;', '',
+             'a missing child post-render is reported while the actual parent still completes'),
+            ('spike-frame-mismatch746', 'PerfFrameSplit.Spike.cs',
+             '&& _logicFrame == reportingFrame - 1;', ';',
+             'a skipped reporting frame cannot relabel old seams as a completed frame'),
+            ('nested-scope-double-count746', 'PerfScopes746.cs',
+             'if (_depth == 0)\n            _frameModSeconds += seconds;',
+             'if (_depth >= 0)\n            _frameModSeconds += seconds;',
+             'nested native/render intervals contribute once to the outer measured total'),
+            ('head-scope-lost746', 'MenuDepthSources.cs',
+             'using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadPreCull") : default;', '',
+             'actual head pre-cull and coordinator capture are attributed before native render callbacks finish'),
+            ('head-coordinator-scope-lost746', 'PanelDepth.cs',
+             'using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadCoordinator") : default;', '',
+             'actual head pre-cull and coordinator capture are attributed before native render callbacks finish'),
+            ('head-scope-normal746', 'MenuDepthSources.cs',
+             'VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadPreCull") : default',
+             'PerfMonitor.Scope("MenuDepth.HeadPreCull")',
+             'normal logging leaves the new render measurements completely inactive'),
             ('member-sync-lost745', 'PanelDepth.cs',
              'SyncOwnedMembers(e); // live permission/lifetime before either actual head eye',
              '/* omitted membership boundary */',
@@ -234,7 +290,7 @@ def main():
                 code = path.read_text()
                 if path.name == 'Boundary.cs':
                     code = code.replace('internal static readonly List<string> Messages',
-                        'internal static bool WantsDebug => true; internal static void Debug(string scope, string message) => Messages.Add(message);\n        internal static readonly List<string> Messages')
+                        'internal static void Debug(string scope, string message) => Messages.Add(message);\n        internal static readonly List<string> Messages')
                 if path.name == 'Program.cs':
                     code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Frame728(output);\n        Projection();')
                     code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
@@ -269,7 +325,9 @@ def main():
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
+        pins = [*(source / name for name in names), *(perf_root / name for name in
+                ('PerfMonitor.cs', 'PerfFrameSplit.cs', 'PerfFrameSplit.CameraPasses.cs', 'PerfFrameSplit.Spike.cs')),
+                legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
                 Path(__file__).parent / 'Workload725.cs', Path(__file__).parent / 'Frame728.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py',

@@ -54,6 +54,7 @@ internal static partial class PanelSupersample
     // pixels in both eye textures. The native UI hierarchy keeps every stencil/mask.
     private static void CaptureMenuDepth(Camera head)
     {
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadCoordinator") : default;
         for (int i = Entries.Count - 1; i >= 0; i--)
         {
             if (i >= Entries.Count) continue;

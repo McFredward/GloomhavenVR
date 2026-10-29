@@ -15,6 +15,7 @@ namespace GloomhavenVR.Core
 {
     internal static class VRLog
     {
+        internal static bool WantsDebug = true;
         internal static readonly List<string> Messages = new();
         internal static void Warn(string scope, string message) => Messages.Add(message);
     }

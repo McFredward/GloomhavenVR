@@ -51,6 +51,13 @@ internal sealed class DesktopFaultSource : IMenuDepthSource
 }
 namespace GloomhavenVR.Core
 {
+    // Timing is an explicit boundary here; the head compositor, source leases
+    // and native widgets below retain their actual implementations.
+    internal static class PerfMonitor
+    {
+        internal readonly struct Measure : IDisposable { public void Dispose() { } }
+        internal static Measure Scope(string name) => default;
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLog
     {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -190,6 +191,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal void RenderHead(Camera capture, RectTransform plane, Rect frame, RenderTexture original,
         MenuDepthEye left, MenuDepthEye right)
     {
+        using var measurement = VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadPixels") : default;
         Vector2Int size = MenuDepthHeadRaster.Size(left.HeadCamera);
         if (_headLeft == null || _headRight == null || !MenuDepthHeadRaster.Matches(_headLeft, original.descriptor, size)
             || !MenuDepthHeadRaster.Matches(_headRight, original.descriptor, size))
@@ -212,17 +214,20 @@ internal sealed class MenuDepthDisplay : IDisposable
         try
         {
             RectInt region = MenuDepthSources.HeadRegion(plane, plane.localToWorldMatrix, frame, left, right);
-            filter = MenuDepthHeadRaster.Filter(original.descriptor, size, region, HeadResolveShader);
+            using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadFilter") : default)
+                filter = MenuDepthHeadRaster.Filter(original.descriptor, size, region, HeadResolveShader);
             MenuDepthEye sampledLeft = filter.Value.Eye(left), sampledRight = filter.Value.Eye(right);
             CaptureHeadEye(capture, plane, filter.Value.Target, sampledLeft, filter.Value.Pixels);
             MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
-            filter.Value.Resolve(_headLeft!, sampledLeft, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
+            using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadResolve") : default)
+                filter.Value.Resolve(_headLeft!, sampledLeft, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
                 Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
                 plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
             CaptureHeadEye(capture, plane, filter.Value.Target, sampledRight, filter.Value.Pixels);
             MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
-            filter.Value.Resolve(_headRight!, sampledRight, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
+            using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadResolve") : default)
+                filter.Value.Resolve(_headRight!, sampledRight, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
                 Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
                 plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
@@ -331,9 +336,11 @@ internal sealed class MenuDepthDisplay : IDisposable
             try
             {
                 ThrowIfHeadOwnerClosed(target);
-                Canvas.ForceUpdateCanvases();
+                using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.CanvasRebuild") : default)
+                    Canvas.ForceUpdateCanvases();
                 ThrowIfHeadOwnerClosed(target);
-                capture.Render();
+                using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.UiRender") : default)
+                    capture.Render();
             }
             finally { MenuDepthSources.AfterCapture(); }
         }

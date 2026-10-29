@@ -66,6 +66,12 @@ namespace UnityEngine.UI
 
 namespace GloomhavenVR.Core
 {
+    // Only the performance clock is a port; actual source/camera rendering runs.
+    internal static class PerfMonitor
+    {
+        internal readonly struct Measure : System.IDisposable { public void Dispose() { } }
+        internal static Measure Scope(string name) => default;
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLog
     {

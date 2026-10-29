@@ -195,9 +195,7 @@ internal static partial class PerfFrameSplit
     private static long _renderLast;      // last onPostRender of the frame
     private static bool _renderSeen;
 
-    private static long _camOpen;         // open onPreCull timestamp
-    private static int _camOpenId;
-    private static long _camCullDone;     // that camera's onPreRender timestamp (0 = not seen)
+    private static int _logicFrame = -1;
 
     // ---- window accumulators -------------------------------------------------------------------
 
@@ -361,6 +359,7 @@ internal static partial class PerfFrameSplit
         SetNativeProbesActive(enabled && VRLog.WantsDebug);
         bool sampledFrame = _probeFrameOpen;
         long now = Stopwatch.GetTimestamp();
+        CaptureCompletedFrame(enabled && record, now, Time.frameCount);
 
         if (enabled && record && _logicStart != 0L)
         {
@@ -446,13 +445,13 @@ internal static partial class PerfFrameSplit
         }
 
         _logicStart = now;
+        _logicFrame = Time.frameCount;
         _logicEnd = now;
         _logicEndSeen = false;
         _updateEndSeen = false;
         _lateStartSeen = false;
         _renderSeen = false;
-        _camOpenId = 0;
-        _camCullDone = 0L;
+        ResetCameraPasses(Time.frameCount);
         if (sampledFrame && record && _probeSampling && ++_probeFrames >= NativeProbeFrames)
             StopProbeSampling();
         _probeFrameOpen = _probeSampling;
@@ -596,9 +595,7 @@ internal static partial class PerfFrameSplit
             }
             _renderLast = t;   // a render with no matching post-render still bounds the span
         }
-        _camOpen = t;
-        _camOpenId = cam.GetInstanceID();
-        _camCullDone = 0L;
+        OpenCameraPass(cam.GetInstanceID(), Time.frameCount, t);
     }
 
     /// <summary>
@@ -609,9 +606,7 @@ internal static partial class PerfFrameSplit
     {
         if (!_active || cam == null)
             return;
-        if (cam.GetInstanceID() != _camOpenId)
-            return; // out-of-order/nested render — leave the split unattributed rather than wrong
-        _camCullDone = Stopwatch.GetTimestamp();
+        MarkCameraPassCull(cam.GetInstanceID(), Time.frameCount, Stopwatch.GetTimestamp());
     }
 
     private static void OnPostRender(Camera cam)
@@ -622,9 +617,8 @@ internal static partial class PerfFrameSplit
         if (_renderSeen)
             _renderLast = t;
         int id = cam.GetInstanceID();
-        if (id != _camOpenId)
-            return; // a nested/foreign render closed out of order — do not attribute it
-        _camOpenId = 0;
+        if (!CloseCameraPass(id, Time.frameCount, out CameraPass pass))
+            return;
 
         if (!Cameras.TryGetValue(id, out CamRec rec))
         {
@@ -634,14 +628,13 @@ internal static partial class PerfFrameSplit
             CameraOrder.Add(rec);
         }
         double freq = Stopwatch.Frequency;
-        rec.FrameSeconds += (t - _camOpen) / freq;
+        rec.FrameSeconds += (t - pass.Open) / freq;
         // No onPreRender for this pass (a camera that culled but never rendered, or a hook order
         // we did not see) → the whole pass counts as submission rather than inventing a split.
-        long cullDone = _camCullDone > 0L ? _camCullDone : _camOpen;
-        rec.FrameCullSeconds += (cullDone - _camOpen) / freq;
+        long cullDone = pass.CullDone > 0L ? pass.CullDone : pass.Open;
+        rec.FrameCullSeconds += (cullDone - pass.Open) / freq;
         rec.FrameSubmitSeconds += (t - cullDone) / freq;
         rec.FramePasses++;
-        _camCullDone = 0L;
     }
 
     /// <summary>

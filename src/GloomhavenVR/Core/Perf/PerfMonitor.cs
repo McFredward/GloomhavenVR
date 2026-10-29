@@ -26,9 +26,8 @@ namespace GloomhavenVR.Core;
 /// <item><b>Attribution</b> — every NAMED mod step (all <see cref="TickGuard.Run"/> steps plus the
 /// driver bodies explicitly wrapped in <see cref="Scope"/>) is stopwatch-timed and aggregated per
 /// window AND per frame, so the STEPS line ranks the mod's own subsystems and a SPIKE line can say
-/// which of them owned that frame. This is the piece that answers "is the hitch ours?" — and when
-/// the mod total is a rounding error next to the frame time, the line says so in as many words,
-/// which is just as valuable an answer.</item>
+    /// which of them owned that frame. These are named callback intervals, including native/engine
+    /// work called inside them. Work outside those scopes remains unassigned.</item>
 /// <item><b>Allocation pressure</b> — GC collection counts per generation and managed-heap growth
 /// per window. A gen0 collection inside a head turn IS the reported symptom.</item>
 /// <item><b>XR-side truth</b> — the display subsystem's own dropped/presented frame counters, GPU
@@ -1165,12 +1164,12 @@ internal static partial class PerfMonitor
                       .Append((Ranked[i].SpikeSeconds * 1000d).ToString("F2")).Append("ms");
                 }
             }
-            // Retain the historical grep token, but bound its interpretation explicitly:
-            // this verdict covers named scopes, not all work performed by the mod/game.
+            // Build745 hardware showed multi-second stalls outside the named scopes.
+            // A small measured share cannot exclude uninstrumented mod callbacks.
+            // Preserve the old grep token as an explicitly rejected inference.
             if (modSeconds < dtSeconds * 0.25f)
-                sb.Append(" | VERDICT: NOT the mod — the mod accounts for under a quarter of this "
-                          + "frame, so the stall is game/GPU/compositor side"
-                          + " (named scopes only; uninstrumented work remains unassigned)");
+                sb.Append(" | VERDICT: unassigned remainder; NOT the mod is not established "
+                          + "by the measured named-scope share (under a quarter of this frame)");
         }
         else
         {
@@ -1180,6 +1179,7 @@ internal static partial class PerfMonitor
         if (PerfConfig.Allocations.Value)
             sb.Append(" | heap ").Append((GC.GetTotalMemory(false) / 1048576d).ToString("F1")).Append("MB");
 
+        PerfFrameSplit.AppendSpike(sb);
         PerfSpikeDetails.Append(sb);
         VRLog.Info(Scope0, sb.ToString());
     }

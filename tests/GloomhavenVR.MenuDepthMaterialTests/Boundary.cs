@@ -5,6 +5,12 @@ using UnityEngine;
 // shader/UI rendering execute; only the surrounding logger/head reference is a port.
 namespace GloomhavenVR.Core
 {
+    // Timing is outside this native material-clock fixture's rendering contract.
+    internal static class PerfMonitor
+    {
+        internal readonly struct Measure : System.IDisposable { public void Dispose() { } }
+        internal static Measure Scope(string name) => default;
+    }
     internal static class VRLog
     {
         internal static readonly List<string> Messages = new();
