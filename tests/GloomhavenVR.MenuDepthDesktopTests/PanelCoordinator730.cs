@@ -64,6 +64,7 @@ namespace GloomhavenVR.WorldUI
                 DisplayImage = image, Frame = root.rect, RtW = target.width, RtH = target.height,
                 VramBytes = target.width * (long)target.height * 8 };
             Entries.Add(e); _vramTotal += e.VramBytes;
+            if (Entries.Count == 1) Camera.onPreCull += ConvertedHeadPreCull745;
             MenuDepthSources.BeforeHeadCapture += CaptureMenuDepth;
             return e;
         }
@@ -72,6 +73,7 @@ namespace GloomhavenVR.WorldUI
             MenuDepthSources.BeforeHeadCapture -= CaptureMenuDepth;
             ForgetOwnedPanel(e.Panel);
             ReleaseMenuDepth(e); Entries.Remove(e); _vramTotal -= e.VramBytes;
+            if (Entries.Count == 0) Camera.onPreCull -= ConvertedHeadPreCull745;
             CanvasConversion.ActivePanels.Remove(e.Panel);
         }
         // Original admission/resource disposal is a declared boundary of this

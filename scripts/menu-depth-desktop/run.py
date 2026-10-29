@@ -104,6 +104,13 @@ internal static class MenuDepthCharacterRotation
     tail = '        if (Entries.Count >= cap && !_capLogged)'
     assert consider.count(tail) == 1
     sources['PanelConsider.cs'] = 'using System.Collections.Generic;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + consider[:consider.index(tail)] + '    }\n}\n'
+    capture = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
+    dispatch = '            if (cam == Rig.VRRigDriver.HeadCamera)\n                CaptureMenuDepth(cam);'
+    assert capture.count(dispatch) == 1
+    # The independent generic panel hook survives an idle depth registry. Its
+    # pre-existing pool/entry admission is the same already-engaged fixture port.
+    sources['PanelHeadPreCull745.cs'] = ('using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n'
+        + '{\n    private static void ConvertedHeadPreCull745(Camera cam)\n    {\n' + dispatch + '\n    }\n}\n')
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
     budget_at = sources['DesktopCapture.cs'].index('MenuDepthHeadRaster.WindowBudget(')
@@ -127,7 +134,7 @@ internal static class MenuDepthCharacterRotation
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Sharpness' / name for name in
-               ('PanelSupersample.1.Core.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
+               ('PanelSupersample.1.Core.cs', 'PanelSupersample.2.Capture.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
@@ -157,7 +164,7 @@ internal static class MenuDepthCharacterRotation
          'actual final head native TMP glyphs retain independent original-font pixel detail'),
         ('head-confirmation-restore-lost745', 'OwnedMembers.cs',
          'record.Transform.gameObject.layer = record.OriginalLayer;', 'record.Transform.gameObject.layer = layer;',
-         'member release restores only its own native root and preserves a pooled foreign capture handoff'),
+         'owner render permission loss immediately restores native member layers and retains its input'),
         ('head-confirmation-pooled-restore-lost745', 'OwnedMembers.cs',
          'record.Transform != null && OwnedTree(member, record.Transform)', 'record.Transform != null',
          'member release restores only its own native root and preserves a pooled foreign capture handoff'),
@@ -167,6 +174,9 @@ internal static class MenuDepthCharacterRotation
         ('head-confirmation-generation-lost745', 'OwnedMembers.cs',
          'if (!SameBinding(member) || !LiveConversion(member.Owner)', 'if (!LiveConversion(member.Owner)',
          'a pooled native identity change revokes and forgets the old exact capture binding'),
+        ('head-confirmation-generic-hook-lost745', 'PanelHeadPreCull745.cs',
+         '                CaptureMenuDepth(cam);', '                /* existing generic dispatch lost */',
+         'restored producer permission readmits its own native confirmation at unchanged quality'),
         ('head-native-tmp742', '', '', '', ''),
         ('head-native-tmp-native-metric-lost742', 'MenuDepthNativeUiScope.cs',
          'float scale = Mathf.Pow(sx * sy * sz, 1f / 3f);', 'float scale = Mathf.Pow(sx * sy * sz, 0f);',
