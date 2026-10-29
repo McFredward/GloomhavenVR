@@ -52,8 +52,8 @@ public static partial class MenuDepthProgram
                     Check(draws == both, "a second head coordinator callback in the same frame cannot render the eye pair again");
                     Check(sampled.Begins - startSources == (tick + 1) * 2 && sampled.Ends == sampled.Begins,
                         "a moving window prepares one sampled source exactly once for each eye and restores every lease");
-                    Check(sampled.Last == new Vector2(scene.Head.targetTexture.width,scene.Head.targetTexture.height),
-                        "head-raster source preparation receives the complete actual eye pixel domain without the old native-photo ceiling");
+                    Check(sampled.Last == new Vector2(scene.Head.targetTexture.width * 2, scene.Head.targetTexture.height * 2),
+                        "head-raster source preparation receives the complete actual eye pixel domain without the old native-photo ceiling at fixed two-times density");
                     if (tick < 4)
                     {
                         watch.Stop(); // Pixel readback/evidence IO is not capture-loop timing.
