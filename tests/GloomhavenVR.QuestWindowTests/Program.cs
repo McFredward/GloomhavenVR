@@ -70,7 +70,10 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal sealed class GrabbableModal { internal bool IsGrabbed { get; set; } }
+    // Reference-only documentation target when this retained private project inherits strict
+    // XML checks. This fixture neither imports nor executes the unrelated HUD controller.
+    internal static class WristHud { }
+    internal sealed class GrabbableModal { internal bool IsGrabbed { get; set; } internal bool IsReleaseTurning { get; set; } = false; }
     internal static class RewardShowcase { internal static UIWindow? Window => null; }
     internal static class NativeVideoWindow
     {
