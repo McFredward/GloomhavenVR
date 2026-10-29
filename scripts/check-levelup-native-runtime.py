@@ -119,8 +119,8 @@ def main():
         ('pooled-text-birth-ignored', 'LevelUpComposite.cs', 'TMPro_EventManager.TEXT_CHANGED_EVENT.Add(PreviewTextChanged);', '/* native text birth observation omitted */', 'same pooled preview root accepts later native text births'),
         ('text-ink-ignored', 'LevelUpComposite.cs', 'Bounds ink = text.textBounds;', 'Bounds ink = default;', 'complete original card text remains readable'),
         ('glyphless-ink-admitted', 'LevelUpComposite.cs', 'if (!HasRenderedInk(ink)) continue;', '/* original TMP sentinel edges admitted */', 'glyphless TMP cannot eject either original card list after the reveal'),
-        ('cross-scene-rejected', 'ConfirmationOnOwner.cs', '(separateScene && request.Source is not UILevelUpWindow\n                && request.Source is not UIResetLevelUpWindow)', 'separateScene', 'same native confirmation joins level-up before independent floating placement'),
-        ('persistent-scene-stolen', 'ConfirmationOnOwner.cs', 'if (separateScene)\n            {', 'if (bool.Parse("false"))\n            {', 'persistent native dialog never inherits the scene-owned level-up lifetime'),
+        ('cross-scene-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || mount.gameObject.scene != rect.gameObject.scene)', 'same native confirmation joins level-up before independent floating placement'),
+        ('persistent-scene-stolen', 'ConfirmationOnOwner.cs', 'seat.PersistentMember = CanvasConversion.Convert', 'rect.SetParent(mount,false); seat.PersistentMember = CanvasConversion.Convert', 'persistent native dialog never inherits the scene-owned level-up lifetime'),
         ('owner-loss-closes-native', 'ConfirmationOnOwner.cs', 'Seat seat = Seats[index];', 'Seat seat = Seats[index]; if (!SourceAlive(seat.Request)) seat.Box.IsOpen = false;', 'owner scene unload restores the original persistent dialog'),
         ('generic-float-readmission', 'NativeAdmission.cs', 'window == null || ConfirmationOnOwner.IsOwned(window)', 'window == null', 'owned confirmation cannot be readmitted as a generic floating window'),
         ('direct-convert-readmission', 'NativeAdmission.cs', 'if (ConfirmationOnOwner.IsOwned(window)) return true;', '/* semantic admission guard omitted */', 'direct generic conversion acknowledges existing embedded presentation'),
@@ -132,6 +132,8 @@ def main():
         ('standalone-backdrop-retained', 'DialogSurface.cs', 'transparentBackground: true', 'transparentBackground: false', 'standalone direct confirmation has no full-screen black or GrabPass surface outside the native small box'),
         ('persistent-owner-tier-lost', 'ConfirmationOnOwner.cs', 'sortingOrder: panel.BaseSortingOrder + 1', 'sortingOrder: 0', 'owned direct confirmation retains every front and rear native foreground pixel during motion'),
         ('persistent-lease-not-retired', 'ConfirmationOnOwner.cs', 'if (PanelAlive(seat.PersistentMember)) return false;', 'if (seat.PersistentMember.IsAlive) return false;', 'native close restores exact persistent dialog home while owner remains open'),
+        ('perks-owner-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || request.Source is UIPerksInventory)', 'every perks confirmation is a foreground member of its actual producer window'),
+        ('same-scene-member-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || mount.gameObject.scene == rect.gameObject.scene)', 'every perks confirmation is a foreground member of its actual producer window'),
     ]
     for name, file, before, after, expected in changes:
         if originals[file].count(before) != 1:
@@ -146,8 +148,12 @@ def main():
     print('Evidence: ' + str(run), flush=True)
     log = run / 'completion.log'; log.write_text('Evidence: ' + str(run) + '\n')
     code = 1; reaped = True; project = run / 'unity'; process = None
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-levelup-', dir='/tmp'))
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     spec = importlib.util.spec_from_file_location('project_compilers', ROOT / 'scripts/menu-depth-character/project_compilers.py')
     compilers = importlib.util.module_from_spec(spec); spec.loader.exec_module(compilers)
+    spec = importlib.util.spec_from_file_location('run_compilers', ROOT / 'scripts/check-environment-menu-scope.py')
+    run_compilers = importlib.util.module_from_spec(spec); spec.loader.exec_module(run_compilers)
     try:
         managed = root / 'ressources/GH_Data/Managed'; dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
         inputs = run / 'native-inputs'
@@ -156,10 +162,10 @@ def main():
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
-        env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')
+        env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0', TMPDIR=str(compiler_temp))
         assemblies = run / 'executed-assemblies'; assemblies.mkdir()
         for name, replacements, expected in cases:
             build = run / name; production = build / 'production'; production.mkdir(parents=True)
@@ -217,9 +223,9 @@ def main():
             editor = compilers.cleanup_project_editors(project, args.unity, launcher_reaped=True)
             (run / 'editor-cleanup.json').write_text(json.dumps(editor, indent=2) + '\n')
             if editor['remaining']: raise RuntimeError('Exact private editor failed to stop')
-            compiler = compilers.cleanup_project_compilers(project, editor_reaped=True)
+            compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=True)
             (run / 'compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
-            if compiler['remaining']: raise RuntimeError('Exact private compiler failed to stop')
+            if compiler['remaining'] or compiler['refused']: raise RuntimeError('Exact private compiler failed to stop safely')
         report = Path(manifest['result'])
         if report.is_file(): print(report.read_text(), end='')
         if result or not report.is_file(): raise RuntimeError('Unity failed: ' + str(run / 'unity.log'))
@@ -228,6 +234,12 @@ def main():
     finally:
         if process is not None and process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL); process.wait(); reaped = True
+        compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=reaped)
+        (run / 'completion-compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
+        if compiler['remaining'] or compiler['refused']:
+            (run / '.keep').write_text('Compiler ownership cleanup requires review.\n')
+            raise RuntimeError('Private compiler cleanup incomplete; preserving run')
+        shutil.rmtree(compiler_temp)
         receipt = cleanup_completed_run('levelup-native-runtime', code, log, root, process_reaped=reaped)
         (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
 

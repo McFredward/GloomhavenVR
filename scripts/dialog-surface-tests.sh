@@ -28,14 +28,16 @@ for name,before,after,expected in [
  assert before in originals['DialogSource'],'Mutation binding drift: '+name
  cases.append((name,{'DialogSource':originals['DialogSource'].replace(before,after)},expected))
 for name,key,before,after,expected in [
+ ('perks-owner-rejected','OwnerSource','|| mount.IsChildOf(rect))','|| mount.IsChildOf(rect) || request.Source is UIPerksInventory)','new producer request must replace old pooled ownership immediately'),
+ ('same-scene-member-rejected','OwnerSource','|| mount.IsChildOf(rect))','|| mount.IsChildOf(rect) || mount.gameObject.scene == rect.gameObject.scene)','causal confirmation has one owner-bound member and no independent world placement'),
  ('double-capture','OwnerSource','if (window == null || !ModalFallback.ReleaseForComposite(window)) return false;','if (window == null) return false;','late semantic adoption must release the old standalone capture before recording native home'),
  ('stale-producer','OriginSource','Requests.Remove(box);','if (CurrentScope != null) Requests.Remove(box);','unowned reuse of a pooled dialog must retain standalone fallback instead of stale level-up ownership'),
- ('lost-home','OwnerSource','rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);','// original parent restore omitted','native hide must restore the original confirmation parent without a lingering claim'),
+ ('lost-home','OwnerSource','rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);','rect.SetParent(null, worldPositionStays: false);','native hide must restore the original confirmation parent without a lingering claim'),
  ('collapsed-frame','OwnerSource','rect.sizeDelta = seat.Frame;','rect.sizeDelta = Vector2.zero;','centering must preserve measured native frame, not collapse stretched anchors'),
  ('persistent-owner-tier-lost','OwnerSource','sortingOrder: panel.BaseSortingOrder + 1','sortingOrder: 0','persistent confirmation starts above its owner inside the native depth tie'),
  ('persistent-backdrop-retained','OwnerSource','transparentBackground: true','transparentBackground: false','persistent confirmation removes only full-frame backdrops before reveal and allocation'),
  ('persistent-capture-bypassed','OwnerSource','useModLayer: true','useModLayer: false','persistent confirmation admits isolated filtered capture and scoped blur treatment'),
- ('persistent-lease-not-retired','OwnerSource','if (PanelAlive(seat.PersistentMember)) return false;','if (seat.PersistentMember.IsAlive) return false;','lost level-up owner restores persistent presentation without native cancellation'),
+ ('persistent-lease-not-retired','OwnerSource','if (PanelAlive(seat.PersistentMember)) return false;','if (seat.PersistentMember.IsAlive) return false;','native hide must restore the original confirmation parent without a lingering claim'),
 ]:
  assert before in originals[key],'Mutation binding drift: '+name
  cases.append((name,{key:originals[key].replace(before,after)},expected))

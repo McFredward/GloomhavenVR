@@ -29,11 +29,10 @@ internal static partial class ConfirmationOnOwner
         internal readonly Quaternion Rotation;
         internal readonly LayoutElement Layout;
         internal readonly bool AddedLayout, IgnoreLayout;
-        internal readonly MovedSubtreeLayers Layers = new(64);
         internal readonly ConvertedPanel Panel;
         internal readonly RectTransform Mount;
         internal readonly Vector2 Frame;
-        // A persistent native box must not become a child of a scene-owned level-up.
+        // A native box must not acquire its producer's scene lifetime.
         // Its chrome-free capture host stays in its own scene and shares the owner's
         // exact world pose/scale, rather than acquiring a second placement author.
         internal ConvertedPanel? PersistentMember;
@@ -116,12 +115,12 @@ internal static partial class ConfirmationOnOwner
             && request.Window.transform.IsChildOf(panel.Target)
             ? request.Window.transform as RectTransform : panel.Target;
         RectTransform? rect = box.transform as RectTransform;
-        bool separateScene = mount != null && rect != null && mount.gameObject.scene != rect.gameObject.scene;
-        // Only the explicitly requested level-up family receives a persistent visual
-        // member. Unrelated cross-scene producers keep their existing standalone path.
+        // Build742: every proved native producer owns its prompt, including Perks.
+        // Its pooled DDOL box has the same persistence contract as level-up. Scene
+        // identity and producer class are not presentation permissions: both same-
+        // and cross-scene boxes need the same foreground/background treatment.
         if (mount == null || rect == null || ReferenceEquals(mount, rect)
-            || mount.IsChildOf(rect) || (separateScene && request.Source is not UILevelUpWindow
-                && request.Source is not UIResetLevelUpWindow))
+            || mount.IsChildOf(rect))
         {
             Release(box);
             return IsOwned(box.GetComponent<UIWindow>());
@@ -150,49 +149,34 @@ internal static partial class ConfirmationOnOwner
             var seat = new Seat(box, request, rect, panel, mount);
             Seats.Add(seat); // failed adoption can now unwind its complete native snapshot
             seat.Layout.ignoreLayout = true;
-            if (separateScene)
-            {
-                // Convert preserves the original's DontDestroyOnLoad scene before
-                // reparenting. This is a backing capture only: no grab bar, materialize,
-                // HMD placement or shared-window pose is created or requested.
-                // Build738: the generic confirmation's original full-frame
-                // SimpleGrabPassBlur must take the same isolated capture and
-                // scoped blur remedy as ordinary windows. The default native
-                // UI layer bypassed that path in both this and the old float.
-                // Build738 hardware refused that capture at its session
-                // budget, leaving the full-frame Black_Backdrop and depth-writing
-                // GrabPass blur directly in the eyes. Hide those original full-cover
-                // graphics before reveal, independently of capture admission. The
-                // smaller native Box, text, buttons and modal callbacks stay intact;
-                // Release restores the recorded graphics for the flat native home.
-                // Its 32 px authored foreground offset is inside the order ladder's
-                // 2 cm tie margin at the accepted owner scale. Build738 therefore
-                // kept the new default-tier member at 116 behind its owner at 132,
-                // even though the member was nearer. Seed this owned confirmation
-                // one tier above its actual owner so the existing tie rule paints
-                // the small dialog over that owner from the first visible frame.
-                seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
-                    pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
-                    sortingOrder: panel.BaseSortingOrder + 1,
-                    flattenWindow: true, useModLayer: true, transparentBackground: true);
-                if (seat.PersistentMember == null) { Release(box); return false; }
-            }
-            else rect.SetParent(mount, worldPositionStays: false);
-            if (seat.PersistentMember == null && !ReferenceEquals(rect.parent, mount))
-            {
-                Release(box);
-                return IsOwned(window);
-            }
+            // Convert preserves the original's DontDestroyOnLoad scene before
+            // reparenting. This is a backing capture only: no grab bar, materialize,
+            // HMD placement or shared-window pose is created or requested.
+            // Build738: the generic confirmation's original full-frame
+            // SimpleGrabPassBlur must take the same isolated capture and
+            // scoped blur remedy as ordinary windows. The default native
+            // UI layer bypassed that path in both this and the old float.
+            // Build738 hardware refused that capture at its session
+            // budget, leaving the full-frame Black_Backdrop and depth-writing
+            // GrabPass blur directly in the eyes. Hide those original full-cover
+            // graphics before reveal, independently of capture admission. The
+            // smaller native Box, text, buttons and modal callbacks stay intact;
+            // Release restores the recorded graphics for the flat native home.
+            // Its 32 px authored foreground offset is inside the order ladder's
+            // 2 cm tie margin at the accepted owner scale. Build738 therefore
+            // kept the new default-tier member at 116 behind its owner at 132,
+            // even though the member was nearer. Seed this owned confirmation
+            // one tier above its actual owner so the existing tie rule paints
+            // the small dialog over that owner from the first visible frame.
+            seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
+                pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
+                sortingOrder: panel.BaseSortingOrder + 1,
+                flattenWindow: true, useModLayer: true, transparentBackground: true);
+            if (seat.PersistentMember == null) { Release(box); return false; }
             rect.SetAsLastSibling();
             rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one;
-            if (seat.PersistentMember == null)
-            {
-                CanvasConversion.TransferSeatedSubtree(rect, panel);
-                seat.Layers.Begin(mount.gameObject.layer);
-                seat.Layers.Walk(rect);
-            }
             Apply(seat);
             if (_reports++ < 24)
                 VRLog.Info("WorldUI", $"CONFIRMATION OWNER: '{box.name}' is part of native producer "
@@ -263,17 +247,7 @@ internal static partial class ConfirmationOnOwner
                 seat.PersistentMember.HostRaycaster.enabled = true;
             return;
         }
-        if (seat.Layers.Written != seat.Mount.gameObject.layer)
-        {
-            seat.Layers.Begin(seat.Mount.gameObject.layer);
-            seat.Layers.Walk(rect);
-        }
-        else if (rect.gameObject.layer != seat.Mount.gameObject.layer)
-            seat.Layers.Walk(rect);
-        // This is the containing host's raycaster, not an input permission override.
-        // Native disabled/non-interactable controls still refuse their original callbacks.
-        if (seat.Panel.HostRaycaster != null && !seat.Panel.HostRaycaster.enabled)
-            seat.Panel.HostRaycaster.enabled = true;
+
     }
 
     internal static void Release(ConfirmationBox box)
@@ -286,7 +260,7 @@ internal static partial class ConfirmationOnOwner
     {
         Seat seat = Seats[index];
         RectTransform rect = seat.Rect;
-        if (rect == null) { Seats.RemoveAt(index); seat.Layers.Forget(); return true; }
+        if (rect == null) { Seats.RemoveAt(index); return true; }
         try
         {
             // Modal native Hide/Cancel owns progression. In particular, IsOpen=false
@@ -306,7 +280,6 @@ internal static partial class ConfirmationOnOwner
             if (!ReferenceEquals(rect.parent, seat.Home != null ? seat.Home : null))
                 return false; // Unity can reject reparenting without throwing: retain the restoration record.
             CanvasConversion.TransferSeatedSubtree(rect, null);
-            seat.Layers.Restore();
             rect.SetSiblingIndex(seat.Index);
             rect.anchorMin = seat.AnchorMin; rect.anchorMax = seat.AnchorMax; rect.pivot = seat.Pivot;
             rect.sizeDelta = seat.Size; rect.anchoredPosition = seat.Position;

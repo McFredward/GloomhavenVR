@@ -50,27 +50,29 @@ internal static class OwnerCases
         rect.gameObject.layer = 3; source.gameObject.layer = 24;
         var oldLayout = rect.gameObject.AddComponent<LayoutElement>(); oldLayout.ignoreLayout = false;
         Record(manager, source); manager.Show(); surface.Tick();
-        Check(CanvasConversion.ActivePanels.Count == 1 && CanvasConversion.Converts == 1,
-            "causal level-up confirmation must reuse its actual main panel, never create a second world window");
-        Check(ReferenceEquals(rect.parent,source.transform) && ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+        Check(CanvasConversion.ActivePanels.Count == 2 && CanvasConversion.Converts == 2
+            && ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+            "causal confirmation has one owner-bound member and no independent world placement");
+        Check(ReferenceEquals(rect.parent,CanvasConversion.Last!.HostRect) && ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
             "confirmation must be mounted to its exact level-up subview inside the main panel");
         Check(rect.sizeDelta.x == 1200 && rect.sizeDelta.y == 900 && rect.anchoredPosition.sqrMagnitude == 0,
             "centering must preserve measured native frame, not collapse stretched anchors");
-        Check(rect.gameObject.layer == 24 && ReferenceEquals(CanvasConversion.LastDestination,panel),
-            "original capture and layer ownership must transfer to the containing panel");
+        Check(CanvasConversion.Last!.ModLayerEnabled,"persistent confirmation admits isolated filtered capture and scoped blur treatment");
+        Check(CanvasConversion.Last.HideBackground,"persistent confirmation removes only full-frame backdrops before reveal and allocation");
+        Check(CanvasConversion.Last.BaseSortingOrder==panel.BaseSortingOrder+1,"persistent confirmation starts above its owner inside the native depth tie");
         rect.sizeDelta = Vector2.zero;
         surface.Tick();
         Check(rect.sizeDelta.x == 1200 && rect.sizeDelta.y == 900,
             "centering must preserve measured native frame, not collapse stretched anchors");
-        panel.HostRaycaster.enabled = false; surface.Tick();
-        Check(panel.HostRaycaster.enabled,"embedded confirmation must retain modal laser and poke routing");
+        CanvasConversion.Last!.HostRaycaster.enabled = false; surface.Tick();
+        Check(CanvasConversion.Last.HostRaycaster.enabled,"embedded confirmation must retain modal laser and poke routing");
         int transfers = CanvasConversion.Transfers;
         for (int i=0;i<30;i++) surface.Tick();
-        Check(CanvasConversion.Transfers == transfers && CanvasConversion.Converts == 1,
+        Check(CanvasConversion.Transfers == transfers && CanvasConversion.Converts == 2,
             "settled containment must not repeatedly convert or transfer the native dialog");
         source.GetComponent<UIWindow>()!.IsOpen = source.GetComponent<UIWindow>()!.IsVisible = false;
         surface.Tick();
-        Check(manager.CurrentBox.IsOpen && ReferenceEquals(rect.parent,source.transform),
+        Check(manager.CurrentBox.IsOpen && ReferenceEquals(rect.parent,CanvasConversion.Last!.HostRect),
             "native parent dimming must never synthesize cancellation or lose a live confirmation");
         rect.RejectReparent = true;
         ConfirmationOnOwner.Release(manager.CurrentBox);
@@ -87,12 +89,12 @@ internal static class OwnerCases
             "native hide must restore authored rect, rotation, scale, layer and layout exactly");
         // Same pooled box now carries a different unowned prompt; yesterday's screen is not its owner.
         Record(manager,null); manager.Show(); surface.Tick();
-        Check(CanvasConversion.Converts == 2 && !ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+        Check(CanvasConversion.Converts == 3 && !ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
             "unowned reuse of a pooled dialog must retain standalone fallback instead of stale level-up ownership");
         // A source can become available after dedicated conversion. Retire it before recording home.
         Record(manager,source); surface.Tick();
-        Check(CanvasConversion.ActivePanels.Count == 1 && CanvasConversion.Releases == 1
-            && ReferenceEquals(rect.parent,source.transform),
+        Check(CanvasConversion.ActivePanels.Count == 2 && CanvasConversion.Releases == 3
+            && ReferenceEquals(rect.parent,CanvasConversion.Last!.HostRect),
             "late semantic adoption must release the old standalone capture before recording native home");
         manager.Hide(); surface.Tick();
         Check(ReferenceEquals(rect.parent,home),"late adoption must restore native home rather than a dead standalone host");
@@ -104,7 +106,7 @@ internal static class OwnerCases
         Check(manager.CurrentBox.IsOpen && ReferenceEquals(manager.CurrentBox.transform.parent,home),
             "VR-off teardown must restore presentation without invoking native cancel or confirm");
         WorldUIConfig.ConversionActive=true; surface.Tick();
-        Check(ReferenceEquals(manager.CurrentBox.transform.parent,source.transform),
+        Check(ReferenceEquals(manager.CurrentBox.transform.parent,CanvasConversion.Last!.HostRect),
             "re-enabling conversion must contain an already-open request without another native Show edge");
         source.gameObject.activeSelf=false; surface.Tick();
         Check(manager.CurrentBox.IsOpen && !ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
@@ -115,8 +117,8 @@ internal static class OwnerCases
         var menu = new UIConfirmationBoxManager(); UIConfirmationBoxManager.MainMenuInstance=menu;
         menu.CurrentBox.transform.SetParent(home,false);
         Record(menu,source); menu.Show(); surface.Tick();
-        Check(ReferenceEquals(menu.CurrentBox.transform.parent,source.transform)
-            && CanvasConversion.ActivePanels.Count==1,
+        Check(ReferenceEquals(menu.CurrentBox.transform.parent,CanvasConversion.Last!.HostRect)
+            && CanvasConversion.ActivePanels.Count==2,
             "MainMenuInstance confirmations must also reuse a proved containing panel");
         // Two managers have independent native boxes; one cannot evict another's request.
         Record(manager,source); manager.Show(); surface.Tick();
@@ -178,11 +180,60 @@ internal static class OwnerCases
         CanvasConversion.Convert((RectTransform)other.transform,"perks",1);
         Record(manager,source); manager.Show(); surface.Tick();
         Record(manager,perk); surface.Tick();
-        Check(ReferenceEquals(manager.CurrentBox.transform.parent,perk.transform),
+        Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)
+            && CanvasConversion.Last!.HostRect.position.z==perk.transform.position.z-32,
             "new producer request must replace old pooled ownership immediately");
         Record(manager,null); manager.Show(); surface.Tick();
         Check(!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
             "unowned reuse of a pooled dialog must retain standalone fallback instead of stale level-up ownership");
+        // Every reviewed native producer is a real containing source; neither its
+        // CLR type nor the pooled box's persistent scene changes ownership.
+        foreach (int dialogScene in new[] { 1, 2 })
+        foreach (Func<GameObject, Component> create in new Func<GameObject, Component>[] {
+            go => go.AddComponent<UIPerksInventory>(), go => go.AddComponent<UIPartyItemInventoryDisplay>(),
+            go => go.AddComponent<UIAdventurePartyAssemblyRoster>(), go => go.AddComponent<UIOptionsWindow>(),
+            go => go.AddComponent<ESCMenu>(), go => go.AddComponent<UIMapEscMenu>(),
+            go => go.AddComponent<UIMultiplayerEscSubmenu>(), go => go.AddComponent<UIScenarioEscMenu>(),
+            go => go.AddComponent<UIResetLevelUpWindow>() })
+        {
+            surface.Shutdown();
+            (surface, manager, source, panel, home) = Setup();
+            var producerRoot = new GameObject("reviewed producer");
+            producerRoot.transform.SetParent(panel.Target, false);
+            var producerWindow = producerRoot.AddComponent<UIWindow>();
+            var producer = create(producerRoot);
+            manager.CurrentBox.gameObject.scene = dialogScene;
+            Record(manager, producer); manager.Show(); surface.Tick();
+            var member = CanvasConversion.Last!;
+            Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)
+                && !ReferenceEquals(member,panel),
+                "every exact native producer owns its foreground member in either scene");
+            Check(member.HostGo.scene == dialogScene && member.HideBackground && member.ModLayerEnabled
+                && member.BaseSortingOrder == panel.BaseSortingOrder+1,
+                "same and persistent native confirmations share safe foreground presentation");
+            producer.transform.position = new Vector3(43,18,-7);
+            producer.transform.localScale = new Vector3(.6f,.6f,.6f);
+            producerWindow.IsOpen = false; surface.Tick();
+            Check(member.HostRect.position.x == 43 && member.HostRect.position.z == -39
+                && member.HostRect.localScale.x == .6f && manager.CurrentBox.IsOpen,
+                "producer dimming never detaches the accepted source-relative pose");
+            manager.Hide(); surface.Tick();
+            Check(ReferenceEquals(manager.CurrentBox.transform.parent,home)
+                && manager.CurrentBox.gameObject.scene == dialogScene
+                && !ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+                "every producer restores its original pooled home without inheriting scene lifetime");
+        }
+        surface.Shutdown();
+        (surface, manager, source, panel, home) = Setup();
+        var unavailable = new GameObject("native producer without a converted owner").AddComponent<UIPerksInventory>();
+        Record(manager, unavailable); manager.Show(); surface.Tick();
+        Check(!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+            "a source without a real containing converted window retains native standalone continuation");
+        var cycle = new GameObject("invalid containing self"); cycle.transform.SetParent(manager.CurrentBox.transform,false);
+        var invalid = cycle.AddComponent<UIPerksInventory>();
+        Record(manager,invalid); surface.Tick();
+        Check(!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),
+            "a confirmation cannot become its own containing owner through a producer descendant");
         // Nested native call scopes unwind even when the original action throws.
         var prefix=typeof(ConfirmationProducerScopePatch).GetMethod("Prefix",BindingFlags.NonPublic|BindingFlags.Static)!;
         var finalizer=typeof(ConfirmationProducerScopePatch).GetMethod("Finalizer",BindingFlags.NonPublic|BindingFlags.Static)!;

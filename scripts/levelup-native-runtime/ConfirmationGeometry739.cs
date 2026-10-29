@@ -10,6 +10,7 @@ using GloomhavenVR.WorldUI.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using Object=UnityEngine.Object;
 
 public static partial class LevelUpNativeProgram
@@ -92,6 +93,9 @@ public static partial class LevelUpNativeProgram
         var ownerPanel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,ownerRoot))!;bool ownerCanvasEnabled=ownerPanel.HostCanvas.enabled;int oldBase=ownerPanel.BaseSortingOrder;ownerPanel.BaseSortingOrder=1000;
         var ownerInk=Image(ownerRoot,"original owner photograph overlap",1920,1080,new Color(.42f,.11f,.07f,1));ownerInk.transform.SetAsFirstSibling();
         var home=Rect("native confirmation import home",null,1920,1080);Object.DontDestroyOnLoad(home.gameObject);
+        var sameHome=Rect("native same-scene confirmation home",null,1920,1080);SceneManager.MoveGameObjectToScene(sameHome.gameObject,ownerRoot.gameObject.scene);
+        var perksWindow=Rect("native perks window",ownerRoot,1620,1080);perksWindow.anchoredPosition=new Vector2(47,-18);perksWindow.gameObject.AddComponent<UIWindow>();
+        var perksContent=Rect("native perks inventory",perksWindow,418,1080);var perks=perksContent.gameObject.AddComponent<UIPerksInventory>();
         var document=new XmlDocument();document.Load(Path.Combine(_inputs,"native-confirmation-tree.xml"));
         var imported=ImportNode739(document.DocumentElement!,home,new Dictionary<string,TMP_FontAsset>());
         var hierarchy=new List<string>();foreach(Transform t in imported.GetComponentsInChildren<Transform>(true))hierarchy.Add(t.name+" parent="+(t.parent==null?"null":t.parent.name)+" components="+string.Join(",",Array.ConvertAll(t.GetComponents<Component>(),c=>c.GetType().Name)));File.WriteAllLines(Path.Combine(output,"native-confirmation-import739.txt"),hierarchy);
@@ -110,10 +114,13 @@ public static partial class LevelUpNativeProgram
         head.backgroundColor=new Color(.12f,.27f,.4f,1);var rows=new List<string>();var failures=new List<(string Label,bool Value)>();
         try
         {
-            foreach(string route in new[]{"owned","standalone"})
+            foreach(string route in new[]{"owned","perks","perks-same-scene","standalone"})
             {
-                box.IsOpen=window.IsOpen=window.IsVisible=true;DialogSurface? surface=null;ownerPanel.HostCanvas.enabled=route=="owned"&&ownerCanvasEnabled;
-                if(route=="owned"){Record(manager,owner);ConfirmationOnOwner.Tick();}
+                RectTransform expectedHome=route=="perks-same-scene"?sameHome:home;
+                imported.SetParent(expectedHome,false);int nativeScene=imported.gameObject.scene.handle;
+                box.IsOpen=window.IsOpen=window.IsVisible=true;DialogSurface? surface=null;ownerPanel.HostCanvas.enabled=route!="standalone"&&ownerCanvasEnabled;
+                if(route!="standalone"){Record(manager,route=="owned"?(Component)owner:perks);ConfirmationOnOwner.Tick();
+                    Check(ConfirmationOnOwner.IsOwned(window),"every perks confirmation is a foreground member of its actual producer window");}
                 else {var scope=ConfirmationOnOwner.CurrentScope;ConfirmationOnOwner.CurrentScope=null;ConfirmationOnOwner.Record(manager);ConfirmationOnOwner.CurrentScope=scope;surface=new DialogSurface();surface.Tick();}
                 var panel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,imported))!;
                 if(route=="standalone"){panel.HostRect.SetPositionAndRotation(ownerRoot.position,ownerRoot.rotation);panel.HostRect.localScale=ownerRoot.lossyScale;}
@@ -129,6 +136,17 @@ public static partial class LevelUpNativeProgram
 
                 for(int frame=0;frame<10;frame++)
                 {
+                    if(route!="standalone")
+                    {
+                        ownerRoot.SetPositionAndRotation(new Vector3(267.92f+frame*.13f,174.92f-frame*.04f,58.59f),Quaternion.Euler(0,37+frame*.11f,0));
+                        ownerRoot.localScale=Vector3.one*(.08275f+frame*.00001f);ConfirmationOnOwner.Tick();
+                        var producerMount=route=="owned"?(RectTransform)owner.transform:perksWindow;
+                        Check(Vector3.Distance(panel.HostRect.position,producerMount.TransformPoint(new Vector3(0,0,-32)))<.0001f
+                            && Vector3.Distance(panel.HostRect.lossyScale,producerMount.lossyScale)<.000001f,
+                            "perks and level-up foreground keep exact owner geometry and ordering through accepted drag and resize");
+                        Check(imported.gameObject.scene.handle==nativeScene&&!imported.IsChildOf(ownerRoot),
+                            "same and cross-scene confirmations retain original native lifetime while following their owner");
+                    }
                     CanvasConversion.SweepBackgrounds739(panel);
                     for(int side=0;side<2;side++)for(int eye=0;eye<2;eye++)
                     {
@@ -158,7 +176,7 @@ public static partial class LevelUpNativeProgram
                 foreach(var failure in failures)Check(failure.Value,failure.Label);failures.Clear();
                 Check(!backdrop.enabled&&!blur.enabled&&small.GetComponent<Image>().enabled,"native root and Blur retire while the original small Box graphic remains enabled");
                 box.IsOpen=window.IsOpen=window.IsVisible=false;if(surface==null)ConfirmationOnOwner.Tick();else surface.Tick();
-                Check(backdrop.enabled&&blur.enabled&&imported.parent==home,"native full-frame graphics and exact home restore on direct confirmation close");
+                Check(backdrop.enabled&&blur.enabled&&imported.parent==expectedHome,"native full-frame graphics and exact home restore on direct confirmation close");
                 surface?.Shutdown();
             }
         }
@@ -168,7 +186,7 @@ public static partial class LevelUpNativeProgram
             ownerRoot.SetPositionAndRotation(rootPosition,rootRotation);ownerRoot.localScale=rootScale;
             head.transform.SetPositionAndRotation(cameraPosition,cameraRotation);head.orthographic=ortho;head.nearClipPlane=near;head.farClipPlane=far;head.fieldOfView=fov;head.cullingMask=mask;head.backgroundColor=clear;
             Object.DestroyImmediate(ownerInk.gameObject);ownerPanel.HostCanvas.enabled=ownerCanvasEnabled;ownerPanel.BaseSortingOrder=oldBase;PanelLayout.WorldScale=previousScale;CanvasConversion.ResetOrder739();
-            Object.DestroyImmediate(home.gameObject);
+            Object.DestroyImmediate(home.gameObject);Object.DestroyImmediate(sameHome.gameObject);Object.DestroyImmediate(perksWindow.gameObject);
             File.WriteAllText(Path.Combine(output,"native-confirmation-direct739-limits.txt"),"Read-only native full RectTransform/layout/image/TMP declarations, sprites, font data and direct final head pixels execute. Production full-screen-background kernel and local caller flag execute. Production distance ladder, hysteresis, follower and ordinary owner overlap execute; unrelated furniture/diagnostic calls are no-op ports. Converted host allocation/adoption is an explicit port; zero capture scheduling/resources models the observed capture-refused path. Native controllers/session callbacks, spatial character owner depth compositor and original D3D11 GrabPass fragment program are not executed. Stock editor UI shader renders native ordinary graphics; native blur uses the declared GL witness.");
         }
     }
