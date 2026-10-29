@@ -107,6 +107,11 @@ Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieb
 mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
 Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
+**Weitere Charakterkarten:** Öffne die **Kartenansicht** im Charakterfenster und zeige
+auf **Weitere Karten** oder das Kartensymbol oben rechts. Mit dem Trigger öffnest du
+die Liste freigeschalteter Karten auch außerhalb eines Auflevelns; erneut drücken
+schließt sie. Es gelten weiterhin die normalen Verfügbarkeitsregeln des Spiels.
+
 **Truhenbelohnungen:** im Belohnungsfenster **Weiter** drücken. Im Multiplayer sehen alle
 die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe.
 

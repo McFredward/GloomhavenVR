@@ -1,3 +1,37 @@
+**Native card reveals, sharp confirmations and card-list access, Build745, 2026-10-29.**
+
+The native won-card introduction now aligns the original pooled card before its
+first visible alpha sample; hover and the original fade/callbacks remain. Exact
+producer-owned confirmations join that producer's admitted fixed2x head capture,
+including actual member bounds/layers/lifetime, instead of requesting a refused
+independent26.4MiB mono target. Native scenes, original controls and authority stay.
+The original closed-list toggle is visible in Cards with More Cards/Weitere Karten;
+caption hits use the same native Toggle and original availability/home rules.
+
+At the maintainer's explicit17:06UTC request, productionc3bb18117 was pushed early
+for an available multiplayer tester while full validation continued. Final strict
+Debug/Release0W0E, fresh source16PASS26.6s, actual306431goldens, bundle/surface and
+reviewed compiled suffix pass. Complete local267 records264PASS/3setup-fixtureFAIL
+in3685.94s; reference/port repairs and primary complete containing reruns pass
+travel36/10,dialog383/29,capture423/33. This is verified aggregate267coverage,
+not a new successful single full invocation. Production sources are unchanged.
+Full head95variants, native level-up44variants/1116assertions and cards30variants
+also pass. Compiled scope6runtime+9exact build-only,2added0removed; all8548088
+embedded bytes match744. Config670/265Harmony/4836tokens preserve old surfaces,
+adding only bounded CARD LIST ENTRY. All5owned worker/validation WTs are archived,
+content/hash verified and retired; caches cleaned, evidence/current artifacts kept.
+See MENU745-CARDS-AND-CONFIRMATION-AA.md and ignored menu745/final-validation.
+
+Fresh paired745/c3 hardware logs now report six NEW multiplayer findings. Build746
+is reserved and active: passive map stalls, environment-derived remote NPC height/
+light coupling, oversized native narrative backdrops, last-releaser-facing shared
+windows, concurrent grip convergence and city-event badge/native-icon placement.
+This review does not establish headset acceptance of every745 change. Environment
+selection must affect only its choosing player; native practical effects remain
+shared. Additive wire123 is reserved for ordered shared-window claims/samples;
+122 remains CardFlightOrigins. Quest743 remains separate: status is no rebase Go.
+Windows builds the delivery archive; source integrates to origin/dev.
+
 **Menu laser carry, finite Default and native pause opening, Build744, 2026-10-29.**
 
 Fresh742/fc74 logs and the maintainer identify trigger-laser carry and X pause.

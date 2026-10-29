@@ -102,6 +102,11 @@ Move a window by grabbing its top bar directly or with the laser. While holding 
 use **that hand's stick** to move it closer or farther away. Grip the bar with both hands to resize
 the window; use its **X** to close it.
 
+**More character cards:** open the character window's **Cards** view and point at
+**More Cards** or the card icon at the top right. Press the trigger to open the
+unlocked-card list, even when no level-up is in progress; press again to close it.
+The game's usual availability rules still apply.
+
 **Chest rewards:** use **Continue** in the reward window. In multiplayer, everyone sees
 the reward; the player controlling that character confirms for the group.
 
