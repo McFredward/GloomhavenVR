@@ -349,7 +349,9 @@ internal sealed partial class VRRigDriver
     /// (<see cref="Core.SkyAlternative.MinFarWorldUnits"/> — its star dome sits at
     /// authored-meters × rig scale world units FROM ITS WORLD-ANCHORED ORIGIN, plus
     /// the head's distance to that origin now that locomotion can carry the player
-    /// away from it); 0 while idle, so this degenerates to the old value.
+    /// away from it). A finite render-only Default shell uses its actual world
+    /// bounds for the same purpose, so the map's original 5 m far plane cannot
+    /// cut it away. Both budgets are 0 while their private geometry is absent.
     /// </summary>
     private void TickClipPlanes()
     {
@@ -359,12 +361,24 @@ internal sealed partial class VRRigDriver
         float near = Mathf.Clamp(BaseNearMeters * scale, MinNearClip, MaxNearClip);
         float far = Mathf.Min(
             Mathf.Max(Mathf.Max(_baseFarClip, _baseFarClip * (scale / _buildScale)),
-                      SkyAlternative.MinFarWorldUnits(scale)),
+                      Mathf.Max(SkyAlternative.MinFarWorldUnits(scale), NativeDefaultSky.MinFarWorldUnits())),
             near * MaxFarNearRatio);
         if (!Mathf.Approximately(_camera.nearClipPlane, near))
             _camera.nearClipPlane = near;
         if (!Mathf.Approximately(_camera.farClipPlane, far))
             _camera.farClipPlane = far;
+    }
+
+    /// <summary>A Default shell is acquired after the locked clip step. Budget
+    /// that one new lease before its first draw, using the same existing policy.
+    /// Replaced/stale heads cannot write the current rig's camera.</summary>
+    internal static void RefreshDefaultSkyClipPlanes(Camera head)
+    {
+        VRRigDriver? driver = Instance;
+        if (driver == null || driver._rigRoot == null
+            || !ReferenceEquals(driver._camera, head) || !ReferenceEquals(HeadCamera, head)
+            || !ReferenceEquals(driver._rigRoot.transform, RigRoot)) return;
+        driver.TickClipPlanes();
     }
 
     /// <summary>

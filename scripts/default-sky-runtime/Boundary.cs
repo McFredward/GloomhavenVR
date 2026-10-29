@@ -11,7 +11,7 @@ namespace GloomhavenVR.Core
         internal static void Warn(string area,string value)=>Lines.Add(value);
     }
     internal static class MixedReality { internal static void Tick(){} }
-    internal static class SkyAlternative { }
+    internal static class SkyAlternative { internal static float MinFarWorldUnits(float scale)=>0f; }
     internal static class VRCameraPolicy { }
 }
 namespace GloomhavenVR.Core.Events
@@ -31,7 +31,19 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.Rig
 {
-    internal static class VRRigDriver { internal static Transform? RigRoot;internal static Camera? HeadCamera; }
+    internal sealed partial class VRRigDriver
+    {
+        internal static Transform? RigRoot;
+        internal static Camera? HeadCamera;
+        internal static float BaseWorldScale=1f;
+        internal static VRRigDriver? Instance;
+        private readonly Camera _camera;
+        private readonly GameObject _rigRoot;
+        private readonly float _baseFarClip,_buildScale;
+        internal VRRigDriver(Camera head,Transform rig,float baseFar,float buildScale)
+        {_camera=head;_rigRoot=rig.gameObject;_baseFarClip=baseFar;_buildScale=buildScale;Instance=this;}
+        internal void TickClipProbe()=>TickClipPlanes();
+    }
 }
 
 namespace GloomhavenVR.Hands

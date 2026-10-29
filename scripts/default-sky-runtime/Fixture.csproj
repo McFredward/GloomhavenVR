@@ -6,7 +6,7 @@
     <FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride><AssemblyName>$(CaseName)</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$(ProductionDir)/*.cs" /><Compile Include="$(FixtureDir)/Boundary.cs" /><Compile Include="$(FixtureDir)/Fixture.cs" /><Compile Include="$(FixtureDir)/MenuBackdropProbe.cs" />
+    <Compile Include="$(ProductionDir)/*.cs" /><Compile Include="$(FixtureDir)/Boundary.cs" /><Compile Include="$(FixtureDir)/Fixture.cs" /><Compile Include="$(FixtureDir)/MenuBackdropProbe.cs" /><Compile Include="$(FixtureDir)/FiniteBubbleProbe.cs" />
     <EmbeddedResource Include="$(SkyBank)" LogicalName="GloomhavenVR.DefaultSky.bundle" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.AssetBundleModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.AssetBundleModule.dll" Private="false" />

@@ -23,6 +23,12 @@ internal static class NativeDefaultSky
     private static readonly Vector3 AuthoredOffset = new(0f, 14.749992370605469f, 0f);
     private static readonly Vector3 AuthoredScale = new(.15803000330924988f, .06696362793445587f, .15803000330924988f);
     private static readonly Quaternion AuthoredRotation = new(0f, .22705163061618805f, 0f, .9738827347755432f);
+    // Use the existing rig's 12-unit fallback as one common presentation
+    // reference (VRRigDriver.FallbackWorldScale), independently of saved/current
+    // zoom. Actual scenario auto-scale varies with the board and stays native.
+    // The original half-kilounit mesh and authored transforms then give a
+    // roughly 7 m horizontal / 2.97 m vertical radius in both menu and map.
+    private const float NativeReferenceUnitsPerMeter = 12f;
     private static AssetBundle? _bank;
     private static Mesh? _mesh;
     private static Material? _sourceMaterial;
@@ -32,6 +38,7 @@ internal static class NativeDefaultSky
     private static Transform? _rig;
     private static Camera? _head;
     private static bool _failed;
+    private static bool _placed;
 
     internal static Renderer? Renderer => _renderer;
     internal static bool Owns(Renderer? renderer) => renderer != null && ReferenceEquals(renderer, _renderer);
@@ -53,6 +60,8 @@ internal static class NativeDefaultSky
         Transform? rig = VRRigDriver.RigRoot;
         if (!VRSession.IsRunning || !Events.MenuWorldContext.AllowsSurroundings
             || head == null || rig == null) return null;
+        float baseScale = VRRigDriver.BaseWorldScale;
+        if (!(baseScale > 0f) || float.IsNaN(baseScale) || float.IsInfinity(baseScale)) return null;
         if (_renderer != null) return _renderer;
         if (!EnsureAssets()) return null;
         _rig = rig;
@@ -73,32 +82,48 @@ internal static class NativeDefaultSky
         _renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
         UpdatePose();
         _go.SetActive(true);
+        // The locked rig tail budgets clipping before MixedReality acquires the
+        // shell. Consume this one new lease before its first camera draw too.
+        VRRigDriver.RefreshDefaultSkyClipPlanes(head);
         VRLog.Info("Core", "Default sky: original scenario mesh/material/animated shader available without a scenario scene; head-only render assets.");
         return _renderer;
     }
 
     /// <summary>
-    /// This is an infinite sky, unlike the world-fixed room. Project the exact
-    /// authored shape from its prefab's observer origin around the current eye.
-    /// Uniform scaling changes no angular UV/texture animation and fits the
-    /// complete dome inside the existing far plane, so camera policy is untouched.
-    /// The native renderer remains authoritative whenever one exists.
+    /// Place the finite original shell once at arrival. The maintainer's Build742
+    /// review requires the same ability to leave this bubble as the scenario sky.
+    /// Following the live eye and fitting its live far plane made that impossible.
+    /// Preserve the exact authored observer offset/shape/yaw, with one uniform
+    /// conversion through the rig's unzoomed reference. Movement, recenter, zoom
+    /// and clip changes must never move or resize the occupied shell. The native
+    /// scenario renderer remains authoritative whenever one exists.
     /// </summary>
     internal static void UpdatePose()
     {
-        if (_go == null || _mesh == null || _head == null) return;
+        if (_placed || _go == null || _head == null) return;
         Vector3 authoredScale = AuthoredScale * AuthoredRootScale;
         Vector3 authoredOffset = AuthoredOffset * AuthoredRootScale;
-        Bounds bounds = _mesh.bounds;
-        float extent = Vector3.Scale(bounds.extents, authoredScale).magnitude
-            + Vector3.Scale(bounds.center, authoredScale).magnitude + authoredOffset.magnitude;
-        float factor = _head.farClipPlane * .85f / Mathf.Max(extent, .001f);
+        float factor = VRRigDriver.BaseWorldScale / NativeReferenceUnitsPerMeter;
         Vector3 position = _head.transform.position + authoredOffset * factor;
         Vector3 scale = authoredScale * factor;
-        Transform transform = _go.transform;
-        if (transform.position != position || transform.rotation != AuthoredRotation)
-            transform.SetPositionAndRotation(position, AuthoredRotation);
-        if (transform.localScale != scale) transform.localScale = scale;
+        _go.transform.SetPositionAndRotation(position, AuthoredRotation);
+        _go.transform.localScale = scale;
+        _placed = true;
+    }
+
+    /// <summary>Cover only this live render-only shell, including lookback after
+    /// flying outside. Its finite geometry owns the budget; changing the camera
+    /// budget never moves the shell. Native scenarios, MR and other styles retain
+    /// their existing policy when this private presentation has been released.</summary>
+    internal static float MinFarWorldUnits()
+    {
+        if (!_placed || _go == null || !_go.activeInHierarchy || _renderer == null
+            || !_renderer.enabled || _head == null || !VRSession.IsRunning
+            || !Events.MenuWorldContext.AllowsSurroundings
+            || !ReferenceEquals(_head, VRRigDriver.HeadCamera)
+            || !ReferenceEquals(_rig, VRRigDriver.RigRoot)) return 0f;
+        Bounds bounds = _renderer.bounds;
+        return (Vector3.Distance(_head.transform.position, bounds.center) + bounds.extents.magnitude) * 1.02f;
     }
 
     /// <summary>Remove only this render-only presentation. Immutable source bank
@@ -116,6 +141,7 @@ internal static class NativeDefaultSky
         _material = null;
         _rig = null;
         _head = null;
+        _placed = false;
     }
 
     internal static void Reset()

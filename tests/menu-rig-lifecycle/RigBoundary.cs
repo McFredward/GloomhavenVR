@@ -54,6 +54,9 @@ namespace GloomhavenVR.Core
         internal static float MinFarWorldUnits(float scale) => 0;
         internal static void RestoreAll() { }
     }
+    // No private Default geometry is active in this rig-lifetime scope. The
+    // actual shell budget/consumer/first-draw pixels run in default-sky-runtime.
+    internal static class NativeDefaultSky { internal static float MinFarWorldUnits() => 0; }
     internal static class RenderQuality { internal static void RequestEyeTargetDiagnostics(string reason) { } }
     internal static class HeadRenderCounters { internal static void Stop() { } }
     internal static class NativeCameraRenderBudget

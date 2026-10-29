@@ -159,15 +159,29 @@ def main():
         'private void SyncWorldMenuBack()', 'private void EnsureWorldMenuRear()',
         'private Renderer? WorldMenuBackdropForHead(Renderer? front)'))
     originals['ScreenBackdrop.cs']='using GloomhavenVR.Core; using GloomhavenVR.Core.Events; using GloomhavenVR.Hands; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+coverage+'\n'+method(core,'private void RefreshOpaqueBackdropMaterial()')+'\n'+method(core,'private void TickBackdropDepth()')+'\n'+kernels+'\ninternal void BindOpaque(GameObject quad,RenderTexture rt) { _coverageOwner=this; _worldMenuHost=quad; _quad=quad; _quadRenderer=quad.GetComponent<Renderer>();_rt=rt;\n'+lifecycle[begin:end]+'\n}\n}'
+    rig_source=ROOT/'src/GloomhavenVR/Rig/VRRigDriver.cs'
+    clip_source=ROOT/'src/GloomhavenVR/Rig/VRRigDriver.HeadCamera.cs'
+    constants='\n'.join(line for line in rig_source.read_text().splitlines() if any(
+        'private const float '+name+' =' in line for name in ('BaseNearMeters','MinNearClip','MaxNearClip','MaxFarNearRatio')))
+    assert len(constants.splitlines())==4
+    originals['ClipPolicy.cs']='using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.Rig; internal sealed partial class VRRigDriver {\n'+constants+'\n'+method(clip_source.read_text(),'private void TickClipPlanes()')+'\n'+method(clip_source.read_text(),'internal static void RefreshDefaultSkyClipPlanes(Camera head)')+'\n}'
     bank = ROOT / 'src/GloomhavenVR/Assets/DefaultSky/native-default-sky.bundle'
     exporter = ROOT / 'tools/default-sky-native/export.py'
     overlay = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
-    inputs = [*files.values(), screen_core, screen_lifecycle, world_menu, bank, bank.with_suffix('.provenance.json'), exporter, overlay,
+    inputs = [*files.values(), screen_core, screen_lifecycle, world_menu, rig_source, clip_source, bank, bank.with_suffix('.provenance.json'), exporter, overlay,
               *[p for p in HERE.iterdir() if p.is_file()]]
     pins = {str(p.relative_to(ROOT)): sha(p) for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     cases = [('production', None, None, '')]
     controls = [
+        ('bubble-head-follow-restored', 'NativeDefaultSky.cs', 'if (_placed || _go == null || _head == null) return;',
+         'if (_go == null || _head == null) return;',
+         'default bubble world geometry remains fixed through head motion and far-plane changes'),
+        ('bubble-clip-consumer-lost', 'ClipPolicy.cs', 'NativeDefaultSky.MinFarWorldUnits()', '0f',
+         'actual map clip consumer retains the finite Default bubble in the final head raster'),
+        ('bubble-first-clip-refresh-lost', 'NativeDefaultSky.cs', 'VRRigDriver.RefreshDefaultSkyClipPlanes(head);',
+         '/* first acquired lease clip refresh omitted */',
+         'actual map clip consumer retains the finite Default bubble in the final head raster'),
         ('world-window-depth-lost', 'ScreenBackdrop.cs', '        TickWorldMenuBackdrop();', '        /* world window material omitted */',
          'actual world-menu opaque RT survives original Default sky and later room geometry'),
         ('world-window-before-sky-reset', 'ScreenBackdrop.cs', '+ (_worldMenuBackdropDepth ? 2 : 0)', '+ 0',
@@ -184,8 +198,8 @@ def main():
          'world-menu depth material remains authoritative opaque MR coverage'),
         ('world-window-intro-restore-lost', 'ScreenBackdrop.cs', '            RestoreWorldMenuBackdrop();', '            /* original intro shader restore omitted */',
          'leaving ready menu restores the original intro material identity shader and queue'),
-        ('direct-intro-admission-lost', 'NativeDefaultSky.cs', '!Events.MenuWorldContext.AllowsSurroundings',
-         'bool.Parse("false")', 'direct default acquisition cannot reveal surroundings before the actual menu is ready'),
+        ('direct-intro-admission-lost', 'NativeDefaultSky.cs', 'if (!VRSession.IsRunning || !Events.MenuWorldContext.AllowsSurroundings\n            || head == null || rig == null) return null;',
+         'if (!VRSession.IsRunning || head == null || rig == null) return null;', 'direct default acquisition cannot reveal surroundings before the actual menu is ready'),
         ('backdrop-intro-admission-lost', 'SkyBackdrop.cs', 'if (!Events.MenuWorldContext.AllowsSurroundings)',
          'if (!Events.MenuWorldContext.AllowsSurroundings && _sky == null)',
          'intro admission removes the actual default environment while restoring the stock screen'),

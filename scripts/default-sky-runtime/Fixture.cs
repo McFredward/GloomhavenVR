@@ -79,6 +79,7 @@ public static class DefaultSkyFixture
         Check(Get<Renderer>(typeof(SkyBackdrop),"_sky")==cold,"backdrop and fallback own the same exact renderer");
         Check(cold.sharedMaterial.GetTexture("_Map00")==sourceTexture,"private sky material preserves original native texture identity");
         Check(cold.sharedMaterial.renderQueue==1000,"native sky color precedes foreground geometry");
+        Check(NativeDefaultSky.MinFarWorldUnits()>0f,"live private Default geometry owns a finite clip budget");
         var initial=Capture(head,Path.Combine(output,"cold-menu-default.png"));
         Check(ColorPixels(initial,Color.magenta)==0,"cold menu sky fills the head raster instead of exposing the clear color");
         Object.DestroyImmediate(initial);
@@ -86,12 +87,15 @@ public static class DefaultSkyFixture
         var cube=GameObject.CreatePrimitive(PrimitiveType.Quad);cube.name="native foreground at original floor queue";cube.layer=26;
         var ink=new Material(Shader.Find("DefaultSkyFixture/Foreground"));ink.color=Color.red;ink.renderQueue=1900;
         cube.GetComponent<Renderer>().sharedMaterial=ink;cube.transform.localScale=Vector3.one*18;
+        Matrix4x4 fixedBubble=cold.transform.localToWorldMatrix;
+        float travel=cold.bounds.extents.x*.03f;
         for(int pose=0;pose<8;pose++)
         {
-            head.transform.position=new Vector3(pose*11,Mathf.Sin(pose)*3,pose*-7);
+            head.transform.position=new Vector3(pose*travel,Mathf.Sin(pose)*travel,pose*-travel);
             head.transform.rotation=Quaternion.Euler(pose*5-15,pose*19,0);head.farClipPlane=pose%2==0?100:220;
             cube.transform.localScale=Vector3.one*(head.farClipPlane*.18f);
             SkyBackdrop.Tick(false);cube.transform.SetPositionAndRotation(head.transform.position+head.transform.forward*(head.farClipPlane*.9f),head.transform.rotation);
+            Check(cold.transform.localToWorldMatrix.Equals(fixedBubble),"default bubble world geometry remains fixed through head motion and far-plane changes");
             var image=Capture(head,pose==0||pose==7?Path.Combine(output,"moving-default-"+pose+".png"):"");
             Check(ColorPixels(image,Color.red)>300,"default sky depth reset preserves original foreground pixels during head motion");
             Check(ColorPixels(image,Color.magenta)==0,"default sky remains fully visible through motion and far-plane changes");
@@ -99,6 +103,7 @@ public static class DefaultSkyFixture
             yield return null;
         }
         Object.Destroy(cube);Object.Destroy(ink);yield return null;
+        var finite=FiniteBubbleProbe.Run(head,cold,output);while(finite.MoveNext())yield return finite.Current;_checks+=FiniteBubbleProbe.Assertions;
         MenuWorldContext.IsReady=false;SkyBackdrop.Tick(false);
         Check(NativeDefaultSky.Renderer==null&&Get<Renderer>(typeof(SkyBackdrop),"_sky")==null,"loss of ready menu admission removes an already acquired default environment");
         yield return null;
@@ -107,10 +112,23 @@ public static class DefaultSkyFixture
         MenuWorldContext.IsReady=true;SkyBackdrop.Tick(false);cold=NativeDefaultSky.Renderer;
         Check(cold!=null,"actual menu readiness can reacquire default after a complete admission transition");
         // A new real rig is distinct from motion on the same rig.
-        var mapRig=new GameObject("map rig").transform;var mapHead=Head(mapRig);VRRigDriver.RigRoot=mapRig;VRRigDriver.HeadCamera=mapHead;
+        var mapRig=new GameObject("map rig").transform;
+        mapRig.position=new Vector3(-184.45f,-154.55f,.18f);mapRig.localScale=Vector3.one*198.12f;
+        var mapHead=Head(mapRig);mapHead.transform.localPosition=new Vector3(0,.905f,0);mapHead.farClipPlane=1000f;
+        VRRigDriver.RigRoot=mapRig;VRRigDriver.HeadCamera=mapHead;VRRigDriver.BaseWorldScale=198.12f;
+        _=new VRRigDriver(mapHead,mapRig,1000f,198.12f);
         SkyBackdrop.Tick(false);var map=NativeDefaultSky.Renderer;
         Check(map!=null&&!ReferenceEquals(map,cold)&&!cold!.gameObject.activeSelf,"real menu-to-map rig replacement retires the old default presentation");
-        Check(mapHead.cullingMask==(1<<26)&&mapHead.nearClipPlane==.05f&&mapHead.farClipPlane==100,"default sky preserves the owned camera policy");
+        int beforeMapClip=FiniteBubbleProbe.Assertions;
+        var mapClip=FiniteBubbleProbe.MapClip(mapHead,mapRig,map!,output);while(mapClip.MoveNext())yield return mapClip.Current;
+        _checks+=FiniteBubbleProbe.Assertions-beforeMapClip;
+        Check(mapHead.cullingMask==(1<<26)&&mapHead.nearClipPlane==.5f,"default sky acquisition retains the actual clip policy near clamp and head mask");
+        var foreignHead=Head(mapRig);foreignHead.farClipPlane=777f;mapHead.farClipPlane=73f;
+        VRRigDriver.RefreshDefaultSkyClipPlanes(foreignHead);
+        Check(foreignHead.farClipPlane==777f&&mapHead.farClipPlane==73f,"foreign acquisition heads cannot refresh another live rig clip policy");
+        VRRigDriver.HeadCamera=foreignHead;VRRigDriver.RefreshDefaultSkyClipPlanes(mapHead);
+        Check(mapHead.farClipPlane==73f,"a replaced head cannot refresh a stale rig instance camera");
+        VRRigDriver.HeadCamera=mapHead;VRRigDriver.Instance!.TickClipProbe();Object.Destroy(foreignHead.gameObject);
         var hidden=GameObject.CreatePrimitive(PrimitiveType.Sphere);hidden.name="GH_SkySphere_invisible_native";
         Check(SkyBackdrop.FindSky()==hidden.GetComponent<Renderer>(),"native hiding queries remain independent of the head visibility mask");
         for(int i=0;i<62;i++){SkyBackdrop.Tick(false);yield return null;}
@@ -122,6 +140,12 @@ public static class DefaultSkyFixture
         Check(nativeRenderer!=null,"actual serialized native arrival scene loaded");var nativeMaterial=nativeRenderer!.sharedMaterial;
         SkyBackdrop.Tick(false);
         Check(NativeDefaultSky.Renderer==null&&Get<Renderer>(typeof(SkyBackdrop),"_sky")==nativeRenderer,"late native scenario sky takes authority without a second generated dome");
+        Check(NativeDefaultSky.MinFarWorldUnits()==0f,"original scenario authority retains a zero private Default budget");
+        var idleClip=new VRRigDriver(mapHead,mapRig,1000f,198.12f);idleClip.TickClipProbe();
+        Check(mapHead.farClipPlane==1000f,"actual clip consumer leaves the accepted native scenario far policy unchanged");
+        Matrix4x4 nativePose=nativeRenderer.transform.localToWorldMatrix;
+        mapHead.transform.position+=new Vector3(200,30,100);SkyBackdrop.Tick(false);
+        Check(nativeRenderer.transform.localToWorldMatrix.Equals(nativePose),"player motion never rewrites the accepted native scenario sky geometry");
         mapHead.cullingMask=1<<26;SkyBackdrop.Tick(false);
         Check(NativeDefaultSky.Renderer!=null,"cached native sky gives way when the menu head cannot render its layer");
         mapHead.cullingMask|=1;SkyBackdrop.Tick(false);
@@ -130,9 +154,13 @@ public static class DefaultSkyFixture
         var unload=SceneManager.UnloadSceneAsync("SkyArrival");while(unload!=null&&!unload.isDone)yield return null;
         SkyBackdrop.Tick(false);Check(NativeDefaultSky.Renderer!=null,"return to map without a native sky immediately reacquires Default");
         SkyBackdrop.Tick(true);Check(NativeDefaultSky.Renderer==null,"mixed reality and non-default styles remove the generated default sky");
+        Check(NativeDefaultSky.MinFarWorldUnits()==0f,"mixed reality and other styles retain a zero private Default clip budget");
+        idleClip.TickClipProbe();Check(mapHead.farClipPlane==1000f,"actual clip consumer restores its native budget for mixed reality and other styles");
         SkyBackdrop.Tick(false);Check(NativeDefaultSky.Renderer!=null,"default resumes after independent sky ownership ends");
         VRSession.IsRunning=false;SkyBackdrop.Tick(false);
         Check(NativeDefaultSky.Renderer==null&&Get<AssetBundle>(typeof(NativeDefaultSky),"_bank")==null,"VR exit releases owned default geometry and native bank assets");
+        Check(NativeDefaultSky.MinFarWorldUnits()==0f,"VR shutdown retains a zero private Default clip budget");
+        idleClip.TickClipProbe();Check(mapHead.farClipPlane==1000f,"actual clip consumer retains its native budget after VR shutdown");
         Object.Destroy(rig.gameObject);Object.Destroy(mapRig.gameObject);yield return null;
         File.WriteAllText(Path.Combine(output,"result.txt"),"PASS default sky: "+_checks+" assertions; actual native bank and production lifecycle/depth rendering; GL shader witness is explicit.\n");
     }
