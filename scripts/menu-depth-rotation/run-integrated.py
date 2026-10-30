@@ -24,6 +24,22 @@ shared = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(shared)
 
 
+def mutate_capture(source, before, after):
+    # The original capture and the spatial ray query both consume presentation
+    # yaw. This render control must mutate only the original capture method.
+    signature = 'private void Capture(MenuDepthEye eye, bool direct)'
+    assert source.count(signature) == 1, signature
+    start = source.index(signature)
+    end = source.index('{', start) + 1
+    depth = 1
+    while depth:
+        depth += (source[end] == '{') - (source[end] == '}')
+        end += 1
+    capture = source[start:end]
+    assert capture.count(before) == 1, before
+    return source[:start] + capture.replace(before, after, 1) + source[end:]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append')
@@ -96,8 +112,11 @@ def main():
             for source_name, original in sources.items():
                 code = original
                 if source_name == filename:
-                    assert code.count(before) == 1, before
-                    code = code.replace(before, after, 1)
+                    if name in ('lost-capture-yaw', 'lost-source-ground'):
+                        code = mutate_capture(code, before, after)
+                    else:
+                        assert code.count(before) == 1, before
+                        code = code.replace(before, after, 1)
                 (production / source_name).write_text(code)
             private_fixture = case / 'fixture'; shutil.copytree(fixture, private_fixture)
             descriptor = case / 'Integrated.csproj'; shutil.copy2(fixture / descriptor.name, descriptor)
