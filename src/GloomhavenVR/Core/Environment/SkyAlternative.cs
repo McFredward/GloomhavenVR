@@ -605,6 +605,7 @@ internal static class SkyAlternative
     // Destroyed by Deactivate, never by a scene unload.
     private static GameObject? _skyGo;
     private static GameObject? _roomGo;
+    private static WorldUI.TownServiceTerrainContact? _townTerrainContact;
     private static SkyStyle _appliedStyle = SkyStyle.Default;
     private static Transform? _environmentRig;
 
@@ -1643,6 +1644,15 @@ internal static class SkyAlternative
 
         room.transform.SetPositionAndRotation(new Vector3(center.x, floorY, center.z), boardYaw);
         room.transform.localScale = Vector3.one * roomScale;
+        // Build751: local woodland relief must meet the fixed native town soles.
+        // Apply before first visibility; neither shared actors nor room scale move.
+        _townTerrainContact?.Dispose();
+        _townTerrainContact = null;
+        if (WorldUI.MapRoom.MapRoomDriver.Active
+            && WorldUI.MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 townCenter, out float townScale))
+            _townTerrainContact = WorldUI.TownServiceTerrainContact.Create(room,
+                _appliedStyle == SkyStyle.SwampNight, townCenter,
+                WorldUI.TownServiceLayout.Frame(null, WorldUI.MapRoom.MapRoomDriver.ParchmentRenderer?.transform), townScale, floorY);
 
         // PAY THE SKY'S OUTSTANDING YAW DEBT (see _skyYawFromBoard). The sky is normally seated
         // several seconds before this — no hex tile exists at rig-build time — so it is standing at
@@ -2935,6 +2945,8 @@ internal static class SkyAlternative
     /// <summary>Clear the room branch's placement bookkeeping (spawn, style switch, teardown).</summary>
     private static void ResetRoomState()
     {
+        _townTerrainContact?.Dispose();
+        _townTerrainContact = null;
         _roomPlaced = false;
         _roomAuthoredExtent = 0f;
         _roomAuthoredPlayExtent = 0f;
