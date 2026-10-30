@@ -89,6 +89,16 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(ItemConfirmationRequestOriginPatch));
         VRSession.Harmony?.PatchAll(typeof(DeferredConfirmationProducerScopePatch));
         VRSession.Harmony?.PatchAll(typeof(PersistentConfirmationActionScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationAdditionalOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeOutcomePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeTweenOutcomePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationPartyNavigationPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationMenuNavigationPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationProducerDeparturePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationInventoryRefreshPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationIdentityWritePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCapturePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCoroutinePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
