@@ -1,11 +1,11 @@
 # Planning index
 
-Updated 2026-10-30: Build748 places More Cards previews in the left gap, picks
-actual raised menu surfaces, retires browsing at story commitment and filters
-narrative backdrops before first visibility. Complete class C candidate260/268
-plus8 complete containing repairs provides verified aggregate268coverage, with
-actual goldens and reviewed compiled scope; hardware outcomes remain separate.
-Integration verification is recorded in MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md.
+Updated 2026-10-30: Build749 routes raised More Cards hits to the exact original
+row selectable, including adopted canvases and native nested sorting priority.
+Five complete affected suites, strict Debug/Release and source16 pass under
+class B; source/compiled/input bindings retain unchanged748 coverage. Current
+verification is recorded in STATE.md and ignored menu749 evidence. The qualified
+Build748 complete checkpoint remains in MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md.
 Passive map-stall cause remains open in MP746-PERFORMANCE.md. Windows builds
 its archive from the dev source delivery.
 

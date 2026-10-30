@@ -1,3 +1,38 @@
+**Native More Cards hover, Build749, 2026-10-30 — validated for dev.**
+
+Both local hardware logs identify748/8fa65eccd. The raised laser point is correct,
+but the original More Cards holder deliberately blocks inner-card raycasts. Its
+transparent outer ExtendedButton owns MouseEnter/Exit. Resolve that exact native
+selectable for its original mini and query its active, enrolled original Canvas
+as well as the visual Canvas. Owner-before-visual order preserves native nested
+priority on equal sorting tiers. Native hover/click permissions, masks, locked
+browsing and physical ink remain; full previews and ordinary minis keep their
+own roots. Capture, quality, cadence, actors and wire grammar are unchanged.
+
+Class B: five complete affected suites pass166 variants,8225 positive assertions
+and127 compiling causal controls. Laser16 proves253/13, including87 native More
+Cards checks and old-root/old-Canvas/tie-order controls; cards37 proves3391/31,
+desktop98 proves4383/70, rotation5 proves156/4 and seated input10 proves42/9.
+Final strict Debug/Release0W0E18.74/19.18s and source16PASS25.31s. The containing
+four-suite run takes800.59s, dominated by complete desktop coverage after its
+explicit absent-input fixture port. The bounded pointer-order repair repeats
+strict/source/rotation/laser; all55 card and608 desktop inputs remain exact.
+Initial native fixture setup/oracle failures and the real intermediate input
+tie defect are retained separately, with a compiling causal control for the fix.
+
+Compiled review finds only two runtime types, nine exact build-number-only
+types and reviewed build/project identity changes; no added/removed types and
+all32 resources match748. All1762 strict inputs remain exact. Surfaces670 keys,
+266 Harmony signatures and4838 log tokens, plus five EN/DE guides, pass unchanged.
+Inherit the qualified748 aggregate268 checkpoint/306739 goldens for unchanged
+closures; this focused selection is not a new complete gate. Original callbacks
+run on Unity/GL with declared native bootstrap/artwork inputs; Windows D3D11/HMD
+acceptance remains pending. See ignored menu749 validation and hardware inputs.
+
+Windows builds the archive from dev. Per-run canonical cleanup preserves logs,
+sources, manifests, captures and current artifacts; owned worker evidence is
+archived and hash verified before retirement. Unrelated worktrees remain.
+
 **Physical menu picking, left-gap previews and complete story retirement, Build748, 2026-10-30 — validated for dev.**
 
 More Cards previews sit24 native pixels left of their inventory, keeping the row
