@@ -73,7 +73,13 @@ public static partial class MenuDepthLaserProgram
     { [HarmonyPrefix] private static bool Before(ref AudioItem __result){__result=new AudioItem();return false;} }
     [HarmonyPatch(typeof(AudioControllerUtils),nameof(AudioControllerUtils.PlaySound))]
     private static class NativeAudioOutput
-    { [HarmonyPrefix] private static bool Before(string audioItem){AudioOutput.Add(audioItem);return false;} }
+    {
+        [HarmonyPrefix] private static bool Before(string audioItem)
+        {
+            if(Environment.GetEnvironmentVariable("GHVR_LASER_CASE")!="more-cards-native-audio-lost")AudioOutput.Add(audioItem);
+            return false;
+        }
+    }
 
     [DataContract] private sealed class AuthoredAudio
     {
@@ -113,7 +119,7 @@ public static partial class MenuDepthLaserProgram
         button.onSelected=new UnityEvent();button.onDeselected=new UnityEvent();
         button.scaleNonInteractable=spec.scaleNonInteractable;button.highlightScaleFactor=spec.highlightScale;
         button.animateScaling=false;button.animationDuration=spec.animationDuration;button.useAudioController=spec.useAudioController;
-        button.audioProfile=spec.audioProfile.Profile();
+        button.audioProfile=Own(spec.audioProfile.Profile());
         button.mouseClickAudioItem=spec.audio.mouseClickAudioItem;button.mouseDownAudioItem=spec.audio.mouseDownAudioItem;
         button.mouseUpAudioItem=spec.audio.mouseUpAudioItem;button.mouseEnterAudioItem=spec.audio.mouseEnterAudioItem;
         button.mouseExitAudioItem=spec.audio.mouseExitAudioItem;button.nonInteractableMouseDownAudioItem=spec.audio.nonInteractableMouseDownAudioItem;
@@ -128,7 +134,7 @@ public static partial class MenuDepthLaserProgram
         internal readonly ExtendedButton Button,InnerButton;
         internal readonly MenuDepthCardPlane Plane;
         internal int Enters,Exits,Clicks,InnerEnters;
-        internal MoreRow(Scene scene,AuthoredRow spec,int index)
+        internal MoreRow(Scene scene,AuthoredRow spec,AuthoredRow ordinary,int index)
         {
             Root=Rect("original UILevelUpCard "+index,scene.Root,new Vector2(spec.width,spec.height));
             Root.pivot=spec.pivot;Root.anchoredPosition=new Vector2(spec.width*.5f,130-index*100+spec.height*.5f);
@@ -150,7 +156,7 @@ public static partial class MenuDepthLaserProgram
             Assign(Card,"miniAbilityCard",mini);Assign(Card,"fullAbilityCard",full);
             Assign(Card,"mode",CardHandMode.DeckSelection);Assign(Card,"previewCardHeight",55f);
             Assign(Card,"currentFullCardSpacing",33f);Card.MarkAsInFurtherAbilityPanel(true);
-            InnerButton=NativeButton(Ability,Ink,spec);Assign(Card,"button",InnerButton);
+            InnerButton=NativeButton(Ability,Ink,ordinary);Assign(Card,"button",InnerButton);
             InnerButton.onMouseEnter.AddListener(Card.OnPointerEnter);InnerButton.onMouseEnter.AddListener(()=>InnerEnters++);
             InnerButton.onMouseExit.AddListener(Card.OnPointerExit);
             Button=NativeButton(Root,Input,spec);Button.interactable=false;Button.targetRect=container;Button.hoverMovement=spec.hoverMovement;
@@ -170,9 +176,11 @@ public static partial class MenuDepthLaserProgram
         _checks=0;AudioOutput.Clear();VRHand.Now=0;var native=NativePorts();
         try
         {
-            AuthoredRow spec;
+            AuthoredRowReport report;
             using(var input=File.OpenRead(Environment.GetEnvironmentVariable("GHVR_LASER_NATIVE_ROW")!))
-                spec=((AuthoredRowReport)new DataContractJsonSerializer(typeof(AuthoredRowReport)).ReadObject(input)).summary;
+                report=(AuthoredRowReport)new DataContractJsonSerializer(typeof(AuthoredRowReport)).ReadObject(input);
+            AuthoredRow spec=report.summary;
+            AuthoredRow pointer=Array.Find(report.ordinary,item=>item.name=="AbilityCard").summary;
             using(var scene=new Scene())
             {
                 var navigation=new GameObject("native navigation input").AddComponent<UINavigation>();
@@ -181,7 +189,7 @@ public static partial class MenuDepthLaserProgram
                 Assign(state,"_states",new Dictionary<Type,Dictionary<Enum,IState>>{[typeof(CampaignMapStateTag)]=new(){[CampaignMapStateTag.ShowingCardLevelUp]=reveal}});
                 Assign(state,"_stateHistory",history);Assign(navigation,"<StateMachine>k__BackingField",state);
                 var manager=new GameObject("native UI camera input").AddComponent<UIManager>();Assign(manager,"uiCamera",scene.Head);
-                var first=new MoreRow(scene,spec,0);var second=new MoreRow(scene,spec,1);
+                var first=new MoreRow(scene,spec,pointer,0);var second=new MoreRow(scene,spec,pointer,1);
                 try
                 {
                     Canvas.ForceUpdateCanvases();yield return null;
@@ -381,12 +389,109 @@ public static partial class MenuDepthLaserProgram
                     Canvas.ForceUpdateCanvases();scene.Aim(ordinaryMini.position-ordinaryMini.forward*(335*.056f*ordinaryMini.TransformVector(Vector3.right).magnitude));
                     Check(ordinaryPlane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out raised)&&raised.NativeRoot==ordinaryMini,
                         "ordinary ability mini cards outside More Cards retain their original card-only input root");
-                    File.WriteAllText(Path.Combine(output,"native-callback-scope.txt"),"Actual GH.Runtime ExtendedButton enter/exit/down/up/click, OnHighlight, UILevelUpCard.MouseEnter/MouseExit, AbilityCardUI.OnPointerEnter and ToggleFullCardPreview execute. Native authored row/Image/blocked CardHolder values are independent read-only asset inputs. Campaign bootstrap, SetBackground/SetDisplayMode artwork, burning effects and desktop fit are explicit ports; highlight animation uses its original immediate path. No game boot, D3D11 or HMD claim.\n");
+                    scene.Driver.Cancel();Object.DestroyImmediate(first.Root.gameObject);Object.DestroyImmediate(second.Full.gameObject);
+                    Object.DestroyImmediate(second.Root.gameObject);Object.DestroyImmediate(ordinary.gameObject);Object.DestroyImmediate(ownerRect.gameObject);
+                    IEnumerator feedback=FeedbackProof(scene,report,history,browse,reveal,output);
+                    while(feedback.MoveNext())yield return feedback.Current;
+                    File.WriteAllText(Path.Combine(output,"native-callback-scope.txt"),"Actual GH.Runtime ExtendedButton enter/exit/down/up/click, OnHighlight and PlaySound, UILevelUpCard.MouseEnter/MouseExit, AbilityCardUI.OnPointerEnter and ToggleFullCardPreview execute. Exact original row and pointer/gamepad ability button profiles, scale and movement are independent read-only asset inputs. The unchanged production HoverHaptics resolver, encounter gate and VRHand sender execute. Campaign bootstrap, SetBackground/SetDisplayMode artwork, burning effects, desktop fit, clock, audio-bank availability, audio output and controller delivery are explicit ports; highlight animation uses its original immediate path. No audible-device, vibration-strength, game boot, D3D11 or HMD claim.\n");
                 }
                 finally {scene.Driver.Cancel();Object.DestroyImmediate(navigation.gameObject);Object.DestroyImmediate(manager.gameObject);}
             }
             count(_checks);
         }
-        finally {native.UnpatchAll(native.Id);}
+        finally
+        {
+            native.UnpatchAll(native.Id);
+            for(int i=_assets.Count-1;i>=0;i--)if(_assets[i]!=null)Object.DestroyImmediate(_assets[i]);_assets.Clear();
+        }
+    }
+
+    private static IEnumerator FeedbackProof(Scene scene,AuthoredRowReport report,List<IState> history,IState browse,IState reveal,string output)
+    {
+        scene.Root.SetPositionAndRotation(Vector3.zero,Quaternion.identity);scene.Root.localScale=Vector3.one*.002f;
+        AuthoredRow spec=report.summary,pointer=Array.Find(report.ordinary,item=>item.name=="AbilityCard").summary;
+        var first=new MoreRow(scene,spec,pointer,0);var second=new MoreRow(scene,spec,pointer,1);
+        Canvas.ForceUpdateCanvases();yield return null;
+        scene.Hand.Pulses.Clear();AudioOutput.Clear();VRHand.Now=20;
+        Vector2 home=first.Button.TargetRect.anchoredPosition;
+        scene.Aim(first.Physical(Vector2.zero));scene.Tick();
+        Check(first.Full.gameObject.activeSelf&&scene.Hand.Pulses.Count==1&&scene.Hand.Pulses[0]==HapticPreset.HoverTick,
+            "a cold locked native preview has exactly one ordinary controller hover preset");
+        Check(AudioOutput.Count==1&&AudioOutput[0]==spec.audioProfile.mouseEnterAudioItem,
+            "the original row profile selects the native hover sound at the real output seam");
+        Check(!first.Button.interactable&&Vector3.Distance(first.Button.TargetRect.localScale,new Vector3(spec.highlightScale,spec.highlightScale,1))<.00001f
+            &&Vector2.Distance(first.Button.TargetRect.anchoredPosition,home+(Vector2)spec.hoverMovement)<.00001f,
+            "native locked-card scale and displacement keep their exact authored values without unlocking selection");
+        for(int frame=1;frame<=60;frame++)
+        {
+            VRHand.Now=20+frame/90f;scene.Aim(first.Physical(new Vector2(frame%2==0?-120:120,0)));scene.Tick();
+        }
+        Check(scene.Hand.Pulses.Count==1&&AudioOutput.Count==1&&first.Enters==1,
+            "continuous centre-edge traversal emits neither duplicate controller ticks nor per-frame native sounds");
+        scene.Driver.Cancel();VRHand.Now+=.05f;scene.Tick();
+        Check(scene.Hand.Pulses.Count==1&&AudioOutput.Count==2&&first.Enters==2,
+            "brief pointer reentry keeps the hand encounter grace while each native enter retains its original sound");
+        scene.Driver.Cancel();VRHand.Now+=.2f;scene.Tick();
+        Check(scene.Hand.Pulses.Count==2&&AudioOutput.Count==3&&first.Enters==3,
+            "genuine preview reentry restores one controller tick and one original native hover sound");
+        scene.Aim(second.Physical(Vector2.zero));scene.Tick();
+        Check(scene.Hand.Pulses.Count==3&&AudioOutput.Count==4&&second.Enters==1,
+            "a different locked row gets its own immediate encounter in the same input frame");
+        var left=new VRHand{Side=HandSide.Left};var leftDriver=new RayUguiDriver(left);
+        try
+        {
+            left.Ray.Current=scene.Hand.Ray.Current;leftDriver.Tick();
+            Check(left.Pulses.Count==0,"the inactive off-hand ray keeps its original dominant-hand input gate");
+            VRHands.Primary=left;leftDriver.Tick();
+            Check(left.Pulses.Count==1&&left.Pulses[0]==HapticPreset.HoverTick&&scene.Hand.Pulses.Count==3,
+                "the second real pointer has an independent hand encounter on the same original row");
+            leftDriver.Tick();Check(left.Pulses.Count==1,"a second hand's continuous preview remains one encounter");
+        }
+        finally {leftDriver.Cancel();VRHands.Primary=scene.Hand;}
+        scene.Driver.Cancel();history[0]=reveal;VRHand.Now+=1;int pulses=scene.Hand.Pulses.Count,enters=first.Enters;
+        scene.Aim(first.Physical(Vector2.zero));scene.Tick();
+        Check(first.Enters==enters&&!first.Full.gameObject.activeSelf&&scene.Hand.Pulses.Count==pulses,
+            "native ShowingCardLevelUp preview refusal offers no new controller hover encounter");
+        scene.Driver.Cancel();history[0]=browse;first.Button.scaleNonInteractable=false;VRHand.Now+=1;int sounds=AudioOutput.Count;
+        scene.Tick();Check(first.Enters==enters&&scene.Hand.Pulses.Count==pulses&&AudioOutput.Count==sounds,
+            "scaleNonInteractable false denies both native preview feedback and the controller hover offer");
+        scene.Driver.Cancel();first.Button.scaleNonInteractable=true;
+        first.Button.enabled=false;
+        Check(HoverHapticTargets.Ui(first.Input.gameObject)==null,"a disabled native row component offers no controller hover target");
+        first.Button.enabled=true;first.Entry.enabled=false;
+        Check(HoverHapticTargets.Ui(first.Input.gameObject)==null,"a disabled native preview owner offers no controller hover target");
+        first.Entry.enabled=true;Assign(first.Entry,"button",second.Button);
+        Check(HoverHapticTargets.Ui(first.Input.gameObject)==null,"only the exact native row Selectable owns its preview feedback");
+        Assign(first.Entry,"button",first.Button);
+        first.Root.gameObject.SetActive(false);
+        Check(HoverHapticTargets.Ui(first.Input.gameObject)==null,"a hidden native row offers no controller hover target");
+        first.Root.gameObject.SetActive(true);
+        var tooltip=Rect("unrelated disabled native tooltip button",scene.Root,new Vector2(150,45));tooltip.localPosition=new Vector3(0,-230,0);
+        var tooltipInk=tooltip.gameObject.AddComponent<Image>();var tooltipButton=NativeButton(tooltip,tooltipInk,spec);tooltipButton.interactable=false;
+        Check(HoverHapticTargets.Ui(tooltip.gameObject)==null,
+            "an unrelated disabled ExtendedButton remains silent despite its native scaleNonInteractable flag");
+        Object.DestroyImmediate(tooltip.gameObject);
+        // Independently audited pointer and gamepad profiles are replayed on
+        // ordinary native buttons; no replacement or new sound is manufactured.
+        foreach(AuthoredOrdinary original in report.ordinary)
+        {
+            var rect=Rect(original.name+" ordinary native feedback",scene.Root,new Vector2(260,50));rect.localPosition=new Vector3(0,-230,0);
+            var ink=rect.gameObject.AddComponent<Image>();var button=NativeButton(rect,ink,original.summary);
+            button.targetRect=rect;button.hoverMovement=original.summary.hoverMovement;
+            Vector2 nativeHome=rect.anchoredPosition;Canvas.ForceUpdateCanvases();yield return null;
+            scene.Driver.Cancel();VRHand.Now+=1;pulses=scene.Hand.Pulses.Count;sounds=AudioOutput.Count;
+            scene.Aim(rect.position);scene.Tick();
+            int expectedSound=string.IsNullOrEmpty(original.summary.audioProfile.mouseEnterAudioItem)?0:1;
+            Check(scene.Driver.Hovered==rect.gameObject&&scene.Hand.Pulses.Count==pulses+1
+                &&scene.Hand.Pulses[scene.Hand.Pulses.Count-1]==HapticPreset.HoverTick,
+                "ordinary native "+original.name+" buttons retain the same controller HoverTick preset");
+            Check(AudioOutput.Count==sounds+expectedSound&&(expectedSound==0||AudioOutput[AudioOutput.Count-1]==original.summary.audioProfile.mouseEnterAudioItem),
+                "ordinary native "+original.name+" buttons retain their exact authored hover sound or silence");
+            Check(Vector3.Distance(rect.localScale,new Vector3(original.summary.highlightScale,original.summary.highlightScale,1))<.00001f
+                &&Vector2.Distance(rect.anchoredPosition,nativeHome+(Vector2)original.summary.hoverMovement)<.00001f,
+                "ordinary native "+original.name+" scale and movement remain original");
+            scene.Driver.Cancel();Object.DestroyImmediate(rect.gameObject);
+        }
+        File.WriteAllText(Path.Combine(output,"feedback-sinks.json"),"{\"controller_requests\":"+scene.Hand.Pulses.Count+",\"native_audio_requests\":"+AudioOutput.Count+",\"native_audio_items\":[\""+string.Join("\",\"",AudioOutput)+"\"]}\n");
     }
 }

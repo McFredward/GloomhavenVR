@@ -39,13 +39,25 @@ independent. Campaign/artwork bootstrap, decoration, desktop fitting, card admis
 and completed head-capture boundaries are explicit fixture inputs; native highlight
 uses its original immediate animation path.
 
-Thirteen compiled causal variants independently remove physical depth, input mapping,
+The unchanged production semantic hover resolver, encounter gate and hand sender
+reach a controller delivery recorder. Cold and continuous hover, the 150 ms loss
+grace, genuine reentry, immediate row changes and a dominant-hand switch exercise
+native More Cards previews. Exact original pointer/gamepad ability and row button
+profiles are audited read-only. Actual ExtendedButton.OnHighlight and PlaySound
+select their original sound or silence at the AudioControllerUtils output seam;
+audio-bank availability and device output are explicit ports. Native scale,
+movement, locked selection, preview refusal and unrelated disabled tooltips stay
+independent. This does not establish audible output or physical vibration strength.
+
+Eighteen compiled causal variants independently remove physical depth, input mapping,
 alpha, source camera identity, capture lease, pooled-witness retirement, receipt
 expiry, input-root isolation, shared skin baking, native raised-member geometry,
 More Cards row ownership, its cross-Canvas original raycaster lookup and the
 original host-before-nested tie ordering. The latter compares raised selection
 with the untouched flat query for independently established equal-order hits.
-Each must fail its named assertion. An additional fault variant injects a throw
+Feedback controls restore the old interactable-only target filter, remove native
+preview/hover permission, broaden disabled-tooltip feedback and drop native audio
+at its output boundary. Each must fail its named assertion. An additional fault variant injects a throw
 at the actual source Camera.Render call after one successful draw and asserts
 receipt invalidation, observer lease cleanup and original camera restoration.
 Compilation failure is never accepted as a successful causal control.

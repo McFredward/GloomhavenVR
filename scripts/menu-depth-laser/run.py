@@ -60,6 +60,16 @@ def main():
             'Canvas? ownerCanvas = nativeRoot == null', 'adopted nested mini Canvas still reaches its original outer More Cards row raycaster'),
         ('more-cards-owner-tie-order','UguiPointer.cs','pass == 0 && ownerCanvas != null && ownerCanvas != logical ? ownerCanvas : logical',
             'pass == 0 ? logical : ownerCanvas', 'raised native query preserves the original flat top hit for equal-order nested children'),
+        ('more-cards-old-haptics','HoverHaptics.cs','selectable.IsInteractable() || FurtherAbilityPreview(selectable)',
+            'selectable.IsInteractable()', 'cold More Cards preview reaches the real hand sender with the ordinary HoverTick preset'),
+        ('more-cards-preview-blocker','HoverHaptics.cs','navigation.StateMachine.CurrentState\n                != navigation.StateMachine.GetState(CampaignMapStateTag.ShowingCardLevelUp)',
+            'true', 'native ShowingCardLevelUp preview refusal offers no new controller hover encounter'),
+        ('more-cards-hover-permission','HoverHaptics.cs',' || !button.scaleNonInteractable','',
+            'scaleNonInteractable false denies both native preview feedback and the controller hover offer'),
+        ('more-cards-disabled-tooltip','HoverHaptics.cs','selectable.IsInteractable() || FurtherAbilityPreview(selectable)',
+            'selectable.IsInteractable() || FurtherAbilityPreview(selectable) || (selectable is ExtendedButton e && e.scaleNonInteractable && e.GetComponent<UILevelUpCard>() == null)',
+            'an unrelated disabled ExtendedButton remains silent despite its native scaleNonInteractable flag'),
+        ('more-cards-native-audio-lost','','','','cold More Cards preview plays its exact original native hover sound once'),
         ('source-draw-throws','MenuDepthCharacterSource.cs','_camera.Render();',
             'if (_rayRenderedIdentity != null) throw new InvalidOperationException("fixture source draw failed"); _camera.Render();',''),
         ('card-flat','MenuDepthCardPlane.cs','float depth = -Mathf.Abs(root.rect.width) * plane._depthWidthRatio * xScale / zScale;',
@@ -96,6 +106,8 @@ def main():
         unitypy/'bin/python',Path(sys.executable).resolve(),
         *[p for p in (unitypy/'lib').rglob('*') if p.suffix in {'.py','.so'} and '__pycache__' not in p.parts],
         Path('/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472/0Harmony.dll')]
+    toolchain += [p for package in ['bepinex.assemblypublicizer.msbuild/0.4.3','bepinex.assemblypublicizer/0.4.3']
+        for p in (Path('/home/claw/.nuget/packages')/package).rglob('*') if p.is_file()]
     pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,hand_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
         unity,native,cards,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',ROOT/'ressources/GH_Data/sharedassets2.assets',
         ROOT/'scripts/menu726-native-profile.py',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
