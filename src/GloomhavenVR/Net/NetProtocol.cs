@@ -632,7 +632,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 750;
+    public const ushort ModBuild = 751;
+
+    // ModBuild751 — stable town contacts and restored scenario laser input.
+    // Paired750/569728838 logs retain a destroyed card-plane interface. Its
+    // native readiness read throws before the story pointer and laser grab bar
+    // tick; reject Unity-destroyed wrappers before querying Behaviour state.
+    // Fixed resident poses stand over the forest's shallow local relief. Bed
+    // only their local ground contacts on the common floor before first reveal;
+    // retain the cellar, room scale, shared actor/furniture poses and authority.
+    // The owned mesh restores/releases with its room. Keep original pointer
+    // callbacks, shared placement/gestures, capture quality and wire grammar.
 
     // ModBuild750 — native browsing feedback and page-scoped decisions.
     // Hardware749/374 accepts More Cards hover, but its deliberately unselectable
