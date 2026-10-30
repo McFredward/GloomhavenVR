@@ -1,3 +1,32 @@
+**Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
+
+The maintainer requests a hotfix and a link to the 1.2.2 release notes. The initially
+requested fourth component cannot be offered by the published 1.2.2 updater: its
+comparison ignores revision and regards 1.2.2.1 as equal. The maintainer explicitly
+selects 1.2.3 to preserve automatic updates. Sixteen source-bound assertions against
+exact tagged 1.2.2 parser code verify the normal 1.2.3 tag/archive and offer predicate.
+The candidate's parser is byte-identical to that published source. Four-component
+code/tooling research stays private and unintegrated; no runtime/helper change or
+new ModBuild is needed. Current dev already names 1.2.3/753.
+
+English-only highlights label this a hotfix, describe only the creation preview
+repairs since 1.2.2, link that release's full notes and retain complete-archive/VR
+peer update instructions. Eight content/render checks pass. Class R reuses the
+qualified 750 complete268/306739 closure plus 751/752/753 affected proof, source16,
+strict and exact compiled/input bindings. All 1,768 strict inputs remain exact;
+this candidate changes only allowlisted highlights and status. A fresh local
+GhvrReleaseBuild=true Release build passes 0W0E in 18.41s, with version 1.2.3 and
+IsDevBuild=false. The hosted release freshly builds/packages the exact reviewed
+main merge, verifies upload and records its immutable tag before the dev bump.
+
+Full hosted sourceCI41106858134 on c4677f990 succeeds, including the trusted
+Full checks [6f914b44427d0f20d390c26a90ee95aaa715176d] job and all four runtime
+shards. Only the reviewed notes/status descendant proceeds to publication. User authorizes release after 753 delivery and accepts
+752's quest page; no new 753 Windows/headset result is inferred. Existing defaults
+and known issues stay with the 1.2.2 notes. All three preparation workers are clean,
+process/FD audited and retired after verified whole-debug archival; discarded
+research and actual executed compatibility/content evidence remain separate.
+
 **Larger naming preview, Build753, 2026-10-30 — validated for dev.**
 
 The maintainer accepts752's personal-quest preview but finds the naming figure
