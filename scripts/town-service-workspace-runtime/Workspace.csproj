@@ -8,7 +8,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$(FixtureDir)/*.cs" />
+    <Compile Include="$(FixtureDir)/*.cs" Exclude="$(FixtureDir)/TerrainContact751.cs" />
     <Compile Include="$(ProductionDir)/*.cs" />
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll" />
   </ItemGroup>

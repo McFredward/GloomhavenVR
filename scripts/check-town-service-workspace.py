@@ -90,9 +90,10 @@ def main():
     parser.add_argument("--negative-control", action="append", choices=[case[0] for case in mutations()], help="Run production plus selected negative controls")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--bundle", type=Path, help="Immutable final town bundle for actual mesh envelope validation")
+    parser.add_argument("--terrain-contact", action="store_true", help="Only shipping woodland contact ownership and its omission control")
     args = parser.parse_args()
     inspect_presentation_contract(args.source_root)
-    bundle = (args.bundle or args.source_root / "prebuilt/ghvr-town.bundle").resolve()
+    bundle = (args.bundle or args.source_root / ("prebuilt/gloomhavenvr.bundle" if args.terrain_contact else "prebuilt/ghvr-town.bundle")).resolve()
     bundle_hash = hashlib.sha256(bundle.read_bytes()).hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -101,11 +102,19 @@ def main():
         parser.error("Unity 2021.3.5 is required; pass --unity")
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
+    if args.terrain_contact:
+        names = ("TownServiceTerrainContact.cs", "TownServiceLayout.cs")
+        bound = {name: (args.source_root / "src/GloomhavenVR/WorldUI/TownServices" / name).read_text() for name in names}
+        hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes, "bundle": str(bundle), "bundleSha256": bundle_hash}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
         variants += [case for case in mutations() if not args.negative_control or case[0] in args.negative_control]
+    if args.terrain_contact:
+        variants = [("production", None, None, None, ""), ("terrain-contact-lost", "TownServiceTerrainContact.cs",
+            "world.y = Mathf.Lerp(world.y, floor, weight);", "world.y = Mathf.Lerp(world.y, world.y, weight);",
+            "local woodland ground meets all fixed shared soles while Cellar stays exact")]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -116,7 +125,7 @@ def main():
                 text = replace_once(text, before, after)
             (production / path).write_text(text.replace("Time.unscaledTime", "WorkspaceClock.Now"))
         project = build / "Interaction.csproj"
-        shutil.copyfile(fixture / "Workspace.csproj", project)
+        shutil.copyfile(fixture / ("TerrainContact751.csproj" if args.terrain_contact else "Workspace.csproj"), project)
         assembly = "TownInteraction_" + name.replace("-", "_")
         command = [dotnet, "build", str(project), "--configuration", "Release", "--nologo", "--verbosity", "quiet",
                    f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
@@ -126,7 +135,8 @@ def main():
         if compiled.returncode:
             print(compiled.stdout)
             raise SystemExit(f"FAIL: {name} did not compile (not a successful negative control)")
-        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
+        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected,
+            "entry": "TerrainContact751" if args.terrain_contact else "InteractionProgram"})
         print(f"Compiled {name}", flush=True)
     manifest_path = run / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

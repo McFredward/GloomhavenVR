@@ -39,7 +39,20 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { internal static bool Active=false; internal static MeshRenderer? ParchmentRenderer=null; }
+    internal static class MapRoomDriver
+    {
+        internal static bool Active=false; internal static MeshRenderer? ParchmentRenderer=null;
+        // Declared native map-frame measurement port. Its consumers run below.
+        internal static bool TryGetParchmentFrame(out Vector3 center,out float scale)
+        {
+            center=Vector3.zero;scale=1;
+            if(!Active||ParchmentRenderer==null)return false;
+            Bounds bounds=ParchmentRenderer.bounds;
+            float widest=Mathf.Max(Mathf.Abs(bounds.size.x),Mathf.Abs(bounds.size.z));
+            if(widest<.01f)return false;
+            center=bounds.center;scale=Mathf.Clamp(widest/1.2f,1f,2000f);return true;
+        }
+    }
     internal static class GuildmasterRoomGeometry
     { internal static bool TryFloor(out float floor){floor=0;return false;} }
 }

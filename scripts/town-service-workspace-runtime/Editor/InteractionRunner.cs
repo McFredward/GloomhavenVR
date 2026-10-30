@@ -6,7 +6,7 @@ using UnityEngine;
 
 public static class InteractionRunner
 {
-    [Serializable] private class Case { public string name, dll, expected; }
+    [Serializable] private class Case { public string name, dll, expected, entry; }
     [Serializable] private class Manifest { public string result; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran;
@@ -31,7 +31,7 @@ public static class InteractionRunner
                 try
                 {
                     var assembly = Assembly.LoadFile(entry.dll);
-                    int count = (int)assembly.GetType("InteractionProgram").GetMethod("Run").Invoke(null, null);
+                    int count = (int)assembly.GetType(String.IsNullOrEmpty(entry.entry) ? "InteractionProgram" : entry.entry).GetMethod("Run").Invoke(null, null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " runtime assertions");
                 }

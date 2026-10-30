@@ -130,6 +130,8 @@ def main():
     source_path = root / 'src/GloomhavenVR/Core/Environment/SkyAlternative.cs'
     environment_bank = root / 'prebuilt/gloomhavenvr.bundle'
     source = source_path.read_text()
+    contact_sources = {name: root / 'src/GloomhavenVR/WorldUI/TownServices' / name
+        for name in ('TownServiceTerrainContact.cs', 'TownServiceLayout.cs')}
     mutations = [
         ('map-native-floor-lost', '&& WorldUI.TownServicePlacement.TryCanonicalFloor(out float mapFloor)',
          '&& bool.Parse("false") && WorldUI.TownServicePlacement.TryCanonicalFloor(out float mapFloor)',
@@ -165,7 +167,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     print('Evidence: ' + str(run), flush=True)
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
-    paths = [source_path, environment_bank, Path(__file__), *fixture.rglob('*.cs'), fixture / 'EnvironmentScope.csproj']
+    paths = [source_path, *contact_sources.values(), environment_bank, Path(__file__), *fixture.rglob('*.cs'), fixture / 'EnvironmentScope.csproj']
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     code = 1; process = None; reaped = True
@@ -184,6 +186,7 @@ def main():
         for name, current, expected in cases:
             build = run / name; production = build / 'production'; production.mkdir(parents=True)
             (production / 'SkyAlternative.cs').write_text(current)
+            for filename, path in contact_sources.items(): shutil.copyfile(path, production / filename)
             project = build / 'EnvironmentScope.csproj'; shutil.copyfile(fixture / project.name, project)
             assembly = 'EnvironmentScope_' + name.replace('-', '_')
             command = [dotnet, 'build', str(project), '-c', 'Release', '--nologo', '--verbosity', 'quiet',

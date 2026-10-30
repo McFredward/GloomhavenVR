@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>$(CaseName)</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/TerrainContact751.cs" />
+    <Compile Include="$(ProductionDir)/*.cs" />
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll" />
+  </ItemGroup>
+</Project>
