@@ -1,3 +1,42 @@
+**Fixed town contacts and scenario laser recovery, Build751, 2026-10-30 — validated for dev.**
+
+Both new hardware logs identify750/569728838, one SteamVR/OpenXR and one
+VirtualDesktopXR; no new screenshot. The maintainer accepts the other750 changes.
+Both Player logs repeatedly throw from MenuDepthCardPlane.IsReady: a destroyed
+Unity component survives as a managed interface. The exception aborts VRHand
+before story laser and bar picking, while the earlier physical poke still works.
+Check Unity liveness before Behaviour state; keep native input and grab authority.
+
+Residents already share a fixed native floor. Shipping woodland relief lies
+8–58mm below the original sole probes, while the cellar is essentially level.
+Keep NPC/furniture transforms and room scale unchanged. A local, map-only woodland
+mesh clone beds six sole contacts onto that common floor before reveal, preserving
+outer vertices/normals and the original asset. Restore/release it with its room.
+The0.31m core covers the measured0.297983m containing-triangle support; a0.45m
+outer blend retains the surrounding relief. Other room styles retain the same
+fixed shared NPC poses. Environment selection remains visitor-local.
+
+Class B, explicitly minimal tests as requested: laser2 variants pass12 host/peer
+assertions and1 compiling old-guard control in39.23s; native bundled terrain2
+variants pass9229 vertex/contact/ownership assertions and1 omission control.
+One directly affected environment-owner production case passes111 assertions;
+its real helper/layout and declared native-frame port remain compilable. Larger
+laser/workspace/environment matrices are inherited from qualified750 coverage.
+Final Debug/Release0W0E18.10/18.68s; final source16PASS14.4s. Initial source scan
+raced the strict build's obj cleanup; its isolated repeat and final group pass.
+Fixture nullable setup and the measured initial contact residual remain recorded.
+
+Compiled scope:2 existing behavior types,9 exact750→751 build-only types,
+1 local terrain helper,0 removals,32 embedded resources exact750. Strict inputs,
+selected fixtures/native assets/toolchain and unchanged750 closures are bound in
+ignored mp751 evidence. Surfaces670/267/4839 and inventory235/355 remain; five
+EN/DE guides pass. No complete gate or wire rerun this round: retain750's qualified
+268 checkpoint/306739 goldens for unchanged code. Native Unity/GL evidence and
+source guards do not establish751 Windows/headset or live multiplayer acceptance.
+Per-run canonical cleanup preserves all evidence/current artifacts; owned workers
+are archived and hash verified before retirement. Windows builds the archive
+from the dev source delivery. Passive map-stall investigation remains separate.
+
 **Native More Cards feedback and page-scoped decisions, Build750, 2026-10-30 — validated for dev.**
 
 Local749/374 hardware logs show the original Perks decision surviving navigation.
