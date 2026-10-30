@@ -1,3 +1,46 @@
+**Native More Cards feedback and page-scoped decisions, Build750, 2026-10-30 — validated for dev.**
+
+Local749/374 hardware logs show the original Perks decision surviving navigation.
+More Cards' deliberately unselectable preview row now joins the existing haptic
+encounter gate through its exact original selectable. Authored highlight/audio
+and native click permission remain. Decisions capture their actual source page,
+character/item/slot, native menu links and opening identity. Accepted navigation,
+including same-character Perks → Cards and admitted window-X, retires the old
+request through its original No before source data changes. Deferred results,
+rescued boxes, already chosen outcomes and reentrant native gamepad history retain
+their exact opening. Manual flat-screen navigation works too. Focus, dimming,
+fades and teardown retain their native behavior and continuation authority.
+
+Class C original frozen9718 invocation:266PASS/2FAIL across268 local suites,
+3959.2s; source16PASS18.7s. Travel failed before assertions because worktree setup
+omits the read-only decompiled dependency; declare/link those inputs explicitly.
+The other failure is the legacy Flat control's Adventure/Enhancement oracle.
+Both original failures remain. Complete final flat35 passes228 assertions/29
+compiling controls, including57 PC and57 gamepad assertions; portable30 passes
+383/29. Complete travel11 passes36/10 in74.39s. These identified replacements and
+bound unchanged inputs establish aggregate268 coverage, rather than a new clean
+full invocation. Actual preserved wire binaries pass306739 goldens in7.04s;
+the exact remaining bundle/surface/compiled guard suffix is separately reviewed.
+
+Final strict Debug/Release0W0E31.56/29.87s; final source16PASS26.3s. Native85 in
+the original union passes2012/82, laser21 passes278/18 and haptics9 passes32/8.
+Explicit-close consumers pass164/8,355/8 and113/13. Final input bindings retain
+1767 strict inputs and3174/3180 complete-run inputs exactly; only two navigation
+partials and four Flat fixture inputs differ. Their complete containing proof
+covers the bounded repair. Compiled review finds9 existing behavior types,
+9 exact ModBuild-only types,11 new patches plus one catalog,0 removals and32
+resources exact749. The bounded follow-up changes only ConfirmationOnOwner.
+Surfaces670/267/4839 retain every prior key/signature/token; patch inventory235/355
+and five EN/DE guides pass. Failed fixture attempts and their fixes are retained.
+
+Current749 hardware and stale remote745 do not establish750 headset acceptance.
+Native Unity/OpenGL callbacks, history and head pixels have explicit session,
+artwork and transaction ports; WindowsD3D11/HMD and live paired acceptance remain
+hardware work. Passive map-stall cause remains open in MP746-PERFORMANCE.md.
+Windows builds its archive from dev. Canonical per-run cleanup preserves evidence
+and current artifacts; owned worker evidence is archived/hash verified before
+worktree retirement. See ignored menu750 validation, input bindings and handoffs.
+
 **Native More Cards hover, Build749, 2026-10-30 — validated for dev.**
 
 Both local hardware logs identify748/8fa65eccd. The raised laser point is correct,

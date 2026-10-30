@@ -1,13 +1,13 @@
 # Planning index
 
-Updated 2026-10-30: Build749 routes raised More Cards hits to the exact original
-row selectable, including adopted canvases and native nested sorting priority.
-Five complete affected suites, strict Debug/Release and source16 pass under
-class B; source/compiled/input bindings retain unchanged748 coverage. Current
-verification is recorded in STATE.md and ignored menu749 evidence. The qualified
-Build748 complete checkpoint remains in MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md.
-Passive map-stall cause remains open in MP746-PERFORMANCE.md. Windows builds
-its archive from the dev source delivery.
+Updated 2026-10-30: Build750 restores native More Cards hover feedback and binds
+confirmation decisions to their originating page/window, including same-character
+Perks → Cards, authored outer menus, deferred results and pooled gamepad history.
+The qualified aggregate268 checkpoint, actual306739 goldens, final strict/source
+and compiled proof are recorded in STATE.md and ignored menu750 evidence. Both
+initial full-run failures and their passing containing replacements remain
+identified. Passive map-stall cause remains open in MP746-PERFORMANCE.md. Windows
+builds its archive from the dev source delivery.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
