@@ -632,7 +632,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 749;
+    public const ushort ModBuild = 750;
+
+    // ModBuild750 — native browsing feedback and page-scoped decisions.
+    // Hardware749/374 accepts More Cards hover, but its deliberately unselectable
+    // preview rows were rejected by the ordinary hover-haptic action filter.
+    // Recognize only the exact original preview row as one semantic encounter;
+    // preserve native selection permission, authored highlight and UI audio.
+    // An open Perks decision survives native page/character navigation. Retire
+    // the exact originating request through its original decline before the
+    // accepted source context changes, including pooled and rescued prompts.
+    // Preserve original completion/authority and teardown, same-page browsing,
+    // unrelated windows, mandatory continuation and foreign immersive ownership.
+    // Keep capture quality/cadence, native actor state and wire grammar intact.
 
     // ModBuild749 — original More Cards hover receiver on raised rows.
     // Hardware748/8fa accepts physical depth picking but the preview opens only
