@@ -1,3 +1,24 @@
+**Release1.2.2 candidate, 2026-10-30 — hardware accepted; publication in progress.**
+
+The maintainer confirms the751 test successful and authorizes release1.2.2.
+Only fresh local751/b881 logs are supplied; remote750 remains historical.
+Local review finds0BepInEx Error/Fatal and0oldcard-plane hand failures. Four NREs
+occur only during shutdown: one native VoiceChat.OnDestroy, three without usable
+stacks. Both native phase waits clear (22.1s/2.8s); no persistent desync is shown.
+The studio logo's safe2D startup fallback and existing intermittent multiplayer
+map stalls are retained in player notes. Render-phase diagnostic's call site is
+LateUpdate, and capture/control warnings require their masks/lifecycle context.
+No concrete new gameplay release blocker is established by the local evidence.
+Independent audit and immutable input hashes live in ignored release122 evidence.
+
+Reuse qualified750 full268/306739 and final751 affected/strict/compiled bindings;
+trusted hosted fullCI41086730880 succeeds for the751 source tree. Release content
+adds only allowlisted English highlights and this status; the workflow checks
+trusted proof again and freshly builds/packages the exact main merge. The old
+Oct10tester cfg drop differs from shipped defaults and has seven parser-limited
+initializers; it is recorded as a failed historical comparison, not a passed
+current configuration check. Pinned/default policy and saved user tuning stay.
+
 **Fixed town contacts and scenario laser recovery, Build751, 2026-10-30 — validated for dev.**
 
 Both new hardware logs identify750/569728838, one SteamVR/OpenXR and one
