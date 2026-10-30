@@ -52,7 +52,12 @@ def main():
         'private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)','internal void Cancel()']
     hit=ray[ray.index('    private static Rect HitRectOf('):ray.index(';',ray.index('    private static Rect HitRectOf('))+1]
     sources['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+'\n'.join(block(ray,s)for s in signatures)+'\n'+hit+'\n}'
+    grab_path=ROOT/'src/GloomhavenVR/Hands/Interact/RayGrabDriver.cs';grab=grab_path.read_text()
+    sources['ActualBarGeometry.cs']='using UnityEngine;using GloomhavenVR.WorldUI;namespace GloomhavenVR.Hands.Interact;internal sealed partial class RayGrabDriver {\n'+block(grab,'private static bool TryPickBarGeometry(Ray ray, float limit, bool requireGrabbable,')+'\n}'
     cases=[('production','','','',''),
+        ('retired-plane-story','','','',''),
+        ('retired-plane-old-ready','MenuDepthCardPlane.cs','this != null && _configured && isActiveAndEnabled',
+            '_configured && isActiveAndEnabled','retired card plane cannot abort scenario story laser or following grab-bar phase'),
         ('more-cards-hover','','','',''),
         ('more-cards-old-root','MenuDepthCardPlane.cs','nativeRoot: NativeInputRoot()',
             'nativeRoot: _card', 'raised More Cards centre reaches the original row MouseEnter callback'),
@@ -108,7 +113,7 @@ def main():
         Path('/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472/0Harmony.dll')]
     toolchain += [p for package in ['bepinex.assemblypublicizer.msbuild/0.4.3','bepinex.assemblypublicizer/0.4.3']
         for p in (Path('/home/claw/.nuget/packages')/package).rglob('*') if p.is_file()]
-    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,hand_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
+    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,grab_path,hand_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
         unity,native,cards,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',ROOT/'ressources/GH_Data/sharedassets2.assets',
         ROOT/'scripts/menu726-native-profile.py',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
@@ -136,7 +141,7 @@ def main():
             dll=assemblies/(assembly+'.dll');shutil.copy2(case/'bin/Release/net472'/dll.name,dll)
             shutil.copy2(case/'obj/project.assets.json',case/'resolved-build-assets.json')
             manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected,
-                'method':'RunMoreCards' if name.startswith('more-cards-') else 'Run'})
+                'method':'RunRetiredPlaneStory' if name.startswith('retired-plane-') else 'RunMoreCards' if name.startswith('more-cards-') else 'Run'})
         for directory in ['Assets/Editor','Packages','ProjectSettings']:(project/directory).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')

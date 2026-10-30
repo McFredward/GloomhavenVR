@@ -122,10 +122,16 @@ namespace GloomhavenVR.Hands.Interact
         internal void ClaimTrigger(string reason) { }
         internal void NoteFanOcclusion(string reason,float distance) { }
     }
-    internal sealed class RayGrabDriver
+    internal static class VRInteractables
+    {
+        internal static readonly List<(object Target, Collider Collider)> Grabbables=new();
+    }
+    internal sealed partial class RayGrabDriver
     {
         internal bool TryPickBar(out WorldUI.PanelGrabHandle? handle,out Vector3 point,out float distance)
         {handle=null;point=default;distance=float.PositiveInfinity;return false;}
+        internal static bool PickBarGeometry(Ray ray,float limit,out WorldUI.PanelGrabHandle? handle,out Vector3 point,out float distance)
+            =>TryPickBarGeometry(ray,limit,true,out handle,out point,out distance);
     }
     internal sealed class PokeOnlyTarget : MonoBehaviour { }
     internal static class UguiPokeSurfaces
@@ -159,7 +165,8 @@ namespace GloomhavenVR.Hands.Interact
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal sealed class PanelGrabHandle : MonoBehaviour { }
+    internal sealed class PanelGrabHandle : MonoBehaviour
+    { internal bool CanGrab=true;internal Collider? BarCollider; }
     internal static class CanvasConversion
     {
         internal static bool BaseSortingOrderOf(GameObject owner,out int order){order=0;return false;}
