@@ -253,6 +253,14 @@ internal sealed class UILevelUpCard:UnityEngine.MonoBehaviour { internal FullAbi
 internal sealed class FullAbilityCard:UnityEngine.MonoBehaviour { }
 internal sealed class UIResetLevelUpWindow:UnityEngine.MonoBehaviour
 {
+    // Browse retirement executes in the native Unity companion. This portable
+    // geometry workload remains in a live Cards owner outside story commitment.
+    internal static int UnexpectedHideCalls;
+    internal void Hide()
+    {
+        ++UnexpectedHideCalls;
+        throw new InvalidOperationException("Native browse retirement is outside the portable geometry context.");
+    }
     internal UILevelUpCardInventory inventory=null!;
     internal UnityEngine.UI.Toggle displayToggle=null!;
     internal UnityEngine.GameObject resetPanel=null!;
@@ -296,6 +304,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
 { internal static class MapRoomDriver { internal static bool Active=true; } }
 namespace GloomhavenVR.WorldUI
 {
+    // The original story commitment state is supplied by the native companion.
+    internal static class StoryComposite { internal static bool PointOfNoReturn => false; }
     internal static class WorldUIConfig { internal static bool ConversionActive=true; }
     internal static class FlatScreen { internal static bool ManualScreenActive; }
     internal sealed class ConvertedPanel

@@ -56,7 +56,7 @@ try:
  if result.returncode:sys.exit(result.returncode)
  # Each control executes the same production-linked hierarchy/geometry fixture.
  mutations=[
-  ('lifetime','level.myWindow.IsOpen','level.IsShowing','sibling inventory becomes part of actual native level-up owner'),
+  ('lifetime','UIWindow? owner = level != null && level.myWindow != null && level.myWindow.IsOpen','UIWindow? owner = level != null && level.myWindow != null && level.IsShowing','sibling inventory becomes part of actual native level-up owner'),
   ('handover','if (!ModalFallback.ReleaseForComposite(inventoryWindow)) return;','if (inventoryWindow == null) return;','standalone float retires before native home capture'),
   ('overlap','_previewRight + (leveling ? PreviewGapPx : ChromeParkTuning.ChromeGapPx) + _rect.rect.width * .5f','0f','full preview right edge remains readable beside inventory'),
   ('pooled-text-birth','TMPro_EventManager.TEXT_CHANGED_EVENT.Add(PreviewTextChanged);','/* new native text observation omitted */','same pooled root captures later native TMP births after warmup'),
@@ -84,11 +84,15 @@ try:
   print(message,end='',flush=True)
  entry_text=entry.read_text()
  entry_mutations=[
-  ('controller-hint-typography','CaptionTemplate(view, "Container/Header/Title")','view.GetComponentsInChildren<TMPro.TMP_Text>(true)[0]','entry caption follows native typography'),
+  # Earlier geometry-only owners have no native caption text. Keep their null
+  # result while reintroducing the bad first-text choice in the typography case.
+  ('controller-hint-typography','CaptionTemplate(view, "Container/Header/Title")','(view.GetComponentsInChildren<TMPro.TMP_Text>(true).Length == 0 ? null : view.GetComponentsInChildren<TMPro.TMP_Text>(true)[0])','entry caption follows native typography'),
   ('opener-waits-for-list','if (!available) return Release();','if (!available || !reset!.inventory.GetComponent<UnityEngine.UI.UIWindow>()!.IsOpen) return Release();','closed inventory opener joins original character Cards view before the inventory opens'),
   ('caption-not-clickable','_caption.raycastTarget = true;','_caption.raycastTarget = false;','caption graphic dispatches to the original native toggle'),
   ('native-show-lock-bypassed','reset.requestDisableShow.Count == 0','reset.requestDisableShow.Count >= 0','show-lock: opener returns its native geometry and parent'),
-  ('opener-home-retained','_button.SetParent(home, false);','_button.SetParent(_button.parent, false);','tab: opener returns its native geometry and parent'),
+  # The explicit Cards context now exercises an opener before the caption cases.
+  # A retained native home correctly blocks the next owner at that earlier seam.
+  ('opener-home-retained','_button.SetParent(home, false);','_button.SetParent(_button.parent, false);','sibling inventory becomes part of actual native level-up owner'),
   ('caption-language-stale','Loc.OnChanged += RefreshCaption;','/* language update omitted */','open caption follows native language changes'),
  ]
  for name,old,new,expected in entry_mutations:

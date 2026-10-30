@@ -59,7 +59,7 @@ internal static partial class Program
             Host.localScale=new(worldScale,worldScale,worldScale);Host.localRotation=Quaternion.Euler(0,yaw,0);Host.localPosition=new(17,21,-13);
             Party=Rect("New Party display",Host,1920,1080);Party.gameObject.layer=27;
             PartyWindow=Party.gameObject.AddComponent<UIWindow>();PartyWindow.ID=UIWindowID.PartyPanel;
-            var party=Party.gameObject.AddComponent<NewPartyDisplayUI>();party.window=PartyWindow;NewPartyDisplayUI.PartyDisplay=party;
+            var party=Party.gameObject.AddComponent<NewPartyDisplayUI>();party.window=PartyWindow;party.ActiveDisplay=NewPartyDisplayUI.DisplayType.CARDS;NewPartyDisplayUI.PartyDisplay=party;
             Owned=Rect("Character Ability Cards Display",Party,749,1080);Owned.anchoredPosition3D=new(290,15,2);Owned.gameObject.layer=27;
             Owned.anchorMin=Owned.anchorMax=new(.4f,.5f);Owned.pivot=new(.3f,.7f);Owned.localScale=new(1.1f,.9f,1);Owned.localRotation=Quaternion.Euler(0,0,3);
             Comparison=Owned.gameObject.AddComponent<NativeComparisonCards>();Comparison.Selected+=()=>++Compared;party.AbilityCardsDisplay=Comparison;
@@ -243,6 +243,7 @@ internal static partial class Program
             LevelUpComposite.Reset();
         }
         CardListEntryChecks();
+        Check(UIResetLevelUpWindow.UnexpectedHideCalls==0,"portable geometry does not substitute native browse retirement");
         string? report=Environment.GetEnvironmentVariable("GHVR_LEVELUP_REPORT");
         if(!string.IsNullOrEmpty(report))File.WriteAllText(report,JsonSerializer.Serialize(new{checks=_checks,geometry=metrics,scope="Production ownership/rect/layer state machine over bounded native API model; no renderer/headset claim."},new JsonSerializerOptions{WriteIndented=true}));
         Console.WriteLine($"Level-up composite: {_checks} assertions passed.");
