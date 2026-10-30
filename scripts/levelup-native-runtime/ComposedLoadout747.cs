@@ -17,6 +17,7 @@ public static partial class LevelUpNativeProgram
         var document=new XmlDocument();document.Load(Path.Combine(_inputs,"native-narrative-loadout.xml"));
         var host=ImportNode739(document.DocumentElement!,home,new Dictionary<string,TMP_FontAsset>(),true);
         host.gameObject.SetActive(true);
+        foreach(CanvasGroup group in host.GetComponentsInChildren<CanvasGroup>(true))group.alpha=1;
         var info=(RectTransform)host.Find("UI Loadout Quest Information");info.gameObject.SetActive(true);
         var picture=info.Find("Holder/Paper/Image").GetComponent<Image>();
         foreach(Transform node in host.GetComponentsInChildren<Transform>(true))

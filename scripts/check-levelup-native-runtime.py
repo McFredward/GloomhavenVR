@@ -107,6 +107,12 @@ def main():
         + method(converter_core, 'if (transparentBackground)') + '}'
         + '\n'.join(background) + '}}')
     story_source=(root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs').read_text()
+    spec=importlib.util.spec_from_file_location('first_fit_bindings748',fixture/'first_fit_bindings748.py')
+    fit_bindings=importlib.util.module_from_spec(spec);spec.loader.exec_module(fit_bindings)
+    originals['NativeFirstFit748.cs']=fit_bindings.bind(root,method)
+    story_commitment=re.findall(r'internal static bool PointOfNoReturn\s*=>[^;]+;',story_source)
+    if len(story_commitment)!=1:raise RuntimeError('Native story commitment binding drift')
+    originals['NativeStoryCommitment748.cs']='namespace GloomhavenVR.WorldUI {internal static partial class StoryComposite {'+story_commitment[0]+'}}'
     story_methods=[method(story_source,signature) for signature in ('private static bool Park(',
         'private static void WriteLayers(', 'private static void ApplyPose(',
         'private static bool TryPaintedBounds(', 'private static void Unpark(')]
@@ -145,6 +151,7 @@ def main():
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
     cases.append(('narrative-production', {}, ''))
+    cases.append(('narrative-early-production', {}, ''))
     narrative_controls = [
         ('narrative-dimmer-retained', 'NarrativeBackdrop.cs',
          'if (isStory) return Filter(window.transform, Kind.Story);',
@@ -161,14 +168,14 @@ def main():
          '|| !graphic.transform.IsChildOf(root)', '|| false',
          'foreign native story graphics cannot join another producer background filter'),
         ('narrative-lease-restore-lost', 'NarrativeBackdrop.cs',
-         'if (IsBackdrop(_root, Kind.Story, graphic)) graphic.enabled = true;',
+         'if (IsBackdrop(_root, Kind.Story, graphic) || OwnsBorrowed(graphic)) graphic.enabled = true;',
          '/* lost native hand-back */',
          'composite unpark restores every original narrative dimmer flag'),
         ('narrative-input-role-lost', 'NarrativeBackdrop.cs',
          'if (image.raycastTarget || image.sprite == null', 'if (false || image.sprite == null',
          'native transparent input roots retain their original raycast component'),
         ('narrative-composite-lease-lost', 'NativeStoryComposite746.cs',
-         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock);', '_narrativeBackdrop = null;',
+         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));', '_narrativeBackdrop = null;',
          'actual story Park and ApplyPose hide only the native dimmer Image'),
         ('narrative-composite-sync-lost', 'NativeStoryComposite746.cs',
          '_narrativeBackdrop?.Sync();', '/* composite pose omitted backdrop sync */',
@@ -201,6 +208,56 @@ def main():
     for name, key, before, after, expected in narrative_controls:
         if originals[key].count(before) != 1: raise RuntimeError('Narrative mutation binding drift: ' + name)
         cases.append((name, {key: originals[key].replace(before, after)}, expected))
+    early_controls = [
+        ('narrative-early-filter-lost', 'NarrativeBackdrop.cs',
+         '? new LoadoutLease(window, viewer.imageHolder.rectTransform).Contains : null;', '? null : null;',
+         'first revealing native loadout eye pixels have no desktop dimmer before story Park'),
+        ('narrative-early-waits-for-active-art', 'NarrativeBackdrop.cs',
+         'return viewer != null && viewer.imageHolder != null', 'return viewer != null && viewer.imageHolder != null && viewer.imageHolder.gameObject.activeInHierarchy',
+         'first revealing native loadout eye pixels have no desktop dimmer before story Park'),
+        ('narrative-early-waits-for-loaded-art', 'NarrativeBackdrop.cs',
+         'return viewer != null && viewer.imageHolder != null', 'return viewer != null && viewer.imageHolder != null && viewer.imageHolder.sprite != null',
+         'first revealing native loadout eye pixels have no desktop dimmer before story Park'),
+        ('narrative-early-initial-treatment-lost', 'NativeBackgroundKernel739.cs',
+         'HideFullScreenBackground(panel, initial: true);', '/* initial producer treatment omitted */',
+         'first revealing native loadout eye pixels have no desktop dimmer before story Park'),
+        ('narrative-early-inactive-receipt-lost', 'NativeBackgroundKernel739.cs',
+         'includeInactive: panel.BackgroundFilter != null', 'includeInactive: false',
+         'native inactive Blur retains its original enabled receipt before capture neutralization'),
+        ('narrative-early-fit-counts-disabled', 'NativeFirstFit748.cs',
+         'if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)',
+         'if (g == null || g.canvasRenderer == null || g.canvasRenderer.cull)',
+         'actual first native fit excludes the full desktop backing even before illustration readiness'),
+        ('narrative-ownership-culled-role-lost', 'NativeBackgroundKernel739.cs',
+         '(g.canvasRenderer.cull && panel.BackgroundFilter == null)', 'g.canvasRenderer.cull',
+         'exact native producer owns culled backings before the first reveal'),
+        ('narrative-ownership-handoff-receipt-lost', 'NarrativeBackdrop.cs',
+         'if (!panel.HiddenBackgrounds.Contains(image)) panel.HiddenBackgrounds.Add(image);', '/* composite owner receipt omitted */',
+         'converter receives every exact original receipt from the earlier composite lease'),
+        ('narrative-ownership-handoff-reenables', 'NarrativeBackdrop.cs',
+         'if (panel != null && panel.HideBackground && panel.BackgroundFilter != null',
+         'if (panel != null && !panel.IsAlive && panel.HideBackground && panel.BackgroundFilter != null',
+         'composite handoff never re-enables a backing inside its live converted owner'),
+        ('narrative-ownership-pooled-restore-lost', 'NativeBackgroundKernel739.cs',
+         'if (g != null && (panel.BackgroundFilter == null || panel.BackgroundFilter(g)))', 'if (g != null)',
+         'converted native background receipts never re-enable pooled source or foreign-parent content'),
+        ('narrative-ownership-blur-origin-lost', 'NarrativeBackdrop.cs',
+         'blurs.Add(image, (parent, parent.sprite));', '/* original Blur receipt omitted */',
+         'owned native Blur remains identifiable after real capture material neutralization'),
+        ('narrative-ownership-original-disabled-lost', 'NativeBackgroundKernel739.cs',
+         'if (g == null || !g.enabled || !(g is Image || g is RawImage))', 'if (g == null || !(g is Image || g is RawImage))',
+         'combined lease and converter restore each native original flag exactly once in either order'),
+        ('narrative-ownership-generic-restore-lost', 'NativeBackgroundKernel739.cs',
+         'if (g != null && (panel.BackgroundFilter == null || panel.BackgroundFilter(g)))', 'if (g != null && panel.BackgroundFilter != null && panel.BackgroundFilter(g))',
+         'ordinary no-filter restoration remains independent of narrative source roles'),
+        ('narrative-ownership-story-receipt-lost', 'NativeStoryComposite746.cs',
+         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));',
+         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock);',
+         'story dock takes every converted source backdrop receipt before moving native children'),
+    ]
+    for name,key,before,after,expected in early_controls:
+        if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
+        cases.append((name,{key:originals[key].replace(before,after)},expected))
     changes = [
         ('card-list-opener-waits-for-open', 'CardListEntry.cs', '&& button.gameObject.activeSelf && reset != null', '&& button.gameObject.activeSelf && reset != null && reset.inventory.GetComponent<UIWindow>().IsOpen', 'native closed-list opener is reachable inside converted character Cards tab before list opens'),
         ('card-list-caption-not-clickable', 'CardListEntry.cs', '_caption.raycastTarget = true;', '_caption.raycastTarget = false;', 'native graphic raycast hits More Cards caption'),
@@ -246,6 +303,28 @@ def main():
         ('perks-owner-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || request.Source is UIPerksInventory)', 'every perks confirmation is a foreground member of its actual producer window'),
         ('same-scene-member-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || mount.gameObject.scene == rect.gameObject.scene)', 'every perks confirmation is a foreground member of its actual producer window'),
     ]
+    # Cards is a separate production lane; narrative-only selection does not
+    # bind its unrelated mutations. The integrated/full candidate must carry
+    # these exact owned-inventory APIs and reject every causal omission.
+    if not args.narrative_only:
+        changes.extend([
+            ('card-list-native-browse-close-lost', 'LevelUpComposite.cs',
+             '            reset.Hide();', '            /* native browse Hide omitted */',
+             'commitment closes proved browsing through original Hide while preserving the native toggle preference'),
+            ('card-list-native-browse-refloat', 'NativeAdmission.cs',
+             'if (LevelUpComposite.IsOwnedInventory(window)) return false;', '/* ordinary native inventory ownership admission omitted */',
+             'retired native-home browser cannot refloat through ordinary or direct admission during its fade'),
+            ('card-list-native-browse-direct-readmission', 'NativeAdmission.cs',
+             'if (LevelUpComposite.IsOwnedInventory(window)) return true;', '/* direct native inventory ownership admission omitted */',
+             'retired native-home browser cannot refloat through ordinary or direct admission during its fade'),
+            ('card-list-native-mandatory-recovery-lost', 'LevelUpComposite.cs',
+             '        if (MandatoryLevelUp(inventory)) return;', '        /* original mandatory level-up priority omitted */',
+             'fresh mandatory native level-up overrides the old browse receipt during commitment'),
+            ('card-list-native-owner-recovery-lost', 'LevelUpComposite.cs',
+             '        if (!StoryComposite.PointOfNoReturn && BrowseOwnerAvailable(reset))',
+             '        if (!StoryComposite.PointOfNoReturn && BrowseOwnerAvailable(reset) && !ReferenceEquals(_retiredBrowse, inventory))',
+             'fresh native Cards owner recovers browsing after commitment ends'),
+        ])
     for name, file, before, after, expected in changes:
         if originals[file].count(before) != 1:
             raise SystemExit('Mutation binding drift: ' + name)
@@ -322,7 +401,7 @@ def main():
                     if item.name != dll.name: shutil.copyfile(item, runtime / item.name)
                 manifest['harmony'] = str(runtime / '0Harmony.dll')
             manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected,
-                'entry': 'RunNarrative746' if name.startswith('narrative-') else ''})
+                'entry': 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
         for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)

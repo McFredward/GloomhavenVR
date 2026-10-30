@@ -266,7 +266,7 @@ internal static partial class CanvasConversion
             for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)
             {
                 Graphic g = panel.HiddenBackgrounds[i];
-                if (g != null)
+                if (g != null && (panel.BackgroundFilter == null || panel.BackgroundFilter(g)))
                     g.enabled = true;
             }
         }

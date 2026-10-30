@@ -41,6 +41,7 @@ internal sealed class NativeFullCard:MonoBehaviour { }
 internal sealed class NativeCardsDisplay:MonoBehaviour { }
 internal sealed class UIResetLevelUpWindow:MonoBehaviour
 {
+    internal Action? OnNativeHide=null;internal void Hide()=>OnNativeHide?.Invoke();
     internal UILevelUpCardInventory inventory=null!;internal Toggle displayToggle=null!;
     internal readonly HashSet<object> requestDisableShow=new();
     private void ResetAbilities() { }
@@ -150,6 +151,20 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class QuestJourneyCurtain {internal static bool PartyCommitted=false;}
+    internal static partial class StoryComposite {internal static bool StoryOrLoadoutStanding=false;}
+    internal static class HintOnOwnerComposite {internal static bool IsParkedContent(Transform node)=>false;}
+    internal static class TransientFamilies
+    {
+        internal const int EffectQuadFamily=7;
+        internal static int OfGraphic(Transform node,Transform root,Dictionary<Transform,int> memo)=>0;
+    }
+    internal static class SharedWindowSize
+    {
+        internal static bool IsArmed(ConvertedPanel panel)=>false;
+        internal static bool Repin(ConvertedPanel panel,RectTransform target,out string note)
+        {note="outside native loadout fixture";throw new NotSupportedException(note);}
+    }
     internal sealed class FixtureSetting<T> {internal T Value;internal FixtureSetting(T value){Value=value;}}
     internal static class WorldUIConfig
     {
@@ -189,6 +204,7 @@ namespace GloomhavenVR.WorldUI
         internal GraphicRaycaster HostRaycaster=null!;internal bool IsAlive=>Target!=null;
         internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false,HideBackground=false,KeepBackgroundHidden=false;
         internal Func<Graphic,bool>? BackgroundFilter=null;
+        internal bool FitHeightCapped=false,FitFrameDegenerate=false,FrameDriftLogged=false;internal string FitHeightCapName="";
         internal int BackgroundSweepNextFrame=0,FitOneShotStableCount=0,FitSettleStillCount=0,FitOneShotStableGraphics=0;
         internal readonly List<Graphic> HiddenBackgrounds=new();
         internal int DrawSortingOrder=0,BaseSortingOrder=0,OrderSwapStreak=0,LastShownFrame=0;internal float OrderDistance=0;internal bool OrderListed=false;internal ConvertedPanel? OrderSwapPeer=null;
@@ -212,11 +228,6 @@ namespace GloomhavenVR.WorldUI
     internal static class MrBacking {internal static void SyncPlateOrders(){}}
     internal static partial class CanvasConversion
     {
-        // The actual story Park/ApplyPose proof runs before host conversion, as
-        // its first production tick does. Entering the converted-fit branch is
-        // outside this narrow fixture and must fail rather than invent its policy.
-        internal static void BeginContentQuery()=>throw new NotSupportedException("Converted story fitting is outside this fixture");
-        internal static bool CountsAsFitContent(ConvertedPanel panel,Graphic graphic)=>throw new NotSupportedException("Converted story fitting is outside this fixture");
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;
         internal static int Converts=0,PoseAuthors=0,Releases=0;
         internal static ConvertedPanel? Convert(RectTransform? target,string name,bool pokeable=true,

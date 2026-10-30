@@ -4261,7 +4261,7 @@ internal static class StoryComposite
             // story window's children with nobody holding a reference to it would strand the whole
             // dialog for the session — the exact class of leak the catch below exists to prevent.
             _dock = dock;
-            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock);
+            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));
             _loadoutBackdrop = new NarrativeBackdrop.LoadoutLease(loadout, image);
             _dockSize = measured;
             _parkHost = loadout;

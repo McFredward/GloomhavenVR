@@ -170,3 +170,41 @@ network session flags remain explicit ports. The initial no-panel story fit and
 real mono capture kernels execute; the converted story content-fit service,
 live network traffic, original Windows shader fragments, the complete character
 coordinator, stereo story-depth rendering and headset frame pacing do not.
+
+Build748 adds a separate `RunEarlyLoadout748` entry. Build747 began its native
+host proof only after StoryComposite.Park and could not see the loadout's earlier
+fade. The new entry imports original narrative CanvasGroups as well as the
+existing native art/geometry and starts before Park with the original viewer's
+imageHolder inactive and unloaded, then also repeats with ready artwork.
+The initial producer filter must already own the backing at native alpha zero;
+first direct/captured photographs sample alpha0.05,0.836 and1 from four views.
+SP and MP session inputs must produce identical pixels. The unchanged747 source
+fails the first direct photograph (mean RGB error0.380716145).
+
+The runner binds the unchanged first-fit `TryMeasureContent`, visible/authored
+rect and clipper kernels, `ApplyFitConverging` and `ReassertConversionFrame`
+from the real production file. This replaces the old converted-fit exception
+port and exercises the first native measurement/apply before later actual Park.
+Source constants and scratch declarations are extracted rather than copied.
+Native reveal timing, shared-size arming, effect/hint classification and native
+controller initialization remain explicit inputs. Layout rebuilding executes
+the real Unity calls; the unrelated fit-loop diagnostic counter is omitted.
+The full settle/reveal scheduler and complete window/head coordinator do not
+execute in this fixture; no headset, stereo-depth or live transport acceptance
+is implied by these mono GL photographs.
+
+Lifecycle cases retain the original inactive `Blur (1)` enabled receipt before
+capture neutralizes it. They exercise culled producer roles, native-disabled
+flags, material-neutralized Blur identity, sprite reuse and foreign reparenting,
+while ordinary no-filter restoration remains unchanged. An earlier composite
+hands its receipts to a later converter instead of re-enabling a backing inside
+a live converted window. A previously converted story source hands its receipts
+to StoryDock before its native children move. Both release orders and SP/MP
+inputs must restore each original flag. Dedicated source-bound omissions must
+compile and fail at the named first-pixel/fit/receipt/ownership assertions.
+
+The native Cards browse-retirement helper is maintained in a separate lane.
+Its runner controls are strictly bound in Cards/full selection; narrative-only
+selection does not bind those unrelated new inventory mutations. The actual
+PointOfNoReturn expression is extracted unchanged, while only its surrounding
+curtain/standing inputs and native Hide callback binding are fixture ports.

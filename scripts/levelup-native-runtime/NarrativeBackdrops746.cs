@@ -35,6 +35,7 @@ public static partial class LevelUpNativeProgram
             var document=new XmlDocument();document.Load(Path.Combine(_inputs,"native-narrative-"+route+".xml"));
             var root=ImportNode739(document.DocumentElement!,home,new Dictionary<string,TMP_FontAsset>(),true);
             root.gameObject.SetActive(true);
+            foreach(CanvasGroup group in root.GetComponentsInChildren<CanvasGroup>(true))group.alpha=1;
             // Completed native reveal/localized content are surrounding inputs;
             // original authored rectangles, sprites, masks and fonts remain.
             foreach(RectTransform rect in root.GetComponentsInChildren<RectTransform>(true))

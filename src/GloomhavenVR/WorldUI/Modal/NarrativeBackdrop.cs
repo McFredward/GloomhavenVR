@@ -18,12 +18,34 @@ internal static class NarrativeBackdrop
     internal static Func<Graphic, bool>? Filter(UIWindow window, bool isStory)
     {
         if (isStory) return Filter(window.transform, Kind.Story);
-        return window.GetComponent<UIEventPanel>() != null
-            ? Filter(window.transform, Kind.Encounter) : null;
+        if (window.GetComponent<UIEventPanel>() != null) return Filter(window.transform, Kind.Encounter);
+        // The loadout viewer exists before its addressable illustration arrives.
+        // Build747 hid it only at StoryComposite.Park; the earlier native fade,
+        // first content fit and first eye capture had already painted its dimmer.
+        UILoadoutManager? manager = window.GetComponent<UILoadoutManager>();
+        StoryImageViewer? viewer = manager != null && manager.questInfo != null ? manager.questInfo.imagePaper : null;
+        return viewer != null && viewer.imageHolder != null
+            ? new LoadoutLease(window, viewer.imageHolder.rectTransform).Contains : null;
     }
 
     internal static Func<Graphic, bool> Filter(Transform root, Kind kind)
-        => graphic => IsBackdrop(root, kind, graphic);
+    {
+        // Capture neutralizes a native GrabPass material before Release. Retain
+        // the exact original child/parent/source identity so that material change
+        // cannot strand an owned Blur disabled or admit a pooled foreign graphic.
+        var blurs = new Dictionary<Image, (Image Parent, Sprite Source)>();
+        foreach (Image image in root.GetComponentsInChildren<Image>(true))
+        {
+            if (image.name != "Blur" || !IsBackdrop(root, kind, image)) continue;
+            Image parent = image.transform.parent.GetComponent<Image>();
+            blurs.Add(image, (parent, parent.sprite));
+        }
+        return graphic => IsBackdrop(root, kind, graphic)
+            || (graphic is Image image && blurs.TryGetValue(image, out var original)
+                && image.transform.parent == original.Parent.transform && image.sprite == null
+                && image.GetComponent<Mask>() == null && original.Parent.sprite == original.Source
+                && IsBackdrop(root, kind, original.Parent));
+    }
 
     internal static bool IsBackdrop(Transform root, Kind kind, Graphic graphic)
     {
@@ -55,8 +77,38 @@ internal static class NarrativeBackdrop
         private readonly Transform _root;
         private readonly List<Graphic> _hidden = new(2);
         private readonly List<Graphic> _scratch = new(32);
+        private readonly Dictionary<Graphic, (Transform Parent, Image Dimmer, Sprite Source)> _borrowed = new();
 
-        internal Lease(Transform root) => _root = root;
+        internal Lease(Transform root, ConvertedPanel? previous = null)
+        {
+            _root = root;
+            if (previous == null || previous.BackgroundFilter == null) return;
+            // The source may already be converted when Park moves its children.
+            // Take its exact receipts while the previous native role still owns
+            // them; after the move its release must refuse this foreign subtree.
+            for (int i = previous.HiddenBackgrounds.Count - 1; i >= 0; i--)
+            {
+                Graphic graphic = previous.HiddenBackgrounds[i];
+                if (!(graphic is Image image) || !previous.BackgroundFilter(graphic)) continue;
+                Image? dimmer = image.name == "Blur" ? image.transform.parent?.GetComponent<Image>() : image;
+                if (dimmer == null || !IsBackdrop(previous.Target, Kind.Story, dimmer)) continue;
+                Transform? parent = image.transform.parent;
+                if (parent == null) continue;
+                if (!_borrowed.ContainsKey(graphic))
+                {
+                    _borrowed.Add(graphic, (parent, dimmer, dimmer.sprite));
+                    _hidden.Add(graphic);
+                }
+                previous.HiddenBackgrounds.RemoveAt(i);
+            }
+        }
+
+        private bool OwnsBorrowed(Graphic graphic) => graphic != null
+            && _borrowed.TryGetValue(graphic, out var original) && graphic.transform.IsChildOf(_root)
+            && graphic.transform.parent == original.Parent && original.Dimmer != null
+            && original.Dimmer.sprite == original.Source && IsBackdrop(_root, Kind.Story, original.Dimmer)
+            && (graphic == original.Dimmer || (graphic is Image image && image.sprite == null
+                && image.name == "Blur" && image.GetComponent<Mask>() == null));
 
         internal void Sync()
         {
@@ -65,7 +117,7 @@ internal static class NarrativeBackdrop
             for (int i = 0; i < _scratch.Count; i++)
             {
                 Graphic graphic = _scratch[i];
-                if (!IsBackdrop(_root, Kind.Story, graphic) || !graphic.enabled) continue;
+                if ((!IsBackdrop(_root, Kind.Story, graphic) && !OwnsBorrowed(graphic)) || !graphic.enabled) continue;
                 if (!_hidden.Contains(graphic)) _hidden.Add(graphic);
                 graphic.enabled = false;
             }
@@ -79,9 +131,9 @@ internal static class NarrativeBackdrop
             for (int i = 0; i < _hidden.Count; i++)
             {
                 Graphic graphic = _hidden[i];
-                if (IsBackdrop(_root, Kind.Story, graphic)) graphic.enabled = true;
+                if (IsBackdrop(_root, Kind.Story, graphic) || OwnsBorrowed(graphic)) graphic.enabled = true;
             }
-            _hidden.Clear(); _scratch.Clear();
+            _hidden.Clear(); _scratch.Clear(); _borrowed.Clear();
         }
     }
 
@@ -138,6 +190,9 @@ internal static class NarrativeBackdrop
             && _dimmer.sprite == _source && (image == _dimmer
                 || (image.transform.parent == _viewer!.transform && image.sprite == null));
 
+        internal bool Contains(Graphic graphic) => graphic is Image image
+            && _graphics.Contains(image) && StillOwned(image);
+
         internal void Sync()
         {
             for (int i = 0; i < _graphics.Count; i++)
@@ -157,7 +212,17 @@ internal static class NarrativeBackdrop
             for (int i = 0; i < _hidden.Count; i++)
             {
                 Image image = _hidden[i];
-                if (StillOwned(image)) image.enabled = true;
+                if (!StillOwned(image)) continue;
+                ConvertedPanel? panel = ModalFallback.PanelFor(_owner);
+                if (panel != null && panel.HideBackground && panel.BackgroundFilter != null
+                    && panel.BackgroundFilter(image))
+                {
+                    // Park may precede Convert. The converter skips already
+                    // disabled images, so hand this original receipt to it
+                    // rather than re-enable a backing inside its live window.
+                    if (!panel.HiddenBackgrounds.Contains(image)) panel.HiddenBackgrounds.Add(image);
+                }
+                else image.enabled = true;
             }
             _hidden.Clear(); _graphics.Clear();
         }

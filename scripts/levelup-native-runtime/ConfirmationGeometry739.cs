@@ -15,6 +15,11 @@ using Object=UnityEngine.Object;
 
 public static partial class LevelUpNativeProgram
 {
+    [Serializable] private sealed class NativeCanvasGroup748
+    {
+        public int m_Enabled=1;public float m_Alpha=1f;
+        public bool m_Interactable=true,m_BlocksRaycasts=true,m_IgnoreParentGroups=false;
+    }
     private static TMP_FontAsset Font739(string prefix)
     {
         var font=ScriptableObject.CreateInstance<TMP_FontAsset>();JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(_inputs,prefix+".json")),font);
@@ -71,8 +76,14 @@ public static partial class LevelUpNativeProgram
                     type=kind=="VerticalLayoutGroupExtended"?typeof(native::UnityEngine.UI.VerticalLayoutGroupExtended)
                         :kind=="HorizontalLayoutGroupExtended"?typeof(native::UnityEngine.UI.HorizontalLayoutGroupExtended)
                         :kind=="LayoutElementExtended"?typeof(native::UnityEngine.UI.LayoutElementExtended)
-                        :kind=="AspectRatioFitter"?typeof(AspectRatioFitter):kind=="RectMask2D"?typeof(RectMask2D):null;
-                if(type!=null)JsonUtility.FromJsonOverwrite(json,rect.gameObject.AddComponent(type));
+                        :kind=="AspectRatioFitter"?typeof(AspectRatioFitter):kind=="RectMask2D"?typeof(RectMask2D):kind=="CanvasGroup"?typeof(CanvasGroup):null;
+                if(type==typeof(CanvasGroup))
+                {
+                    var authored=JsonUtility.FromJson<NativeCanvasGroup748>(json);var group=rect.gameObject.AddComponent<CanvasGroup>();
+                    group.enabled=authored.m_Enabled!=0;group.alpha=authored.m_Alpha;group.interactable=authored.m_Interactable;
+                    group.blocksRaycasts=authored.m_BlocksRaycasts;group.ignoreParentGroups=authored.m_IgnoreParentGroups;
+                }
+                else if(type!=null)JsonUtility.FromJsonOverwrite(json,rect.gameObject.AddComponent(type));
             }
         }
         rect.name=name;

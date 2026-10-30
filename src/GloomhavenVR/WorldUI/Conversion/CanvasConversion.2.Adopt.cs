@@ -695,14 +695,17 @@ internal static partial class CanvasConversion
             return;
 
         BgGraphicScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: false, BgGraphicScratch);
+        // An exact producer role is known before its native reveal. Register
+        // inactive/culled originals too: capture neutralizes inactive GrabPass
+        // children, and their original enabled flag needs the same owner receipt.
+        panel.Target.GetComponentsInChildren(includeInactive: panel.BackgroundFilter != null, BgGraphicScratch);
         int hidden = 0;
         for (int i = 0; i < BgGraphicScratch.Count; i++)
         {
             Graphic g = BgGraphicScratch[i];
             if (g == null || !g.enabled || !(g is Image || g is RawImage))
                 continue;
-            if (g.canvasRenderer == null || g.canvasRenderer.cull)
+            if (g.canvasRenderer == null || (g.canvasRenderer.cull && panel.BackgroundFilter == null))
                 continue;
             // Task #4 guard: an Image driving a stencil Mask is a CLIPPER, not a backing —
             // disabling it would stop the stencil write and break the mask's whole subtree

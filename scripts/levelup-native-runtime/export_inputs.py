@@ -77,7 +77,7 @@ def confirmation_node(reader,prefix="confirmation"):
   if kind in ('UILoadoutManager','UILoadoutQuestWindow','StoryImageViewer'):
    record['nativeReferences']=p.authored_tree(component)
   if kind in ('RectTransform','Image','TextMeshProUGUI','VerticalLayoutGroup','HorizontalLayoutGroup','ContentSizeFitter','LayoutElement',
-              'VerticalLayoutGroupExtended','HorizontalLayoutGroupExtended','LayoutElementExtended','AspectRatioFitter','RectMask2D'):
+              'VerticalLayoutGroupExtended','HorizontalLayoutGroupExtended','LayoutElementExtended','AspectRatioFitter','RectMask2D') or (kind=='CanvasGroup' and prefix.startswith('narrative-')):
    d=p.authored_tree(component);record['json']=json.dumps(clean(d))
    if kind=='RectTransform':transform=component.read()
    if kind=='Image':
