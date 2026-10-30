@@ -14,8 +14,10 @@ internal static class OwnerCases
     {
         var previous = ConfirmationOnOwner.CurrentScope;
         ConfirmationOnOwner.CurrentScope = source;
-        typeof(ConfirmationRequestOriginPatch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(null, new object[] { manager });
+        object?[] args = { manager, null };
+        typeof(ConfirmationRequestOriginPatch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, args);
+        typeof(ConfirmationRequestOriginPatch).GetMethod("Finalizer", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, new object?[] { null, args[1] });
         ConfirmationOnOwner.CurrentScope = previous;
     }
     private static (DialogSurface, UIConfirmationBoxManager, UILevelUpWindow, ConvertedPanel, Transform) Setup()

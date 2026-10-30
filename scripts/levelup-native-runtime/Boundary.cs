@@ -101,14 +101,6 @@ internal sealed class PersistentAbilitiesUI : MonoBehaviour
     [MethodImpl(MethodImplOptions.NoInlining)] internal List<Tuple<SpriteMemoryManagement.ReferenceToSprite,string,string,Action,bool>> GetCustomEffects() => Effects;
 }
 namespace SpriteMemoryManagement { internal sealed class ReferenceToSprite { } }
-namespace GloomhavenVR.WorldUI.Patches
-{
-    internal static class ConfirmationRescue
-    {
-        internal static bool IsCurrentNavigationOpening(object opening)=>false;
-        internal static bool DeclineForNavigation(Component? box,object opening)=>false;
-    }
-}
 internal sealed class UIPerksInventory:MonoBehaviour { private void OnSelectedPerk() { } }
 internal sealed class UIPartyItemInventoryDisplay:MonoBehaviour { private void OnItemSelected() { } }
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour { private void OnSelectedCharacter() { } }
@@ -289,5 +281,14 @@ namespace GloomhavenVR.WorldUI
         private static void ReleasePreConvertHide(UIWindow window,string why) { CompositeTransfers++; }
         private static void ReleaseScreenBind(UIWindow window,string why) { }
 
+    }
+}
+
+namespace GloomhavenVR.WorldUI.Patches
+{
+    internal static class ConfirmationRescue
+    {
+        internal static bool IsCurrentNavigationOpening(object opening)=>false;
+        internal static bool DeclineForNavigation(Component? box,object opening)=>false;
     }
 }

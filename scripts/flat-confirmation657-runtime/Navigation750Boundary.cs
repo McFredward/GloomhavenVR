@@ -14,8 +14,8 @@ public static class AudioControllerUtils { public static void PlaySound(string? 
 public static class FFSNetwork {public static bool IsOnline=false,IsHost=false,IsClient=false;}
 public enum ActionPhaseType {None,MapHQ}
 public static class ActionProcessor {public static ActionPhaseType CurrentPhase=ActionPhaseType.None;}
-public static class PlayerRegistry {public static readonly List<object> JoiningPlayers=new();public static bool OtherClientsAreJoining=false;}
-public sealed class UIInfoTools {public static readonly UIInfoTools Instance=new();public string InvalidOptionAudioItem="invalid";public AudioProfile750 generalAudioButtonProfile=new();}
+public static class PlayerRegistry {public static readonly List<object> JoiningPlayers=new();public static bool OtherClientsAreJoining=false;public static PlayersChangedEvent? OnPlayerLeft;}
+public sealed class UIInfoTools {public static readonly UIInfoTools Instance=new();public string InvalidOptionAudioItem="invalid";public AudioProfile750 generalAudioButtonProfile=new();public Sprite? GetItemSlotIcon(string name)=>null;public static Color GetPlaceholderPlayerColor(NetworkPlayer player)=>Color.white;}
 public sealed class AudioProfile750 {public string mouseDownAudioItem="native-click";}
 public enum EscapeKeyAction { None,Toggle }
 public static class UIWindowManager { public static void RegisterEscapable(UIWindow _){} public static void UnregisterEscapable(UIWindow _){} }
@@ -50,13 +50,16 @@ public class UIButtonExtended:ExtendedButton { }
 public sealed class Label {public string text="";public Color color;}
 public sealed class TextLocalizedListener {public void SetTextKey(string _){} }
 public sealed class Hotkey {public void Initialize(object? _){}public void Deinitialize(){} }
-public sealed class ControllerInputAreaLocal {public bool IsFocused=true;public void Enable(){}public void Destroy(){} }
+public sealed class ControllerInputAreaLocal {public bool IsFocused=true;public int Enables,Destroys;public void Enable(){Enables++;}public void Destroy(){Destroys++;} }
 public sealed class GUIAnimator {public void Play(){} }
 public sealed class PanelHotkeyContainer {public void SetActiveHotkey(string _,bool value){} }
 public sealed class VerticalPointerUI {public void PointAt(RectTransform _){} }
-public sealed class Navigation750State {public void SwitchToState(object? _){}public void RemoveLast(object? _){} }
+public sealed class Navigation750State {public int Switches,Removes;public void SwitchToState(object? _){Switches++;}public void RemoveLast(object? _){Removes++;}public void Enter(object? _){}public void ToNonMenuPreviousState(){}public void SetFilter(object? _){}public void ToPreviousState(){} }
+namespace Script.GUI.SMNavigation.States.CampaignMapStates {public enum CampaignMapStateTag {EnhancmentConfirmation}}
+public sealed class SkipFrameKeyActionHandlerBlocker {public void Run(){} }
+public enum SpecialStateTag {Lock}
 public sealed class UINavigation {public readonly Navigation750State StateMachine=new();public object? Input;public Navigation750Manager NavigationManager=new();}
-public sealed class Navigation750Manager {public void TrySelect(object? _){Probe750.Cancelled++;} }
+public sealed class Navigation750Manager {public object? LastSelected;public void TrySelect(object? value){LastSelected=value;Probe750.Cancelled++;} }
 public interface INavigationOperation {void ExecuteForDefaultMachine();}
 public static class CoroutineHelper {public static void RunNextFrame(Action action)=>action();}
 namespace GLOOM {public static class LocalizationManager {public static string GetTranslation(string text)=>text;public static bool TryGetTranslation(string key,out string value){value=key;return true;}}}
@@ -64,17 +67,18 @@ public static class StringExtensions {public static bool IsNOTNullOrEmpty(this s
 public sealed class CharacterPerk {public string PerkID="one";public bool IsActive;public PerkDescription Perk=new();}
 public sealed class PerkDescription {public string Name="native-perk";}
 public sealed class UIPerkInventorySlot {public CharacterPerk Perk=new();public int ActiveCounters,TotalCounters=1;public object? Selectable;public void ActiveBackground(bool _){} }
-public interface ICharacterService {string CharacterID{get;}string CharacterName{get;}int PerkPoints{get;}List<CharacterPerk> Perks{get;}}
+public interface ICharacterService {string CharacterID{get;}string CharacterName{get;}int PerkPoints{get;}List<CharacterPerk> Perks{get;}bool CanLevelup();}
 public class NativeCharacter750:ICharacterService
 {
  public string CharacterID {get;set;}="class";public string CharacterName {get;set;}="A";
  public int PerkPoints{get;set;}=2;public List<CharacterPerk> Perks{get;}=new(){new()};
+ public bool CanLevelup()=>false;
 }
 public sealed class CMapCharacter:NativeCharacter750 { }
 public sealed class NewPartyCharacterUI:MonoBehaviour
 {
  public NativeCharacter750 Data {get;set;}=new();public NativeCharacter750 Service=>Data;
- public RectTransform ItemPointReference= null!;public void AddEquippedItemModifiers(object _){}public void RefreshEquippedItemModifiers(){}public void CloseItemsWindow(){}
+ public RectTransform ItemPointReference= null!,CardPointReference=null!,PerksPointReference=null!;public void AddEquippedItemModifiers(object _){}public void RefreshEquippedItemModifiers(){}public void CloseItemsWindow(){}public void CloseCardsWindow(){}public void ClosePerksWindow(){}
 }
 public sealed class NativeTab750 {public void RemoveCurrent(bool deselectFirst){} }
 public sealed class Equipment750
@@ -82,18 +86,37 @@ public sealed class Equipment750
  public void Display(object? service,NativeCharacter750 data,Action<object> modifiers,Action refreshed,RectTransform point,Action<object> items,bool enabled,Action close)
  {Probe750.Events.Add("inventory:"+data.CharacterName);}
 }
-public sealed class PerksWindow750 {public UIPerksInventory inventory=null!;}
+public sealed class PerksWindow750 {public UIPerksInventory inventory=null!;public void Show(ICharacterService data,RectTransform point,bool intro,Action<object> hover,bool enabled,Action close){} }
+public sealed class CardsDisplay750
+{
+ public void Hide(){}public void Display(NativeCharacter750 data,Action<bool> selected,RectTransform point,bool edit,bool animate,Action levelup,Action close,bool enableLevelUp,bool isLevelUpValid)
+ {Probe750.Events.Add("cards:"+data.CharacterName);}
+}
+public static class AdventureState {public static readonly MapState750 MapState=new();}
+public sealed class MapState750 {public bool IsCampaign=true;}
+public sealed class MapChoreographer {public bool IsChoosingLinkedQuestOption()=>false;}
+public sealed class UILoadoutManager {public bool InLoadout()=>false;}
+public sealed class MapParty750 {public bool HasIntroduced(string concept)=>true;public void MarkIntroDone(string _){} }
+public enum EIntroductionConcept {PerksPanel}
+public sealed class SaveData {public static readonly SaveData Instance=new();public void SaveCurrentAdventureData(){} }
 public partial class NewPartyDisplayUI:MonoBehaviour
 {
  public enum DisplayType {NONE,INVENTORY,CARDS,PERKS,CHARACTER_SELECTOR,LEVELUP,BATTLE_GOALS}
  public static NewPartyDisplayUI? PartyDisplay;public NewPartyCharacterUI? selectedCharacter;public DisplayType displayActive=DisplayType.PERKS;
  public NewPartyCharacterUI? SelectedUISlot=>selectedCharacter;public DisplayType ActiveDisplay=>displayActive;
  private NativeTab750 _tab=new();public Equipment750 ItemInventoryDisplay=new();public PerksWindow750 perkManager=new();
+ public PerksWindow750 PerkManager=>perkManager;public CardsDisplay750 AbilityCardsDisplay=new();
+ [Flags]private enum FlagsInteraction {None,DISABLE_RESET_LEVELUP}
+ private FlagsInteraction flagsInteraction=FlagsInteraction.None;private readonly HashSet<DisplayType> _ignoreDisplayTypes=new();private MapParty750 mapParty=new();
  private object? itemService;private readonly List<object> disableStatsRequests=new();public Action<bool,DisplayType>? OnOpenedPanel;
  private void CloseQuickAccessAssignRole(){}private void OnNewItemsDisplayed(object _){}
- private void TryHideCurrentDisplay(DisplayType ignore=DisplayType.NONE){if(displayActive!=ignore)Probe750.Events.Add("hide:"+displayActive);}
+ private void TryHideCurrentDisplay(DisplayType ignore=DisplayType.NONE){if(displayActive!=ignore){Probe750.Events.Add("hide:"+displayActive);displayActive=DisplayType.NONE;}}
+ private void TryHideCurrentDisplay(HashSet<DisplayType> ignore){if(!ignore.Contains(displayActive))TryHideCurrentDisplay();}
+ private void OnAbilityCardSelected(bool _){}private void OnLevelUpSelected(NewPartyCharacterUI _){}private void OnHoveredPerk(object _){}
  [MethodImpl(MethodImplOptions.NoInlining)]public void Choose(NewPartyCharacterUI next)=>SelectCurrentCharacter(next);
  [MethodImpl(MethodImplOptions.NoInlining)]public void Items(NewPartyCharacterUI next)=>OnItemsSelected(next,true);
+ [MethodImpl(MethodImplOptions.NoInlining)]public void Cards(NewPartyCharacterUI next)=>OnCardsSelected(next,true,false,false);
+ [MethodImpl(MethodImplOptions.NoInlining)]public void ClosePerks(NewPartyCharacterUI next)=>OnPerksSelected(next,false);
 }
 public partial class UIPerksInventory:MonoBehaviour
 {
@@ -123,12 +146,12 @@ public partial class ConfirmationBox:MonoBehaviour
  private Color HeaderTextColor=>Color.white;private Color MessageTextColor=>Color.white;
  public bool IsRequested{get;private set;}public bool IsOpen=>confirmationBox.IsOpen;
  public UIButtonExtended Confirm=>confirmButton;public UIButtonExtended Cancel=>cancelButton;
- private void InitGamepadInput(){}private void DisableGamepadInput(){}private void OnShown(){}
+ private void InitGamepadInput(){}private void DisableGamepadInput(){}
  public void Bind(UIButtonExtended yes,UIButtonExtended no,UIButtonExtended report)
  {confirmationBox=GetComponent<UIWindow>();confirmButton=yes;cancelButton=no;reportButton=report;primaryContent=new GameObject("Primary");secondaryGeneralContent=new GameObject("SecondaryGeneral");secondaryContent=new GameObject("Secondary");reportContent=new GameObject("Report");header=new GameObject("Header");}
 }
 public enum BoxConfirmationType {General,Buy,Sell}
-namespace ScenarioRuleLibrary {public sealed class CItem{public string ID="fixture-item";} }
+namespace ScenarioRuleLibrary {public sealed class CItem{public enum EItemSlot{Head,Body,Hand}public string ID="fixture-item";public bool Tradeable=true;public int SellPrice=1;} }
 public sealed class ItemCardUI:MonoBehaviour {public string CardID="fixture-item";public ScenarioRuleLibrary.CItem item=null!;public void ReloadBackground(){} }
 public static class ObjectPool
 {
@@ -146,8 +169,46 @@ public partial class UIItemConfirmationBox:MonoBehaviour
 }
 internal sealed class UILevelUpWindow:MonoBehaviour {private void ConfirmSelectCard(){} }
 internal sealed class UILevelUpCardInventory:MonoBehaviour { }
-internal sealed class UIResetLevelUpWindow:MonoBehaviour {private void ResetAbilities(){}public void Hide(){} }
-internal sealed class UIPartyItemInventoryDisplay:MonoBehaviour {private void OnItemSelected(){} }
+internal sealed class UIResetLevelUpWindow:MonoBehaviour {private void ResetAbilities(){}public void Hide(){}public void Show(ICharacterService _){} }
+public sealed class UINavigationSelectable:MonoBehaviour { }
+public sealed class UIPartyItemSlot:MonoBehaviour {public ScenarioRuleLibrary.CItem Item=new();}
+public delegate void ControllerChangedEvent(object controllable,object oldController,object newController);
+public static class ControllableRegistry {public static ControllerChangedEvent? OnControllerChanged;}
+public interface IPartyItemEquipmentService
+{
+ void RegisterOnAddedItemParty(Action<ScenarioRuleLibrary.CItem> handler);void RegisterOnRemovedItemParty(Action<ScenarioRuleLibrary.CItem,int> handler);
+ void RegisterOnRemovedNewItemFlag(Action<ScenarioRuleLibrary.CItem> handler);void RegisterOnBindedItemToCharacter(Action<ScenarioRuleLibrary.CItem,CMapCharacter> handler);
+}
+public sealed class ItemService750:IPartyItemEquipmentService
+{
+ public void RegisterOnAddedItemParty(Action<ScenarioRuleLibrary.CItem> h){}public void RegisterOnRemovedItemParty(Action<ScenarioRuleLibrary.CItem,int> h){}
+ public void RegisterOnRemovedNewItemFlag(Action<ScenarioRuleLibrary.CItem> h){}public void RegisterOnBindedItemToCharacter(Action<ScenarioRuleLibrary.CItem,CMapCharacter> h){}
+}
+public partial class UIPartyItemInventoryDisplay:MonoBehaviour
+{
+ private CMapCharacter? character;private IPartyItemEquipmentService? service;private int slotNum;private ScenarioRuleLibrary.CItem.EItemSlot slotType;
+ private Action<ScenarioRuleLibrary.CItem>? onItemEquipped;private Action<ScenarioRuleLibrary.CItem,int>? onItemRemoved;private Action<ScenarioRuleLibrary.CItem,bool>? onItemHovered;
+ private UIPartyItemSlot? selectedItemToCofirmSwitch;private Label infoText=new();private Image iconTypeInventory=null!;private VerticalPointerUI verticalPointer=new();
+ private UIWindow window=null!;private GUIAnimator showAnimation=new();private string audioItemDisplay="native";private ControllerInputAreaLocal controllerArea=new();
+ public void Bind(){window=GetComponent<UIWindow>();iconTypeInventory=gameObject.AddComponent<Image>();}
+ private void ClearAll(){onItemEquipped=null;onItemRemoved=null;onItemHovered=null;}private void InitializeHotkeys(){}
+ private void CreateItems(ScenarioRuleLibrary.CItem.EItemSlot type,int number,ScenarioRuleLibrary.CItem item,bool edit){}
+ private void OnNewItemAdded(ScenarioRuleLibrary.CItem i){}private void OnItemRemoved(ScenarioRuleLibrary.CItem i,int n){}
+ private void RefreshNewItemNotification(ScenarioRuleLibrary.CItem i){}private void OnItemBinded(ScenarioRuleLibrary.CItem i,CMapCharacter c){}
+ private void OnControllableOwnershipChanged(object c,object old,object next){}
+ private void BindAndEquipItem(UIPartyItemSlot slot){Probe750.Confirmed++;}
+ [MethodImpl(MethodImplOptions.NoInlining)]public void RaiseItem(UIPartyItemSlot slot)=>OnItemSelected(slot);
+ public bool HasPendingItem=>selectedItemToCofirmSwitch!=null;
+ public bool IsVisible=>window.IsVisible;
+}
+namespace GLOOM.MainMenu
+{
+ public partial class UICreateGameDLCStep:MonoBehaviour
+ {
+  private INavigationOperation? _navigationOperation;
+  public System.Collections.IEnumerator Warning(UnityAction confirmed)=>SkipAFrameBeforeMessage(confirmed);
+ }
+}
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour {private void OnSelectedCharacter(){} }
 public partial class UIOptionsWindow:MonoBehaviour
 {
@@ -160,6 +221,42 @@ public partial class UIMenuOption:MonoBehaviour
  public bool IsSelected=>isSelected;private void SetSelected(bool isSelected)=>this.isSelected=isSelected;public void Bind(Action selected)=>onSelected=selected;
 }
 public sealed class Frame750 {public void Activate(){}public void Deactivate(){} }
+public partial class UITempleWindow:MonoBehaviour
+{
+ private ICharacterService? character;public TempleShop750 Shop=new();private void OnSelectedSlot(){}
+ [MethodImpl(MethodImplOptions.NoInlining)]public void Choose(NewPartyCharacterUI next)=>OnSelectedCharacter(next);
+}
+public sealed class TempleShop750 {public void Refresh(ICharacterService _){} }
+public sealed class NetworkPlayer {public int PlayerID;public bool IsClient=true;public string Username="native-player",PlatformName="fixture";public Sprite? Avatar;}
+public delegate void PlayersChangedEvent(NetworkPlayer player);
+public sealed class KeyActionHandler {public bool HasBlockers=true;}
+public sealed class PlatformLayer {public static readonly PlatformLayer Instance=new();public PlatformImages750 PlayerPlatformImageController=new();}
+public sealed class PlatformImages750 {public Sprite? GetPlayerPlatformImage(string name)=>null;}
+public partial class UIMultiplayerConfirmationBox:MonoBehaviour
+{
+ private UIWindow confirmationBox=null!;private ControllerInputAreaLocal _controllerArea=new();
+ private Image icon=null!,_playerPlatformImage=null!;private Label informationText=new();
+ private ExtendedButton confirmButton=null!,alternativeConfirmButton=null!,cancelButton=null!,_pcConfirmButton=null!,_pcAlternativeConfirmButton=null!,_pcCancelButton=null!;
+ private GameObject _pcButtons=null!,_gamepadButtons=null!;private NetworkPlayer? _networkPlayer;
+ private Action? _onConfirmClickedCallback,_onAlternativeConfirmClickedCallback,_onCancelClickedCallback;private KeyActionHandler? _kickKeyActionHandler=new();
+ private void InitGamepadInput(){}private void OnPlayerLeft(NetworkPlayer player){}
+ public void Bind(ExtendedButton yes,ExtendedButton alternative,ExtendedButton no)
+ {confirmationBox=GetComponent<UIWindow>();confirmButton=_pcConfirmButton=yes;alternativeConfirmButton=_pcAlternativeConfirmButton=alternative;cancelButton=_pcCancelButton=no;icon=gameObject.AddComponent<Image>();var platform=new GameObject("native player platform",typeof(RectTransform),typeof(Image));platform.transform.SetParent(transform,false);_playerPlatformImage=platform.GetComponent<Image>();_pcButtons=new GameObject("native PC buttons");_gamepadButtons=new GameObject("native gamepad buttons");}
+ public void Confirm()=>OnConfirm();
+}
+public interface INetworkHeroAssignService {PlayersChangedEvent? OnPlayerLeft{get;set;}void RemoveClient(NetworkPlayer player,bool sendKickMessage);}
+public sealed class NativeAssignService750:INetworkHeroAssignService {public PlayersChangedEvent? OnPlayerLeft{get;set;}public void RemoveClient(NetworkPlayer player,bool sendKickMessage){Probe750.Events.Add("removed-player:"+player.PlayerID);}}
+public sealed class UIMultiplayerPlayerOption {public void SetSelected(bool selected){} }
+public partial class UIMultiplayerSelectPlayerScreen:MonoBehaviour
+{
+ private NetworkPlayer? currentSelection;private readonly Dictionary<NetworkPlayer,UIMultiplayerPlayerOption> assignedSlots=new();
+ private UIWindow window=null!;private UIMultiplayerConfirmationBox confirmationBox=null!;private INetworkHeroAssignService service=new NativeAssignService750();
+ private string? characterID,characterName;private int m_CurrentSlotIndex;private Action? onHiddenCallback;private Action<NetworkPlayer>? onSelectedPlayer;
+ private VerticalPointerUI pointer=new();private float defaultPositionX=0;private ControllerInputAreaLocal controllerArea=new();public string Id{get;private set;}="";
+ private void RefreshPlayers(){}private void RemoveEvents(){}private void RemovePlayer(NetworkPlayer player){}private void OnControllableOwnersChanged(object c,object old,object next){}
+ public void Bind(UIMultiplayerConfirmationBox box,NetworkPlayer a,NetworkPlayer b){window=GetComponent<UIWindow>();confirmationBox=box;assignedSlots[a]=new();assignedSlots[b]=new();}
+ [MethodImpl(MethodImplOptions.NoInlining)]public void AskRemove(NetworkPlayer player)=>OnSelectedRemovePlayer(player);
+}
 public sealed class UICharacterInformation {public void Display(CMapCharacter _){} }
 public partial class UIAdventureCharacterConfirmationBox:MonoBehaviour
 {
@@ -170,7 +267,7 @@ public partial class UIAdventurePartyAssemblyWindow:MonoBehaviour {protected CMa
 public partial class UICampaignAdventurePartyAssemblyWindow:UIAdventurePartyAssemblyWindow
 {
  public UIAdventureCharacterConfirmationBox characterConfirmationBox=null!;
- private bool CanDeleteCharacter()=>true;
+ private bool CanDeleteCharacter=>true;
  private void DeleteCharacter(CMapCharacter value)=>Probe750.Events.Add("deleted:"+value.CharacterName);
  [MethodImpl(MethodImplOptions.NoInlining)]public void RaiseDelete()=>ConfirmDeleteCharacter();
 }
@@ -187,7 +284,7 @@ internal sealed class UIListModsView:MonoBehaviour { }
 internal sealed class UIRulesetView:MonoBehaviour { }
 internal sealed class PersistentAbilitiesUI:MonoBehaviour {private void OnCancelActiveAbility(int _){}private void OnCancelActiveAbility(string _){}private List<Tuple<SpriteMemoryManagement.ReferenceToSprite,string,string,Action,bool>> GetCustomEffects()=>new();}
 namespace SpriteMemoryManagement {internal sealed class ReferenceToSprite{} }
-namespace GloomhavenVR.Core {internal static class VRLog {internal static void Alert(string _,string text)=>Probe750.Events.Add(text);} }
+namespace GloomhavenVR.Core {internal static class VRLog {internal static void Alert(string _,string text)=>Probe750.Events.Add(text);internal static void Note(string _,string text){}internal static void Error(string _,string text)=>Probe750.Events.Add(text);} }
 namespace GloomhavenVR.WorldUI
 {
  internal static partial class ConfirmationOnOwner
@@ -195,12 +292,14 @@ namespace GloomhavenVR.WorldUI
   private static bool Enabled=>Probe750.Enabled;private static bool ForeignOwner(Component box)=>Probe750.Foreign;
   private static void Release(Component box){Probe750.Releases++;}
  }
+ internal static class CanvasConversion {internal static Camera? WorldCamera;}
 }
-namespace GloomhavenVR.WorldUI.Patches
+namespace GloomhavenVR.Net
 {
- internal static class ConfirmationRescue
+ internal sealed class VersionDialog
  {
-  internal static bool IsCurrentNavigationOpening(object opening)=>false;
-  internal static bool DeclineForNavigation(Component? box,object opening)=>false;
+  internal static VersionDialog? Last;internal Action? Yes,No;internal bool IsShowing;
+  internal void Show(string title,string body,string yes,string no,Action confirm,Action cancel){Last=this;Yes=confirm;No=cancel;IsShowing=true;}
+  internal void Tick(){}internal void Close(){IsShowing=false;Yes=No=null;}
  }
 }

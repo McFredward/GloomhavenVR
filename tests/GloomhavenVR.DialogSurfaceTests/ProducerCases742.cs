@@ -9,6 +9,11 @@ using UnityEngine.UI;
 
 internal static class ProducerCases742
 {
+    private static void RecordItem(UIItemConfirmationBox item)
+    {
+        Method(typeof(ItemConfirmationRequestOriginPatch),"Prefix").Invoke(null,new object[]{item});
+        Method(typeof(ItemConfirmationRequestOriginPatch),"Finalizer").Invoke(null,new object?[]{null,item});
+    }
     private const BindingFlags Hidden = BindingFlags.NonPublic | BindingFlags.Static;
     private static MethodInfo Method(Type owner, string name) => owner.GetMethod(name,Hidden)!;
     private static void Check(bool value,string why) => Program.Check(value,why);
@@ -29,13 +34,13 @@ internal static class ProducerCases742
         itemRoot.scene=2;var item=itemRoot.AddComponent<UIItemConfirmationBox>();var itemWindow=itemRoot.AddComponent<UIWindow>();
         Singleton<UIItemConfirmationBox>.Instance=item;
         var previous=ConfirmationOnOwner.Begin(source);
-        Method(typeof(ItemConfirmationRequestOriginPatch),"Prefix").Invoke(null,new object[]{item});
+        RecordItem(item);
         ConfirmationOnOwner.CurrentScope=previous;item.IsActive=itemWindow.IsVisible=true;
         TownServicePresentation.Owned=true;surface.Tick();
         Check(!ConfirmationOnOwner.IsOwned(itemWindow)&&ReferenceEquals(itemRoot.transform.parent,home),
             "immersive item requests never acquire a generic member or change native home");
         TownServicePresentation.Owned=false;
-        previous=ConfirmationOnOwner.Begin(source);Method(typeof(ItemConfirmationRequestOriginPatch),"Prefix").Invoke(null,new object[]{item});ConfirmationOnOwner.CurrentScope=previous;
+        previous=ConfirmationOnOwner.Begin(source);RecordItem(item);ConfirmationOnOwner.CurrentScope=previous;
         MapDialogSeat.AllowTransfer=false;surface.Tick();
         Check(!ConfirmationOnOwner.IsOwned(itemWindow),"refused legacy item restoration prevents a new producer snapshot");
         MapDialogSeat.AllowTransfer=true;
@@ -50,7 +55,7 @@ internal static class ProducerCases742
             &&ReferenceEquals(itemRect.parent,home),"external composite receives the verified native home after complete producer retirement");
         surface.Tick();
         Check(!ConfirmationOnOwner.IsOwned(itemWindow),"external transfer clears old exact producer provenance until another native request");
-        previous=ConfirmationOnOwner.Begin(source);Method(typeof(ItemConfirmationRequestOriginPatch),"Prefix").Invoke(null,new object[]{item});ConfirmationOnOwner.CurrentScope=previous;
+        previous=ConfirmationOnOwner.Begin(source);RecordItem(item);ConfirmationOnOwner.CurrentScope=previous;
         surface.Tick();
         Record(manager,source);manager.Show();surface.Tick();
         Check(ConfirmationOnOwner.IsOwned(itemWindow)&&ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window),

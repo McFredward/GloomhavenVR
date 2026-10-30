@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 
 from town_run_retention import cleanup_completed_run
@@ -66,7 +67,7 @@ def main():
     native_item += "}\n"
     navigation_spec = importlib.util.spec_from_file_location('navigation750_inputs', fixture/'navigation750_inputs.py')
     navigation_tools = importlib.util.module_from_spec(navigation_spec); navigation_spec.loader.exec_module(navigation_tools)
-    navigation, navigation_provenance = navigation_tools.inputs(root, runtime, env, method, native_window, native_item)
+    navigation, navigation_provenance = navigation_tools.inputs(root, runtime, env, method, native_window, native_item, native_box)
     path = "src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs"
     source = (root/path).read_text()
     old = subprocess.run(["git", "show", "bf3444cb5:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
@@ -95,7 +96,46 @@ def main():
         ("item-prefix-guarded-fault", observation_fault, ""),
         ("item-prefix-unguarded-fault", unguarded_fault, "observation failure leaves native Show continuation intact"),
         ("navigation-production", source, ""),
+        ("navigation-gamepad", source, ""),
+        ("navigation-reentrant749", source, "reentrant native replacement remains open after the exact old Hide tail finishes"),
         ("navigation-published749", source, "native Class Toggle declines the old Perks request before character mutation")]
+    navigation_mutations = {
+        'navigation-before-character-write-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'object? identity = CharacterIdentity(next);',
+            'if (owner.GetType().Name == "NewPartyDisplayUI") return;\n        object? identity = CharacterIdentity(next);',
+            'native Class Toggle declines the old Perks request before character mutation'),
+        'navigation-page-selection-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (selected == same) return;', 'if (selected || selected == same) return;',
+            'native tab selection declines old Perks before the new inventory page opens'),
+        'navigation-page-dismiss-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (selected == same) return;', 'if (!selected || selected == same) return;',
+            'closing only the active native Perks tab declines its pending original decision'),
+        'navigation-item-slot-context-lost': ('ConfirmationOnOwner.Identity.cs',
+            '|| field.Name == "slotType" || field.Name == "slotNum"', '',
+            'native focused item No selects the original item before same-character slot subpage fields reset'),
+        'navigation-natural-outcome-replayed': ('ConfirmationOnOwner.Navigation.cs',
+            'current.PendingNativeOutcome = false; // before native Hidden listeners/reentrant navigation',
+            '_ = current; // Causal control: naturally completed outcome remains pending.',
+            'naturally completed native confirmation is never replayed by later navigation'),
+        'navigation-refresh-focus-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'AccessTools.Field(owner.GetType(), "selectedItemToCofirmSwitch")?.SetValue(owner, refresh.Selection);',
+            '_ = refresh.Selection; // Causal control: lost same-slot original selection.',
+            'same inventory slot refresh preserves its original pending item decision and focus target'),
+        'navigation-deferred-origin-rebased': ('ConfirmationOnOwner.NavigationState.cs',
+            'CurrentDeferredOrigin = _origin;', 'CurrentDeferredOrigin = new NavigationOrigin(_source);',
+            'deferred native request from a departed page declines on arrival instead of confirming the new context'),
+        'navigation-fallback-stale-yes': ('ConfirmationBoxRescue.cs',
+            'if (!ReferenceEquals(_outcomeToken, token)) return;',
+            '/* Causal control: obsolete fallback closures are still callable. */',
+            'navigation declines the exact fallback and invalidates its saved stale Yes closure'),
+        'navigation-foreign-owner-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (box != null && ForeignOwner(box)) continue;',
+            '/* Causal control: competing native owner ignored. */',
+            'foreign town-service ownership retains its native decision authority'),
+    }
+    for name, (filename, before, after, expected) in navigation_mutations.items():
+        if navigation[filename].count(before) != 1: raise RuntimeError('Navigation control binding drift: ' + name)
+        variants.append((name, source, expected))
     if any(before == source for name, before, expected in variants if name in ("without-host-hide", "slow-host-cancel")):
         raise RuntimeError("Host cancellation control binding drift")
     if any(before == source for name, before, expected in variants if name.startswith("item-") and expected and name != "item-published669"):
@@ -127,6 +167,9 @@ def main():
         for name, seat, expected in variants:
             build=run/name; production=build/"production"; production.mkdir(parents=True)
             sources = dict(navigation) if name.startswith('navigation-') else {"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"NativeItemMethods.cs":native_item,"TownServiceWindowMask.cs":mask_source}
+            if name in navigation_mutations:
+                filename, before, after, _ = navigation_mutations[name]
+                sources[filename] = sources[filename].replace(before, after)
             hashes[name]={filename:hashlib.sha256(value.encode()).hexdigest() for filename,value in sources.items()}
             for filename,value in sources.items(): (production/filename).write_text(value)
             shutil.copyfile(fixture/("Navigation750.csproj" if name.startswith('navigation-') else "Confirmation.csproj"),build/"Confirmation.csproj")
@@ -146,6 +189,17 @@ def main():
         (run/"native-provenance.json").write_text(json.dumps(provenance,indent=2)+"\n")
         (run/'navigation-native-provenance.json').write_text(json.dumps(navigation_provenance,indent=2)+'\n')
         (run/"fixture-hashes.json").write_text(json.dumps({str(p.relative_to(fixture)):hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.rglob("*") if p.is_file()},indent=2)+"\n")
+        dotnet = Path.home()/'.dotnet/dotnet'
+        sdk = subprocess.run([str(dotnet),'--version'],cwd=root,env=env,capture_output=True,text=True,check=True).stdout.strip()
+        tool_inputs = [args.unity, dotnet, Path.home()/'.dotnet/tools/ilspycmd',
+            dotnet.parent/'sdk'/sdk/'Roslyn/bincore/csc.dll', managed/'UnityEngine.UI.dll', runtime,
+            Path(__file__), ROOT/'scripts/town_run_retention.py', ROOT/'scripts/menu-depth-character/project_compilers.py',
+            ROOT/'scripts/check-environment-menu-scope.py', *dependencies,
+            *(args.unity.parent/'Data/Managed/UnityEngine').glob('*.dll')]
+        (run/'toolchain-pins.json').write_text(json.dumps({'python':sys.version,'dotnet_sdk':sdk,
+            'sha256':{str(path.resolve()):hashlib.sha256(path.read_bytes()).hexdigest() for path in tool_inputs if path.is_file()},
+            'unity_project_version':'2021.3.5f1','ugui_manifest':'com.unity.ugui=1.0.0',
+            'limits':'Source-bound native callbacks/Unity lifecycle, declared session/artwork/network ports; not Windows/HMD or live actor/network acceptance.'},indent=2)+'\n')
         print("Evidence: "+str(run),flush=True)
         # Native Unity scripts and Harmony detour caches share type names. Each item
         # variant therefore receives a fresh process with only its own patched DLL.
