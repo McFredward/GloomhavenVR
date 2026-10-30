@@ -92,6 +92,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(ConfirmationAdditionalOriginPatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeOutcomePatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeTweenOutcomePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationReentrantHidePatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationPartyNavigationPatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationMenuNavigationPatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationProducerDeparturePatch));
