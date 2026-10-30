@@ -48,6 +48,7 @@ KERNELS=(
  'Rig/ComfortSettings.cs','Rig/Comfort.cs',
  'Rig/VRRigDriver.cs',
  'WorldUI/FlatScreen/FlatScreen.1.Core.cs',
+ 'WorldUI/MenuDepth/IMenuDepthSource.cs',
 )
 
 def block(source,signature,indent='    ',suffix=''):
@@ -81,9 +82,10 @@ def generated(raw):
     capture='internal void CaptureNativePhysics(Vector3 origin,Vector3 direction){float maxDistance=MaxDistanceMeters*_hand.WorldScale;bool hasHit='+query[1]+';Pick=new PickPose(origin,direction,hasHit,hit.distance,hit.collider);}'
     result['ActualRayState.cs']='using UnityEngine; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayInteractor {\n'+active+'\n'+native_mask+'\n'+native_limit+'\n'+capture+'\n}\n'
     ui=raw['Hands/Interact/RayUguiDriver.cs']
-    ui_methods='\n'.join(block(ui,sig) for sig in ('internal void Tick()', 'private void TickPressed(in PickPose pick, float scale)', 'private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,', 'private static void HitCorners(RectTransform rect, in Rect local, Vector3[] into)', 'private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)', 'internal void Cancel()'))
+    ui_methods='\n'.join(block(ui,sig) for sig in ('internal void Tick()', 'private void TickPressed(in PickPose pick, float scale)', 'private bool TrySurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,', 'private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,', 'private static void HitCorners(RectTransform rect, in Rect local, Vector3[] into)', 'private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)', 'internal void Cancel()'))
     ui_rect=ui[ui.index('    private static Rect HitRectOf('):ui.index(';',ui.index('    private static Rect HitRectOf('))+1]
-    result['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+ui_methods+'\n'+ui_rect+'\n}\n'
+    result['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+ui_methods+'\n'+ui_rect+'\n}\n'
+    result['ActualDepthInputApi.cs']='using UnityEngine; using UnityEngine.UI; namespace GloomhavenVR.WorldUI.MenuDepth;\n'+block(raw['WorldUI/MenuDepth/IMenuDepthSource.cs'],'internal readonly struct MenuDepthRayHit',indent='')+'\n'
     masks='using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.Hands; namespace GloomhavenVR.Board { internal sealed partial class BoardDriver {\n'+block(raw['Board/BoardDriver.cs'],'private static void SyncRayMask()')+'\n}}\n'
     map=raw['WorldUI/MapRoom/MapLocationInteractor.cs']
     release=block(map,'if (_maskTaken)',indent='        ')

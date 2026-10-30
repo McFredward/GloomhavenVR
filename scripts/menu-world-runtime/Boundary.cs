@@ -10,7 +10,17 @@ using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace UnityEngine.UI { internal sealed class UIWindow:MonoBehaviour { internal bool IsVisible=false; } }
+namespace UnityEngine.UI
+{
+    internal sealed class UIWindow:MonoBehaviour { internal bool IsVisible=false; }
+    // Type-only boundary: this fixture declares no spatial/native raised member.
+    // Any attempt to inspect its visual ink is outside the menu/handle scope.
+    internal class Graphic:MonoBehaviour
+    {
+        internal Color color=>throw new InvalidOperationException("No depth graphic in menu world fixture");
+        internal CanvasRenderer canvasRenderer=>throw new InvalidOperationException("No depth graphic in menu world fixture");
+    }
+}
 namespace UnityEngine.EventSystems { internal interface IDragHandler { } internal struct RaycastResult {internal GameObject gameObject;}}
 internal sealed class MapChoreographer:MonoBehaviour { }
 internal sealed class Choreographer:MonoBehaviour
@@ -198,6 +208,10 @@ namespace GloomhavenVR.Hands.Interact
         internal UguiPointer(HandSide side,bool farRay){}
         internal bool TryRaycast(Canvas canvas,Vector2 point,out UnityEngine.EventSystems.RaycastResult result)
         {result=default;if(!Widgets.TryGetValue(canvas,out var widget))return false;result.gameObject=widget;return true;}
+        internal bool TryRaycastSurface(Canvas canvas,Vector2 point,Graphic graphic,bool preferGraphic,
+            Vector3 physicalPoint,float physicalDistance,out UnityEngine.EventSystems.RaycastResult result,
+            Transform? nativeRoot=null)
+            => throw new InvalidOperationException("No spatial menu source is registered in the menu world fixture");
         internal void Cancel()=>Hovered=null;internal void SetHovered(GameObject? target)=>Hovered=target;
         internal void Press(Vector2 point)=>Presses++;internal void Release(Vector2 point)=>Releases++;
         internal void Drag(Vector2 point){}
@@ -217,11 +231,28 @@ namespace GloomhavenVR.Hands.Interact
         private void TickStickScroll(){}private void LogSettingsClickTrace(bool hit,in UnityEngine.EventSystems.RaycastResult top){}
         private void LogPressYielded(){}
     }
-    internal static class UguiPokeSurfaces{internal static readonly List<Canvas> Surfaces=new();internal static void Prune()=>Surfaces.RemoveAll(x=>x==null);}
+    internal static class UguiPokeSurfaces
+    {
+        internal static readonly List<Canvas> Surfaces=new();
+        internal static void Prune()=>Surfaces.RemoveAll(x=>x==null);
+        internal static List<Canvas>? NestedOf(Canvas canvas)=>null;
+    }
     internal static class VisibleUiSurface{internal static bool Contains(Canvas c,Vector2 p,Camera? camera)=>true;}
     internal static class HoverHapticTargets{internal static object? Ui(GameObject? target)=>target;}
     internal static class UiScrollFocus
     {internal static bool IsScrolling(VRHand hand)=>false;internal static string Describe(VRHand hand)=>"native UI claim port: no active list";}
+}
+namespace GloomhavenVR.WorldUI.MenuDepth
+{
+    // These menu/handle/rig cases contain no spatial source or raised native member.
+    // Real depth picking and original raycaster mapping execute in menu-depth-laser.
+    internal static class MenuDepthSources
+    {
+        internal static bool TryRaycast(Canvas canvas,Vector3 origin,Vector3 direction,float maximum,out MenuDepthRayHit hit)
+        {hit=default;return false;}
+        internal static bool TryNativeRaycast(Canvas host,Canvas canvas,Vector3 origin,Vector3 direction,float maximum,out MenuDepthRayHit hit)
+        {hit=default;return false;}
+    }
 }
 namespace GloomhavenVR.Compat
 {
