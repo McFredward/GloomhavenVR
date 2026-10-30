@@ -166,10 +166,10 @@ public static class ConfirmationProgram
    perks.Display(b.Data,(RectTransform)b.transform,true);
    Check(oldNo==1&&oldYes==0&&newNo==0&&newYes==0&&box.IsRequested&&box.IsOpen&&dialog.IsVisible,
     "reentrant native replacement remains open after the exact old Hide tail finishes");
-   Check(shows==2&&hides==1&&area.Enables==enables+2&&area.Destroys==destroys+1&&Singleton<UINavigation>.Instance.StateMachine.Switches==switches+2+(InputManager.GamePadInUse?1:0),
-    "reentrant replacement emits one original Show and controller-enable per actual opening without duplicate native navigation");
    Check(area.Active&&(!InputManager.GamePadInUse||ReferenceEquals(stateMachine.CurrentState,requestedState)&&stateMachine.HistoryCount==originalHistory+1),
     "reentrant native gamepad opening restores its exact original state history and enabled input");
+   Check(shows==2&&hides==1&&area.Enables==enables+2&&area.Destroys==destroys+1&&Singleton<UINavigation>.Instance.StateMachine.Switches==switches+2+(InputManager.GamePadInUse?1:0),
+    "reentrant replacement emits one original Show and controller-enable per actual opening without duplicate native navigation");
    PressYes(box);
    Check(newYes==1&&newNo==baselineNo&&oldNo==1&&oldYes==0&&hides==2&&area.Destroys==destroys+2&&Singleton<UINavigation>.Instance.StateMachine.Removes==removes+2,
     "reentrant replacement preserves original callback baseline and hides each native opening once");
