@@ -1,10 +1,11 @@
 # Planning index
 
-Updated 2026-10-30: Build747 repairs native More Cards preview clipping and the
-additional loadout-owned backing behind composed story illustration/dialog.
-Affected native callback, pool, lifecycle and final-eye checks cover the new
-source; unchanged broad evidence comes from the qualified Build746 checkpoint.
-Integration verification is recorded in MENU747-COMPLETE-PREVIEWS-AND-STORY.md.
+Updated 2026-10-30: Build748 places More Cards previews in the left gap, picks
+actual raised menu surfaces, retires browsing at story commitment and filters
+narrative backdrops before first visibility. Complete class C candidate260/268
+plus8 complete containing repairs provides verified aggregate268coverage, with
+actual goldens and reviewed compiled scope; hardware outcomes remain separate.
+Integration verification is recorded in MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md.
 Passive map-stall cause remains open in MP746-PERFORMANCE.md. Windows builds
 its archive from the dev source delivery.
 
@@ -16,6 +17,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md](MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md) | Left-gap previews, actual menu surface laser geometry, story retirement and first-frame backdrop ownership; complete aggregate validation |
 | [MENU747-COMPLETE-PREVIEWS-AND-STORY.md](MENU747-COMPLETE-PREVIEWS-AND-STORY.md) | Complete native More Cards previews, exact composed loadout backing lease and bounded verification |
 | [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |

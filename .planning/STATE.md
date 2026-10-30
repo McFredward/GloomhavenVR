@@ -1,3 +1,35 @@
+**Physical menu picking, left-gap previews and complete story retirement, Build748, 2026-10-30 — validated for dev.**
+
+More Cards previews sit24 native pixels left of their inventory, keeping the row
+name visible. Raised card/story/figure and native confirmation surfaces supply
+the physical laser point, with separate original input coordinates and unchanged
+native permission/press/drag rules. Proven browse-only inventory closes through
+its native Hide at story commitment and cannot refloat independently; mandatory
+level-up remains native. Exact loadout backdrops are filtered before first fit,
+reveal or capture, including inactive/unloaded artwork. Ownership receipts move
+transactionally and return still-disabled to a live original converter.
+
+Class C complete invocation260PASS/8FAIL across268 local suites,48.31min; fresh
+complete containing repairs/repetitions cover all8. This is verified aggregate268
+coverage, not a new passing full invocation. Actual306739goldens, source16,
+strict Debug/Release0W0E and reviewed exact guard suffix pass. Fresh native85cases
+prove2012 assertions/82controls; cards37 prove3391/31; laser12 prove166/10. Final
+character/desktop/rotation179variants prove11683/124, performance15prove1097/11,
+portable346/17, native audio36/10 and metadata21/20. One unchanged isolated NPC
+deadline repeat passes0.783s after concurrent1.233s failure; source146inputs and
+final pixels match prior proof. No product pacing fix is claimed.
+
+Compiled scope13runtime+9exactModBuild-only types,3new0removed; branch/HintPath
+identity changes are reviewed. All32resources remain exact747. Config670 and266
+Harmony signatures stay; only one bounded ray-mesh anomaly token is added.
+Source quality/cadence, native actors, shared geometry and wire grammar remain.
+See MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md and ignored menu748 validation.
+Hardware747logs establish causes; remote745is stale. GL/native source and final
+head tests do not certify D3D11/HMD pixels or live multiplayer acceptance. Owned
+workers/evidence are archived and hash verified before retirement, caches cleaned,
+hardware/current deliverables and unrelated worktrees preserved. Windows builds
+the archive from the source pushed to dev.
+
 **Complete More Cards previews and story foreground, Build747, 2026-10-30 — validated for dev.**
 
 Fresh singleplayer746/8e logs identify two native ownership gaps. More Cards
