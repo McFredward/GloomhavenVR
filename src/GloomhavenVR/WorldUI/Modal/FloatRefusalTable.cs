@@ -277,7 +277,7 @@ internal static class FloatRefusalTable
             "it is drawn INSIDE the window whose decision it confirms. THERE ARE NOW TWO PARKERS AND "
             + "THE GAME'S OWN readyUpToggleState FIELD DECIDES WHICH IS SPEAKING (ModBuild 235): "
             + "while it reads Quests, MapRoom/MapTravelConfirm parks the toggle under the quest "
-            + "information on the ModBuild 197 measured zero; while it reads anything else and the "
+            + "information on the ModBuild 197 measured zero; while it reads NotSet and the "
             + "loadout screen is open (MPConfirmEnterScenario leaves it at its NotSet default, "
             + "UIReadyToggle.cs:452/467), WorldUI/LoadoutConfirmPark parks it into the floated "
             + "Character-UI 'New Party display', under that window's own painted content. The two "

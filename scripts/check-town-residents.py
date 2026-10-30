@@ -68,8 +68,8 @@ def main():
             ("settled activity rejected by old wire bound", "ActivityTypes.cs", "p.TransitionAge > TownActivityPose.TransitionSeconds", "p.TransitionAge > .65f"),
             ("follower derives local priestess availability", "Population.cs", "if (IsFaceAuthor)\n                {\n                    TownServiceMirror.TryTemplePresentationState", "if (IsFaceAuthor || hasActivity)\n                {\n                    TownServiceMirror.TryTemplePresentationState"),
             ("follower loses shared blessing", "Population.cs", "resident.TempleBlessingGeneration = remoteActivity.TempleBlessingGeneration;", "resident.TempleBlessingGeneration = 0;"),
-            ("author fill never published", "Population.cs", "if (IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);", "if (!IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);"),
-            ("observer never applies shared fill", "Population.cs", "else if (hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);", "else if (!hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);"),
+            ("local environment published", "Population.cs", "TownServiceLighting.SampleEnvironment(_frame!.transform, ref surfaceLighting);", "TownServiceLighting.SampleEnvironment(_frame!.transform, ref surfaceLighting); TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);"),
+            ("observer applies another room", "Population.cs", "TownServiceLighting.SampleEnvironment(_frame!.transform, ref surfaceLighting);", "TownServiceLighting.SampleEnvironment(_frame!.transform, ref surfaceLighting); if (hasActivity) { TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity); surfaceLighting = remoteActivity; }"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
         if args.negative_control:

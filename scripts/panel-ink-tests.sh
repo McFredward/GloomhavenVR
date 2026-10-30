@@ -57,6 +57,9 @@ capture_accessor = (repo / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.
 needle = 'entry.DisplayRect.GetWorldCorners(BackingCaptureCorners);'
 assert capture_accessor.count(needle) == 1
 (root / 'capture-host.fixture').write_text(capture_accessor.replace(needle,'host.GetWorldCorners(BackingCaptureCorners);'))
+needle = '&& !(entry.MenuDepthDisplay?.HasHeadPresentation ?? false)'
+assert capture_accessor.count(needle) == 1
+(root / 'capture-spatial-footprint.fixture').write_text(capture_accessor.replace(needle,'&& true'))
 needle = '!backingGeometry && contentRoot == null'
 assert source.count(needle) == 1
 (root / 'paint-backdrop.fixture').write_text(source.replace(needle,'contentRoot == null'))
@@ -132,7 +135,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in mr-depth live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host signature-capacity; do
+for mutation in mr-depth live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host capture-spatial-footprint signature-capacity; do
     ink_source="$mutation_dir/$mutation.fixture"
     capture_bounds_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs"
     capture_accessor_source="$repo_root/src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs"
@@ -140,7 +143,7 @@ for mutation in mr-depth live-allocation missing broad hint-ink hint-union rewar
         ink_source="$source_file"
         capture_bounds_source="$mutation_dir/$mutation.fixture"
     fi
-    if [[ "$mutation" == capture-host ]]; then
+    if [[ "$mutation" == capture-host || "$mutation" == capture-spatial-footprint ]]; then
         ink_source="$source_file"
         capture_accessor_source="$mutation_dir/$mutation.fixture"
     fi
@@ -172,6 +175,7 @@ for mutation in mr-depth live-allocation missing broad hint-ink hint-union rewar
     fi
     expected='full-frame movie remains measurable content'
     if [[ "$mutation" == mr-depth ]]; then expected='MR backing retains complete native child depth chain'; fi
+    if [[ "$mutation" == capture-spatial-footprint ]]; then expected='active spatial head presentation retains actual backing footprint'; fi
     if [[ "$mutation" == signature-capacity ]]; then expected='signature memo retains all 21 current-frame panel answers without eviction'; fi
     if [[ "$mutation" == live-allocation ]]; then expected='cached live visibility allocates nothing per frame'; fi
     if [[ "$mutation" == broad ]]; then expected='content exemption never admits a neighboring backdrop'; fi
@@ -206,4 +210,4 @@ for mutation in mr-depth live-allocation missing broad hint-ink hint-union rewar
         exit 1
     fi
 done
-echo "Panel ink negative controls: thirty-one runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: thirty-two runtime mutations and one placement binding mutation rejected."

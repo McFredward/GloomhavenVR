@@ -1,15 +1,939 @@
-**Release1.2.1 preparation, Build721, 2026-10-23.**
+**Release1.2.2 candidate, 2026-10-30 — hardware accepted; publication in progress.**
 
-The maintainer authorized publishing the current Build720 frontier. Semantic
-version already1.2.1; Build721 supplies release identity only. English highlights
-cover physical dismissal/flights, item-fan closure, shared windows/quest/latejoin
-and surrendered-item cleanup. Three hosted fixture blockers are repaired:
-flight-source context ports and SDK executable selection in dismissal/latejoin.
-Local16 source, strict release0W0E and306431 golden assertions pass, with focused
-fixture repairs verified. Compiled scope is release identity/flags only. No new
-gameplay/default/asset/wire behavior. Exact candidate hosted proof and
-dev→main merge/publication are required; see `RELEASE-1.2.1.md` and ignored
-`.planning/debug/release121/` receipts. No published-release claim yet.
+The maintainer confirms the751 test successful and authorizes release1.2.2.
+Only fresh local751/b881 logs are supplied; remote750 remains historical.
+Local review finds0BepInEx Error/Fatal and0oldcard-plane hand failures. Four NREs
+occur only during shutdown: one native VoiceChat.OnDestroy, three without usable
+stacks. Both native phase waits clear (22.1s/2.8s); no persistent desync is shown.
+The studio logo's safe2D startup fallback and existing intermittent multiplayer
+map stalls are retained in player notes. Render-phase diagnostic's call site is
+LateUpdate, and capture/control warnings require their masks/lifecycle context.
+No concrete new gameplay release blocker is established by the local evidence.
+Independent audit and immutable input hashes live in ignored release122 evidence.
+
+Reuse qualified750 full268/306739 and final751 affected/strict/compiled bindings;
+trusted hosted fullCI41086730880 succeeds for the751 source tree. Release content
+adds only allowlisted English highlights and this status; the workflow checks
+trusted proof again and freshly builds/packages the exact main merge. The old
+Oct10tester cfg drop differs from shipped defaults and has seven parser-limited
+initializers; it is recorded as a failed historical comparison, not a passed
+current configuration check. Pinned/default policy and saved user tuning stay.
+
+**Fixed town contacts and scenario laser recovery, Build751, 2026-10-30 — validated for dev.**
+
+Both new hardware logs identify750/569728838, one SteamVR/OpenXR and one
+VirtualDesktopXR; no new screenshot. The maintainer accepts the other750 changes.
+Both Player logs repeatedly throw from MenuDepthCardPlane.IsReady: a destroyed
+Unity component survives as a managed interface. The exception aborts VRHand
+before story laser and bar picking, while the earlier physical poke still works.
+Check Unity liveness before Behaviour state; keep native input and grab authority.
+
+Residents already share a fixed native floor. Shipping woodland relief lies
+8–58mm below the original sole probes, while the cellar is essentially level.
+Keep NPC/furniture transforms and room scale unchanged. A local, map-only woodland
+mesh clone beds six sole contacts onto that common floor before reveal, preserving
+outer vertices/normals and the original asset. Restore/release it with its room.
+The0.31m core covers the measured0.297983m containing-triangle support; a0.45m
+outer blend retains the surrounding relief. Other room styles retain the same
+fixed shared NPC poses. Environment selection remains visitor-local.
+
+Class B, explicitly minimal tests as requested: laser2 variants pass12 host/peer
+assertions and1 compiling old-guard control in39.23s; native bundled terrain2
+variants pass9229 vertex/contact/ownership assertions and1 omission control.
+One directly affected environment-owner production case passes111 assertions;
+its real helper/layout and declared native-frame port remain compilable. Larger
+laser/workspace/environment matrices are inherited from qualified750 coverage.
+Final Debug/Release0W0E18.10/18.68s; final source16PASS14.4s. Initial source scan
+raced the strict build's obj cleanup; its isolated repeat and final group pass.
+Fixture nullable setup and the measured initial contact residual remain recorded.
+
+Compiled scope:2 existing behavior types,9 exact750→751 build-only types,
+1 local terrain helper,0 removals,32 embedded resources exact750. Strict inputs,
+selected fixtures/native assets/toolchain and unchanged750 closures are bound in
+ignored mp751 evidence. Surfaces670/267/4839 and inventory235/355 remain; five
+EN/DE guides pass. No complete gate or wire rerun this round: retain750's qualified
+268 checkpoint/306739 goldens for unchanged code. Native Unity/GL evidence and
+source guards do not establish751 Windows/headset or live multiplayer acceptance.
+Per-run canonical cleanup preserves all evidence/current artifacts; owned workers
+are archived and hash verified before retirement. Windows builds the archive
+from the dev source delivery. Passive map-stall investigation remains separate.
+
+**Native More Cards feedback and page-scoped decisions, Build750, 2026-10-30 — validated for dev.**
+
+Local749/374 hardware logs show the original Perks decision surviving navigation.
+More Cards' deliberately unselectable preview row now joins the existing haptic
+encounter gate through its exact original selectable. Authored highlight/audio
+and native click permission remain. Decisions capture their actual source page,
+character/item/slot, native menu links and opening identity. Accepted navigation,
+including same-character Perks → Cards and admitted window-X, retires the old
+request through its original No before source data changes. Deferred results,
+rescued boxes, already chosen outcomes and reentrant native gamepad history retain
+their exact opening. Manual flat-screen navigation works too. Focus, dimming,
+fades and teardown retain their native behavior and continuation authority.
+
+Class C original frozen9718 invocation:266PASS/2FAIL across268 local suites,
+3959.2s; source16PASS18.7s. Travel failed before assertions because worktree setup
+omits the read-only decompiled dependency; declare/link those inputs explicitly.
+The other failure is the legacy Flat control's Adventure/Enhancement oracle.
+Both original failures remain. Complete final flat35 passes228 assertions/29
+compiling controls, including57 PC and57 gamepad assertions; portable30 passes
+383/29. Complete travel11 passes36/10 in74.39s. These identified replacements and
+bound unchanged inputs establish aggregate268 coverage, rather than a new clean
+full invocation. Actual preserved wire binaries pass306739 goldens in7.04s;
+the exact remaining bundle/surface/compiled guard suffix is separately reviewed.
+
+Final strict Debug/Release0W0E31.56/29.87s; final source16PASS26.3s. Native85 in
+the original union passes2012/82, laser21 passes278/18 and haptics9 passes32/8.
+Explicit-close consumers pass164/8,355/8 and113/13. Final input bindings retain
+1767 strict inputs and3174/3180 complete-run inputs exactly; only two navigation
+partials and four Flat fixture inputs differ. Their complete containing proof
+covers the bounded repair. Compiled review finds9 existing behavior types,
+9 exact ModBuild-only types,11 new patches plus one catalog,0 removals and32
+resources exact749. The bounded follow-up changes only ConfirmationOnOwner.
+Surfaces670/267/4839 retain every prior key/signature/token; patch inventory235/355
+and five EN/DE guides pass. Failed fixture attempts and their fixes are retained.
+
+Current749 hardware and stale remote745 do not establish750 headset acceptance.
+Native Unity/OpenGL callbacks, history and head pixels have explicit session,
+artwork and transaction ports; WindowsD3D11/HMD and live paired acceptance remain
+hardware work. Passive map-stall cause remains open in MP746-PERFORMANCE.md.
+Windows builds its archive from dev. Canonical per-run cleanup preserves evidence
+and current artifacts; owned worker evidence is archived/hash verified before
+worktree retirement. See ignored menu750 validation, input bindings and handoffs.
+
+**Native More Cards hover, Build749, 2026-10-30 — validated for dev.**
+
+Both local hardware logs identify748/8fa65eccd. The raised laser point is correct,
+but the original More Cards holder deliberately blocks inner-card raycasts. Its
+transparent outer ExtendedButton owns MouseEnter/Exit. Resolve that exact native
+selectable for its original mini and query its active, enrolled original Canvas
+as well as the visual Canvas. Owner-before-visual order preserves native nested
+priority on equal sorting tiers. Native hover/click permissions, masks, locked
+browsing and physical ink remain; full previews and ordinary minis keep their
+own roots. Capture, quality, cadence, actors and wire grammar are unchanged.
+
+Class B: five complete affected suites pass166 variants,8225 positive assertions
+and127 compiling causal controls. Laser16 proves253/13, including87 native More
+Cards checks and old-root/old-Canvas/tie-order controls; cards37 proves3391/31,
+desktop98 proves4383/70, rotation5 proves156/4 and seated input10 proves42/9.
+Final strict Debug/Release0W0E18.74/19.18s and source16PASS25.31s. The containing
+four-suite run takes800.59s, dominated by complete desktop coverage after its
+explicit absent-input fixture port. The bounded pointer-order repair repeats
+strict/source/rotation/laser; all55 card and608 desktop inputs remain exact.
+Initial native fixture setup/oracle failures and the real intermediate input
+tie defect are retained separately, with a compiling causal control for the fix.
+
+Compiled review finds only two runtime types, nine exact build-number-only
+types and reviewed build/project identity changes; no added/removed types and
+all32 resources match748. All1762 strict inputs remain exact. Surfaces670 keys,
+266 Harmony signatures and4838 log tokens, plus five EN/DE guides, pass unchanged.
+Inherit the qualified748 aggregate268 checkpoint/306739 goldens for unchanged
+closures; this focused selection is not a new complete gate. Original callbacks
+run on Unity/GL with declared native bootstrap/artwork inputs; Windows D3D11/HMD
+acceptance remains pending. See ignored menu749 validation and hardware inputs.
+
+Windows builds the archive from dev. Per-run canonical cleanup preserves logs,
+sources, manifests, captures and current artifacts; owned worker evidence is
+archived and hash verified before retirement. Unrelated worktrees remain.
+
+**Physical menu picking, left-gap previews and complete story retirement, Build748, 2026-10-30 — validated for dev.**
+
+More Cards previews sit24 native pixels left of their inventory, keeping the row
+name visible. Raised card/story/figure and native confirmation surfaces supply
+the physical laser point, with separate original input coordinates and unchanged
+native permission/press/drag rules. Proven browse-only inventory closes through
+its native Hide at story commitment and cannot refloat independently; mandatory
+level-up remains native. Exact loadout backdrops are filtered before first fit,
+reveal or capture, including inactive/unloaded artwork. Ownership receipts move
+transactionally and return still-disabled to a live original converter.
+
+Class C complete invocation260PASS/8FAIL across268 local suites,48.31min; fresh
+complete containing repairs/repetitions cover all8. This is verified aggregate268
+coverage, not a new passing full invocation. Actual306739goldens, source16,
+strict Debug/Release0W0E and reviewed exact guard suffix pass. Fresh native85cases
+prove2012 assertions/82controls; cards37 prove3391/31; laser12 prove166/10. Final
+character/desktop/rotation179variants prove11683/124, performance15prove1097/11,
+portable346/17, native audio36/10 and metadata21/20. One unchanged isolated NPC
+deadline repeat passes0.783s after concurrent1.233s failure; source146inputs and
+final pixels match prior proof. No product pacing fix is claimed.
+
+Compiled scope13runtime+9exactModBuild-only types,3new0removed; branch/HintPath
+identity changes are reviewed. All32resources remain exact747. Config670 and266
+Harmony signatures stay; only one bounded ray-mesh anomaly token is added.
+Source quality/cadence, native actors, shared geometry and wire grammar remain.
+See MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md and ignored menu748 validation.
+Hardware747logs establish causes; remote745is stale. GL/native source and final
+head tests do not certify D3D11/HMD pixels or live multiplayer acceptance. Owned
+workers/evidence are archived and hash verified before retirement, caches cleaned,
+hardware/current deliverables and unrelated worktrees preserved. Windows builds
+the archive from the source pushed to dev.
+
+**Complete More Cards previews and story foreground, Build747, 2026-10-30 — validated for dev.**
+
+Fresh singleplayer746/8e logs identify two native ownership gaps. More Cards
+skips the ordinary preview-position seam; its transient Canvas initially escapes
+the scroll mask, then conversion adoption cuts it. Settle/raise the original
+Full after the final MouseEnter writer, before in-plane placement, preserving
+native guards, rotated pool-row homes and callbacks. The actual composed
+loadout host owns another Black_Backdrop and two Blur graphics outside the
+parked story dialog; lease only those exact visuals in both SP and MP.
+
+Final primary narrative17 variants pass458 assertions/16 controls; full worker
+cards36 pass3207 assertions/30 controls in205.777s. Primary final six new card
+cases pass399/5 after the strict Harmony003 repair: keep presentation helpers
+outside the annotated patch class. The unchanged original30 cases inherit
+explicit53/55 raw-input plus normalized-helper bindings. All24 first/steady
+card pictures retain complete independent edges/title and bit-identical frames.
+Strict Debug/Release0W0E18.81/17.56s, source16PASS19.8s, surfaces670/266/4837,
+patch registration224/339 and five bilingual guides pass. Compiled review:
+three existing UI behavior types, nine exact build-only types, one branch
+identity, two new patch/helper types and zero removals. All32 embedded resources
+remain exact746. Inherit unchanged qualified746267/golden306739 evidence;
+no new complete-gate or hardware acceptance is claimed. Failed initial builds,
+source cleanup race and interrupted obsolete run remain retained and cleaned.
+See MENU747-COMPLETE-PREVIEWS-AND-STORY.md and ignored menu747 validation.
+Both owned workers are archived/hash verified and retired; current artifacts,
+hardware inputs and unrelated worktrees remain. Windows builds the archive.
+
+**Paired multiplayer follow-up, Build746, 2026-10-29 — validated for dev.**
+
+Both hardware banners identify745/c3bb18117. Environment-dependent NPC height
+and lighting are separated from common native map geometry. Exact narrative
+dimmer suppression preserves original artwork and input. Opening-scoped shared
+gesture order replaces receiver-arrival election; losing grips cancel safely,
+and the accepted releaser's normal facing setting controls the shared turn.
+Compact ready-button capture includes native vote overspill, with its badge
+outside original ink. Current publisher/automatic-author handovers preserve the
+accepted opening and manual state; valid Initial.Sequence carries the observed
+claim clock for a late genuine grip. Retired release history cannot revive old
+Held poses. Zero sentinels and actual serial wraps retain ordering.
+
+Complete class C invocation records261PASS/6fixtureFAIL across267 local suites;
+all6 have passing primary complete containing repairs. Final shared pose4675
+assertions/47 controls, primary Unity184/30 controls and5 affected consumer
+suites pass with exact input-bound reuse. Primary positive4675 source units
+match the complete worker control run; no duplicate full267 run is claimed.
+Fresh strict Debug/Release0W0E, source16, actual306739 goldens and remaining
+bundle/surface/compiled suffix pass with reviewed expected41 changed/9 new types.
+All32 embedded resources match745. Source delivery targets origin/dev; Windows
+builds the archive. Owned evidence and private guard snapshots are archived and
+verified before worktree retirement; cache cleanup preserves hardware inputs.
+Map stalls also occur without new interactions (maintainer clarification).
+Their cause remains unproved; bounded Debug capture/seam attribution repairs
+known measurement gaps without claiming a pacing fix or changing quality/rate.
+See MP746-MULTIPLAYER-FOLLOWUP.md and MP746-PERFORMANCE.md. Hardware acceptance
+remains distinct from focused automated worker evidence. No ZIP delivery.
+
+**Native card reveals, sharp confirmations and card-list access, Build745, 2026-10-29.**
+
+The native won-card introduction now aligns the original pooled card before its
+first visible alpha sample; hover and the original fade/callbacks remain. Exact
+producer-owned confirmations join that producer's admitted fixed2x head capture,
+including actual member bounds/layers/lifetime, instead of requesting a refused
+independent26.4MiB mono target. Native scenes, original controls and authority stay.
+The original closed-list toggle is visible in Cards with More Cards/Weitere Karten;
+caption hits use the same native Toggle and original availability/home rules.
+
+At the maintainer's explicit17:06UTC request, productionc3bb18117 was pushed early
+for an available multiplayer tester while full validation continued. Final strict
+Debug/Release0W0E, fresh source16PASS26.6s, actual306431goldens, bundle/surface and
+reviewed compiled suffix pass. Complete local267 records264PASS/3setup-fixtureFAIL
+in3685.94s; reference/port repairs and primary complete containing reruns pass
+travel36/10,dialog383/29,capture423/33. This is verified aggregate267coverage,
+not a new successful single full invocation. Production sources are unchanged.
+Full head95variants, native level-up44variants/1116assertions and cards30variants
+also pass. Compiled scope6runtime+9exact build-only,2added0removed; all8548088
+embedded bytes match744. Config670/265Harmony/4836tokens preserve old surfaces,
+adding only bounded CARD LIST ENTRY. All5owned worker/validation WTs are archived,
+content/hash verified and retired; caches cleaned, evidence/current artifacts kept.
+See MENU745-CARDS-AND-CONFIRMATION-AA.md and ignored menu745/final-validation.
+
+The subsequent paired745/c3 hardware review opened Build746: passive map stalls, environment-derived remote NPC height/
+light coupling, oversized native narrative backdrops, last-releaser-facing shared
+windows, concurrent grip convergence and city-event badge/native-icon placement.
+This review does not establish headset acceptance of every745 change. Environment
+selection must affect only its choosing player; native practical effects remain
+shared. Additive wire123 carries ordered shared-window claims/samples;
+122 remains CardFlightOrigins. Quest743 remains separate: status is no rebase Go.
+Windows builds the delivery archive; source integrates to origin/dev.
+
+**Menu laser carry, finite Default and native pause opening, Build744, 2026-10-29.**
+
+Fresh742/fc74 logs and the maintainer identify trigger-laser carry and X pause.
+Real physics sync exposes the menu handle's own palm trigger before its visible
+rod. The native default pick and missing-hand map fallback now exclude the mod
+render/registry layer; authored native masks, UI/solid/near and held-press gates
+remain. Actual paused laser motion/reel/release also passes after near resizing.
+
+Default's private menu/map shell is finite and world-fixed, using the existing
+12-unit fallback reference for a common approximately7m horizontal radius.
+Its authored shape/offset/yaw and native scenario authority remain. Existing
+clipping consumes actual bounds including first acquisition; intro/MR/style and
+lifetime controls pass. A native disabled root pause Canvas previously retained
+its camera adapter and reprojected onto square head pixels. The existing menu-only
+conversion opt-in now leases WorldSpace before nesting and restores original
+mode after native home/camera, including refused-home and construction rollback.
+
+Fresh union Debug/Release0W0E (14.90/14.16s), source16PASS21.4s. Seven complete
+focused local scopes pass in two parallel containing runs218.42/220.14s: menu28
+variants166/27, Default20variants138/19, desktop40variants169/39, rollback199/12,
+menu-rig lifecycle, environment107/8 and budget11478/96variants. Workers also
+pass4map/near and2VR-options dependent scopes. Inherit unchanged final742
+aggregate267 evidence and306431goldens with explicit build-stamp qualification;
+this is not a new complete-gate execution.
+
+Compiled scope is6runtime+9exactModBuild-only existing types,0added/removed.
+All8548088embedded-resource bytes match742; accepted AA/depth/assets remain.
+Config670,265Harmony signatures,4835log tokens,223patch classes/338methods and
+12frame orders pass. Root reviewed GL final sky and native-menu pixel witnesses;
+D3D11/HMD acceptance remains outstanding. All3owned workers are archived/hash
+verified/retired, per-run caches cleaned and evidence/current artifacts retained.
+See MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md and ignored menu744/ reports. Windows
+builds the archive; source goes to origin/dev. Quest743 remains a separate lane
+and receives no further rebase authorization from this delivery.
+
+**Producer confirmations, stable character AA and a world main menu, Build742, 2026-10-29.**
+
+The maintainer accepts740's small level-up prompt but reports Perks floating
+separately, whole-character-window aliasing, a room during the intro and eyes at
+floor height. Perks and every proved native confirmation producer now use the
+same shallow32px owner member, exact original widgets/callbacks/home and owner
+sorting tier+1. Synchronous, deferred, item and actor-only requests retain exact
+provenance; map/NPC/external transfers retire or refuse complete leases atomically.
+
+Native main-menu visibility after actual first tracked recenter admits the chosen
+surroundings. Closed rooms center the ready eyes between their real central
+Floor/Ceiling meshes once; map/scenario proportions and same-rig room anchoring
+remain. The original main-menu capture uses the standard movable/two-hand-scalable
+grip. Walking, turning and world drag/zoom retain its absolute pose/size; native
+Menu2D authority remains. Carries use unscaled tracking time through native pause.
+
+Character head captures retain a fixed2x absolute pixel grid with cropped storage
+and1x final pairs, one native content render per eye. Explicit raster projection
+keeps storage crops out of native view/normal/clip metrics. Native UI also retains
+its original unit metric for real TMP/SDF glyphs. Each source sample keeps the
+existing glass/foreground/annotation permission before color integration, removing
+70-pixel mixed-color fringe without admitting unrelated UI. All4 old serialized
+shaders remain exact; only the added resolve changes (87819B bank, Unity2021.3.5).
+
+Strict Debug/Release and metadata pass0W0E on the final production; source16 pass.
+Compiled review finds28runtime+9exactModBuild-only existing types,5added0removed;
+the post-complete bounded repairs change exactly4head-rendering types. Config670,
+223patch classes/338methods,12frame orders and5EN/DEdoc pairs pass. Surface adds
+only2producer attributes and2bounded menu tokens, without removals.
+
+Complete local invocation records264PASS/3FAIL across267 in3505.462s. Failures
+are the expanded level-up harness deadline, legacy desktop1x/alpha expectations
+and its newly exposed real color fringe, and a menu fixture measuring editor time
+rather than consumed native frame deltas. The bounded repairs'14final affected
+scopes all pass, including the complete83-case head container, level-up39cases
+1056/38, menu19cases120/18, capture419/29 and rotation integration156/4. Reuse253
+unchanged successful closures; this is verified complete aggregate267coverage,
+not a new successful single full invocation. Actual retained golden executable
+passes306431 assertions with262compile inputs unchanged except verified comments.
+All failed attempts remain evidence; outer-wrapper exit143 after267completion
+was recovered with exact source/child/FD checks and explicit cleanup receipts.
+
+RGBA32/D24 fixture storage at4040 is441.05MiB front with outboard annotations,
+peaking1245.24MiB close/coplanar;640motion peaks24,576,000B. Six high-water growth
+steps remain fixed-quality; ledgers separately include retirement/regrowth and
+independent model churn controls. These exclude driver/internal/effect allocation
+and establish no HMD frame-pacing claim. Original native font/atlas/material/DLL
+and canonical SDF execute; native model art/provider/session and Windows shader
+programs remain qualified. Root inspected final GL font/front/rear/edge captures;
+actual D3D11/HMD acceptance remains outstanding.
+
+All3owned worker worktrees are archived/content-and-hash verified/retired; per-run
+caches and task-private processes/sockets are cleaned while retaining evidence,
+inputs and current artifacts. See MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md and
+ignored menu742/validation-final.json. Source delivery is origin/dev; Windows
+builds the archive. Quest741 receives the final pushed SHA/new resolve API handoff.
+
+**Selected surroundings across all VR contexts, Build740, 2026-10-29.**
+
+The maintainer extends the selected environment to main menu, 3D map and scenario,
+expressly including Default. Remove the old menu exclusion. Custom rooms use a
+fixed 1.2 m menu footprint with their floor on the tracking floor; native map and
+scenario proportions remain unchanged. Motion/recenter retain the occupied room;
+actual rig replacement renews it. Haunt and native gameplay gates stay intact.
+
+The game provides GH_SkySphere only in scenario scenes. A 2219921-byte isolated
+native bank supplies its seven original render assets outside those scenes:
+mesh/material/two textures/AMP plus original fallback shaders. Preserve original
+encoded data/programs and authored observer offset/flattened scale/yaw. Fit the
+infinite sky within the existing far plane and use the existing non-occluding
+backdrop path. Native visibility, scene notification and head/mask changes govern
+authority. Public native hiding remains unfiltered; MR and other styles win.
+No head-mask/clip-plane, actor, lighting or wire behavior is changed.
+
+Strict Debug/Release and metadata pass0W0E on1172stable inputs; source16 passes.
+Compiled review finds3existing environment/localization types,1new NativeDefaultSky
+type and9build-stamp consumers. Native resource bytes match source. Config670 and
+Harmony263 stay fixed;13retired all-caps CONFIG HELP fragments explain4833surface
+tokens without removing an actual runtime marker. Product help and guides areEN/DE.
+
+All266 current runtime scopes have passing final-input coverage. The complete
+invocation records265PASS/1cleanupFAIL in3169.9s: scope74/6 behavior passed, but a
+shared compiler borrowed the concurrent Default fixture's assembly. Isolate both
+runner pipe directories; their complete parallel follow-up passes74/6 and48/7 in
+59.6s, with264unchanged closures retained from the complete execution. The exact
+retained740wire executable independently passes306431actual golden assertions.
+This is verified complete aggregate coverage, not a new successful single complete
+invocation. Initial static inventory preflight failures remain separate evidence.
+
+Original native geometry/textures and real asset-name loading execute; GL's
+original fallback compatibility and explicit graphics witness do not establish
+native D3D11 AMP-main-program or HMD appearance/pacing. Root inspected cold sky
+and preserved foreground images. Hardware acceptance remains outstanding.
+
+Both owned workers are archived/hash-verified/retired. Per-run caches, private
+compiler leftovers and ADB sockets are cleaned while preserving evidence/current
+artifacts. See MENU740-ALL-CONTEXT-ENVIRONMENTS.md and ignored menu740/validation-final.json.
+Source delivery goes to origin/dev; Windows builds its archive. Quest741 is
+reserved for the coordinated standalone follow-up after the final740SHA handoff.
+
+**Original small confirmation foreground, Build739, 2026-10-28.**
+
+The maintainer accepts738 hover cards, but confirmation hardware still flickers
+from the front and has an unwanted black full-screen veil. Fresh local738 logs
+prove its filtered capture was refused: 28.9 MB minimum, -15.9 MB remaining.
+The earlier isolated-capture proof did not cover that direct route. Remove the
+original full-cover Black_Backdrop/GrabPass images reversibly before reveal,
+independently of capture admission, through both local confirmation consumers.
+Keep the original small Box, buttons, callbacks, DDOL and738 lease repair.
+
+The persistent member's32px foreground offset is inside the existing2cm depth
+tie. Logs kept it at116 below its owner at132. Seed its existing sorting tier from
+the actual owner +1; preserve shared ordering, poses and the accepted hover fix.
+
+Strict Debug/Release and metadata pass0W0E, source16 passes23.5s, and compiled
+scope is only2local UI consumers plus9ModBuild-only types (0added/removed).
+Native containing414/21 and pure165/16 preserve all prior157/18 and162/13.
+All80 direct front/rear final-head samples match the independent small-box
+references exactly; backdrop/tier omission controls reproduce exterior ink and
+lost prompt pixels. Original geometry/sprites/fonts and production hide/order
+kernels execute. Root inspected front/rear captures. Outer conversion/allocator,
+native session and character-owner head compositor remain qualified ports;
+original D3D11 fragments and headset appearance still require hardware acceptance.
+
+Nine unchanged consumers pass233.6s; final pure/native scopes execute the final
+local tier argument. Verified264-suite aggregate coverage inherits complete737
+and verified738 evidence for unchanged areas;306431 goldens are inherited with
+261unchanged compile inputs and only NetProtocol comments/build stamp excepted.
+This is not a new complete pass. The only worker source-binding exception fixes
+one hardware-build comment and has verified identical non-comment tokens.
+
+Both owned worktrees are archived/hash-verified/retired; owned run caches and
+private ADB are cleaned, preserving evidence and current artifacts. See
+MENU739-CONFIRMATION-FOREGROUND.md and ignored menu739/validation-final.json.
+Delivery is origin/dev source; the Windows script builds the archive. Remote717
+is stale. The next authorized request is environment parity across main menu,
+3D map and scenario, including Default; reserve Build740, with Quest741 coordinated.
+
+**Correct first hover frame and stable level-up confirmation, Build738, 2026-10-28.**
+
+The maintainer confirms Build737 resolves shadows, stronger card relief and the
+missing level-up list. Fresh local737/RTX4090/D3D11 logs now accompany hover pose
+snapping and confirmation flicker; remote717 remains stale, with no new images.
+
+Original immediate Highlighter/Holder pooling retains world rotation while
+reparenting into a yawed window. Correct only that exact native root synchronously
+after immediate hover placement, behind live owner/VR/conversion/manual/native
+parent guards. Preserve delayed won-card reveal, pooling, callbacks and scale/XY.
+The new observer is explicitly registered; patch inventory is 220 classes/334 methods.
+Complete card coverage is 2777/25 (prior 2696/20 plus 81/5); twelve first final RGB
+rasters exactly match the independent orientation reference. A private test copy
+ports four missing editor LayoutRebuilder.Enable setters; all 30345 native method
+instruction streams are audited, with original game layout-gate timing qualified.
+
+Both standalone and persistent confirmation consumers omitted useModLayer, so
+their original full-stretch SimpleGrabPassBlur bypassed existing filtering and
+blur handling. The native shader writes depth with LEqual/opaque blending across
+three GrabPass/color passes, conflicting with coplanar world-space glyphs. Enroll
+those two local consumers in the existing capture path. No shared renderer change.
+Both routes' 24 final head samples retain visible glyph references with zero RGB/glyph
+loss; omitted flags/blur remedy reproduce changing pixels and lost text. Native
+confirmation 157/18 and pure dialog 162/13 pass with 25+8 exact input bindings.
+
+The 5091 after-close release reports are a separate proven lease bug: IsAlive means
+the original Target survives release. Use the existing active PanelAlive check,
+retaining the original-home guard for refused detach. Close/retry/50 closed ticks/
+fresh native reopen pass without auto-confirm or original-target destruction.
+
+Production is frozen at cad48b9a2. Compiled scope is three existing UI types plus
+one new observer, nine ModBuild-only consumers and zero removals. Strict
+Debug/Release and metadata pass 0W0E; all 16 source gates pass in 21.4 seconds.
+The final ten-consumer invocation records nine passes/one fixture CS0649 failure
+in 218.3 seconds. Only explicit false initialization in its test boundary follows;
+the complete containing performance suite then passes in 54.8 seconds. All other
+tested inputs remain exact. Verified 264-suite aggregate coverage reuses fresh
+Build737 full proof for unchanged scopes and all 306431 goldens with 261 unchanged
+wire inputs except comments/build stamp. This is
+not a new complete invocation. Worker containing passes are input-qualified reuse.
+
+Preserve all failures, native/GL/fixture limits, sources/captures/logs and cleanup
+receipts. Both clean owned worktrees are archived/hash-verified/retired; remove
+per-run project/bytecode caches and stop only private ADB. See
+MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md and ignored menu738/validation-final.json.
+Delivery is origin/dev source; Windows installer builds the archive. Native D3D11/
+headset acceptance remains open for these new fixes.
+
+**Shadowless previews, stronger card relief and native level-up selection, Build737, 2026-10-28.**
+
+The maintainer confirms Build736 resolves the previous pitched-window, text-flicker
+and main-menu hand-trailing reports. Fresh local736 logs now show native level-up
+controls near +/-2147483648, matching original TMP's inverted glyphless ink bounds.
+Admit only positive finite XY ink into the retained preview envelope; preserve
+real overflowing glyphs, text/card rectangles and native selection callbacks. The
+original right-side candidate and comparison lists remain visible and reachable.
+
+The original flat game also exposes its same locked inventory through the Further
+Ability Cards toggle outside an active level-up. Preserve browsing/hover there,
+with native acquisition/reset/actor permissions; add no private upgrade callback.
+Pure composite 294 assertions plus 8 enrollment/11 controls and actual native
+TMP/uGUI/button/raycast/raster 49/14 pass. Session/actor inputs remain explicit
+fixture ports, not a real native card-grant or headset proof.
+
+Remove dynamic shadows only while rendering private window figures. Retain
+original lit materials, lights and geometry; restore exact renderer/light state
+in finally, including errors, pooled births, detached companions and invisible
+ShadowsOnly proxies. Focused GL 1276/5 passes on 33 stable inputs; nested scenario
+pixels are identical. Raise all original card classes by 60 percent: mini .056,
+Full/Item .104 of physical width. Full card coverage retains 2696/20, all previous
+tolerances and glyph-loss checks. Independent desktop reference planes use the
+new depths; input, layout, rotation, HDR/MSAA and sampling quality stay native.
+
+Production is frozen at 5042b474e: three existing menu behavior types plus the
+stamp. Compiled review confirms three behavior types, nine ModBuild-only consumers
+and no added/removed types. Strict Debug/Release and metadata Release pass 0W0E;
+all 16 source gates pass in 20.9 seconds. Bundles/docs pass, and exact config/patch/
+log-token surfaces remain unchanged. The cadence-driven complete checkpoint now
+passes all 264 local suites in 3198.405 seconds and all 306431 actual goldens,
+with 2747 stable source/fixture pins. This is a fresh complete local pass, not an
+inherited aggregate. Historical failed attempts remain preserved and qualified.
+
+All owned processes are reaped, generated project/bytecode caches cleaned, three
+clean worker worktrees archived/hash-verified/retired, and only task-private ADB
+servers stopped. Source delivery is origin/dev; the Windows installer builds its
+archive. See MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md and ignored
+menu737/validation-final.json. Actual native D3D11/game-art/headset appearance
+still needs maintainer acceptance for these new changes.
+
+**Character-window pitch, native text and main-menu hand investigation, Build736, 2026-10-28.**
+
+Fresh local734/c0f636c55 logs confirm Windows D3D11/RTX4090, SteamVR/OpenXR,
+4040x4040 MultiPass targets; remote717 remains stale. The reported whole-window
+disappearance under head pitch is reproduced by the mismatch between sampled
+canonical RT UVs and the Y-flipped GPU projection used for depth inversion.
+Normalize only Y before inversion in display/character surfaces; preserve depth
+conventions, native poses, resolution and camera state. Shader assets are unchanged.
+
+Actual native card backings write depth on the same plane as original TMP titles
+and action text. A head-capture repro loses 153/419 bright glyph pixels. Separate
+only the backing mesh shallowly away from the current eye during its live head
+lease, preserving native text/card transforms and materials. Complete card tests
+pass 2696 assertions/20 controls; actual reversed-Z Vulkan passes 706/3. Native
+prefab enumeration verifies the real title/default-button descendants. The
+original 1990/17 cases remain intact.
+
+Main-menu logs show 223 frames/10 seconds versus faster map intervals; no scenario phase is
+present in these supplied logs. The original UI stack can contain an enabled
+camera without a Canvas mapping, causing a large eye pair to be admitted and
+discarded every frame. Preflight all mappings before allocation or source prep;
+preserve original mono/input and resume on the first ready Canvas. The coordinator
+witness and omission control verify this. Destroyed preview effects also retire
+without querying dead Unity components or leaking target/calibration reservations.
+
+Do not change hand tracking, HDR or MSAA to claim a ghosting fix. The proposed
+menu HDR seed changed actual AA coverage and was withdrawn: correct Arcane values
+at QAA8/RTAA1 yield 1015 changed pixels, maximum channel delta 223. Main-menu video feedback was falsified
+by the existing cull guard and original camera pose. The eliminated allocation
+loop is source-proven workload; actual hand/headset pacing remains acceptance.
+
+The final 12 affected suites record 11 passes/1 stale graphic-control anchor
+failure in 506.6 seconds. Its fixture-only port and complete containing follow-up
+pass in 41.8 seconds. All 16 source gates pass; strict real Debug/Release and
+metadata Release pass with 0 warnings/0 errors. Verified 264-suite aggregate
+coverage inherits unchanged Build734 scopes and exact-input c0f town-close
+113/13. It is not a fresh complete-gate pass. All 306431 goldens retain unchanged
+wire inputs except comments/build stamp. Compiled behavior is confined to 6 menu
+types; Rig and native shader bank remain byte-identical, with 0 new/removed types.
+The strict optional Vulkan figure-reference discrepancy is byte-identically
+inherited and remains a qualified limitation; no threshold is relaxed.
+
+Delivery is `origin/dev` source, no ZIP. Build735 belongs to the separate Quest
+standalone branch. Preserve hardware/capture/source/log/result evidence and all
+cleanup receipts; three owned worktrees are archived/verified/retired, and only
+the task-private ADB is stopped. See MENU736-HEAD-PITCH-TEXT-AND-MENU-PACING.md
+and ignored menu736/validation-final.json. Actual D3D11/headset acceptance remains open.
+
+**Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
+
+The exact Build729 hardware logs show no depth fallback or pool failure, but 184 outer
+sampling reallocations. A fixed 2020x1112 New Party frame drops from 1.50 to 0.25
+sampling, losing 36 times its core pixel count during movement. The old source-only
+motion fixture did not exercise this allocator. Render the entire original UI
+and character on fixed actual-head pixel grids, prepare both eyes through the
+real coordinator, and retain the private mono photograph's retirement for the
+spatial presentation lifetime. Preserve native framing, masks, effects and input.
+
+Actual 4040 eye descriptors use finite, exact format-derived window/scratch ledgers;
+capacity is lazy and does not reduce quality with player motion. Original window
+frames clip ordinary UI while exact authored-depth hint rectangles and real
+foreground card silhouettes retain their proper extent. Native card effects keep
+the original D3D11 programs, with scoped depth writes and original alpha clipping;
+an independent parsed-asset audit verifies the derivative and causal controls.
+
+Skin, personal-quest and colliding creation hints use the original serialized
+widgets in the right-side lane without enlarging the window. Their actual TMP
+description child supplies annotation membership even without a ready character.
+Hold the laser trigger on the original portrait and move sideways to rotate only
+the private preview about its fixed native ground origin. Native actors, window
+pose, callbacks, accepted framing and default-on depth preference remain intact.
+
+Final pooled-card reuse also exposes never-active graphic helpers retaining dead
+registrations. Register only active lifetimes, retain first activation through
+OnEnable, and renew active same-state reacquisition once after an actual card
+owner release. Unchanged retained decorations return before any linear membership
+lookup. The final complete card suite passes 1990 assertions/17 controls on 38
+identical integration inputs. Final seven render/hint consumers pass in 507.6 seconds;
+the complete performance suite passes 1133 assertions/11 controls on 34 identical
+inputs. Actual warm registrations are zero; the causal prior variant makes 377
+calls in its first measured frame. Mean CPU Tick ratio is 0.411 versus fixed Build724
+baseline, with unchanged 0.5 limit. This does not certify headset frame pacing.
+Strict real Debug/Release and metadata Release pass 0W0E; all 16 source gates pass.
+Keep the failed 258-suite complete checkpoint and its 255 passes/3 failures, repaired
+focused proofs and inherited unchanged Build733 evidence separate. The verified 264-suite
+aggregate comprises 228 unchanged checkpoint passes, 12 unchanged published733
+scopes, 15 earlier affected passes, 7 final consumers, and final card/performance
+passes. It is not a new complete-gate pass. Compiled review confines final cost
+repair to the graphic helper; no gameplay, wire, shader or resource changes.
+See MENU734-STABLE-WINDOWS-HINTS-AND-ROTATION.md and ignored menu730/validation-final734.json.
+
+Published Build731/733 runtime remains unchanged. Remote Build717 hardware logs are stale,
+not paired Build729 evidence. Actual coordinator/final-head GL pixels and original
+D3D11 byte equivalence do not certify headset appearance or joystick frame pacing;
+motion clarity, hints and rotation still need hardware acceptance. Source-only
+dev delivery; the Windows installer builds its archive. Preserve evidence while
+retiring all five clean worker worktrees with verified evidence archives, using
+per-run cache cleanup and stopping the task-private ADB after the final Unity run.
+
+**Shared city-event and quest readiness review, Build733, 2026-10-27.**
+
+The native desktop city proposal leaves clients' original ready window hidden;
+Build731's lifetime fix did not supply common visibility or shared physical
+placement. Observe the exact native SelectCityEvent occurrence, reveal the
+original participant control without invoking its auto-ready continuation, and
+share its pose on the existing encounter lane until the full event takes over.
+Disabled visitors can observe without voting. Native visibility blockers, event
+content, personal votes and ACK authority remain intact.
+
+Phase-specific quest grouping, exact loadout readiness, captured park leases and
+role-specific release prevent the same pooled control from being swallowed by a
+previous window. Reuse the original readiness marker row before city conversion;
+exclude the adopted row from its own button measurement. Preserve native cancel
+rather than a private X/Hide. Enable the original city participant-departure
+validation so an unready third peer leaving cannot strand a ready remaining pair.
+
+City role authority also survives incidental quest focus, ACK waiting and an
+explicit original 2D confirmation. A public city decision fences competing
+questlog/table browsing and retires obsolete cosmetic openings instead of
+replaying them after the event. Accepted native quest proposals, pure scripted
+selection, original event callbacks and 2D input remain native.
+
+Production/helper/actual-Harmony and original native departure kernels, pooled
+ownership and shared identity/geometry tests cover these boundaries. A suspected
+old-quest-vote carryover was rejected by a temporal native ACK/ordered-withdrawal
+proof; no extra gameplay patch was added for that hypothesis. Final source/build
+and focused-scope evidence is recorded in CITY-QUEST-READY-733.md and ignored
+issues18-24/city-sync733. No paired-headset or full-gate result is implied by a
+focused pass. Preserve the separate menu732 integration; dev source only, no ZIP.
+
+Final city270/27 and actual Harmony72/14 pass; unchanged native departure400/2
+is inherited. Quest selection1338/50, sixteen focused runtime suites and all
+sixteen source gates pass with affected reruns. All306431 goldens, strict
+real/metadata Release0W0E and docs-i18n pass. Compiled review confines runtime
+changes to16 existing UI/map types plus1 helper, with unchanged resources.
+
+**City-event readiness and initiative ownership, Build731, 2026-10-27.**
+
+Open issues18/24 and all their image/video/audio context were reviewed; level-up23
+remains with the parallel menu lane. Ready-toggle reuse previously recorded an
+old modal host as native home, so a second mod owner removed the scenario-start
+control and latched parking off until map reentry. Retire that exact old float
+before adoption; native Hide/Cancel now ends pooled readiness offers instead of
+leaving their old labels sticky. Preserve native assignment, votes and callbacks.
+
+The initiative dock now binds geometry, original effects and input to one exact
+native track/live host, restores the old original on replacement, and never
+replays an already completed native-home snapshot. A real Unity reproduction
+also identifies zero portrait-plane normals at small board zoom; normalized
+independent edges repair picking without changing any visible world geometry.
+
+Integrated map8/8 and board6/6 subsets, all16 source gates, all306431 goldens,
+strict real/metadata Release0W0E and docs-i18n pass. New tests52+5 controls and
+146 realUnity+7 controls execute production coordinators. Compiled review confines
+behavior to3 UI types, with9 build-number-only differences and no resource/type
+changes. Configuration670/patches248 remain; one bounded lifecycle log is added.
+This is focused evidence inheriting unchanged729 coverage, not a new complete
+252-suite or paired-headset pass. Current729/remote717 logs are differentruns;
+the video narrative says all players already had characters, so the temporary
+assignment notice is not classified as a user error. See ISSUES18-24-REVIEW.md.
+
+Build730 remains reserved by the independent menu lane; its unpublished changes
+are untouched. Delivery is dev source only. Original media, all passing/failed
+proofs and cleanup receipts remain under ignored debug/issues18-24; own generated
+caches and the three worker/integration trees are retired after evidence archival.
+
+**Moving character cabinets, stronger card previews and cleanup, Build729, 2026-10-27.**
+
+Fresh728/e99f290b7 logs identify repeated New Party window fallback after character
+sampling reservation failure. Clip conservative bounds against actual eye/near
+planes before division, retain closed caps and keep target capacity stable for
+the complete frame. Accepted model framing, native masks/effects/actions, default-on
+depth preference and shared window geometry remain. Item/full ability menu cards
+now protrude by6.5% physical width; smaller cards retain3.5%. Native pooled hover
+registration already works; first-frame old/new raster comparisons prove the
+stronger full preview independently of the window repair.
+
+Final runtime5c8711956 passes strict real Debug/Release and metadata0W0E, all16
+source checks and bounded compiled review. All306431 goldens pass; wire evidence
+is unchanged by the final card metric. Final cards1952+15 controls, desktop368+21,
+capture400+22, graphic582+14, material94+13 and performance863+10 pass. Character
+complete invocation has one legacy witness failure; four affected viewport cases
+pass after a fixture-only current-frustum repair with unchanged tolerance. Aggregate
+character7064+43 controls reuses unchanged passing evidence. No new complete252-suite
+invocation or headset result is claimed. Normal52-frame motion retains X/Y detail
+without warmed pair churn; the distant-accessory budget stress remains explicitly
+qualified in MENU729-MOVING-PREVIEWS-AND-CARDS.md.
+
+Historical cleanup removes26.35GB net logical caches/verified media copies while
+retaining all original/evidence/protected data. Two private board fixtures stop
+duplicating unused loose media and identify completion ownership. All30 retention
+tests pass.29 absent worktree registrations are pruned; both clean current workers
+retire after verified evidence archives and process reaping. Ignored debug/menu729
+retains exact hardware inputs, passing/failed proofs, DLLs and cleanup journals.
+Delivery is dev source; the Windows installation script builds the ZIP.
+
+**Native menu depth, original level-up UI and raised cards, Build728, 2026-10-27.**
+
+The accepted727 character framing remains. Native model surface depth survives
+both UI composition and final head rendering, front/rear and at oblique angles.
+Actual foreground can extend beyond the portrait and entire window while genuine
+nearer UI still occludes it. Original inverted softmask, texture transforms,
+stencil, vertex tint and alpha blending remain. Bounded original SS allocation
+and a native-screen carrier preserve admitted pixel density. Window/input/shared
+world geometry stays authoritative; warm Canvas leases add no hierarchy census.
+
+Seven original printed menu-card families, including hover/reused/generated
+content, receive whole-root depth proportional to physical width. Native widgets,
+text, materials, clipping, effects and callbacks remain; nested cards do not
+double-lift. Level-up uses the complete native Continue widget with original
+tracker permission, wider complete card/text fitting and a persistent native
+confirmation visually seated with its owner. Character depth remains independently
+optional and default-on on every system. Movies and story assets are unchanged.
+
+The complete252-suite invocation records250 passes and two bounded fixture
+failures. Test-only fixes pass both affected complete suites afterwards; unchanged
+runtime evidence is reused. Aggregate coverage is252/252, not a new passing
+complete invocation. All306431 goldens, all16 source checks, strict real
+Debug/Release and private metadata compiles pass (0W0E); docs-i18n and compiled
+scope review pass. Runtime is byte-identical through the fixture repair. Executed
+DLLs, exact source/input pins, native audits, captures, failed hypotheses and
+cleanup receipts remain under ignored debug/menu728.
+
+All three clean worker trees are retired after byte-verified evidence archives.
+Owned processes stop/reap before cache cleanup; logs, protected pins, native
+inputs and current deliverables survive. The Windows installation script builds
+the archive; delivery is dev source. No Build728 headset, D3D11/Vulkan execution
+or paired hardware outcome is claimed. See MENU728-DEPTH-CARDS-AND-LEVELUP.md for
+source contracts and exact qualification.
+
+**Optional character preview depth, Build727, 2026-10-27.**
+
+The maintainer requests a switch for live character depth, enabled by default on
+every system. [WorldUI] CharacterPreviewDepth binds one shared true default with
+no hardware/profile override. Both screen/depth options doors expose EN/DE names
+and help. Off retires only character source registrations and private eye targets
+before the next capture; on discovers already open original previews without
+native Display calls. Original flat live colour, animation, story/video depth
+and shared window geometry remain native. Saved user choices persist.
+
+Focused integration passes8 local suites, all16 source checks, all306431 golden
+assertions and docs-i18n. Character1519+33 controls includes19 real GPU lifecycle
+assertions and two causal controls for disabled startup, live retirement and
+re-enable. Desktop255+11, Performance866+10, options/help/profile/capture checks
+pass. Strict real and metadata builds, compiled scope and cleanup receipts are
+under ignored debug/menu727. Unchanged726 evidence is inherited; no complete
+250-suite invocation or headset result is claimed.
+
+The user's latest explicit delivery ruling supersedes local archive requests:
+the Windows installation script already builds the ZIP. Commit/push dev source;
+no local ZIP is built or delivered for727. AGENTS.md records this instruction.
+See MENU727-CHARACTER-DEPTH-PREFERENCE.md for runtime and verification boundaries.
+
+**Common character framing and encounter audio, Build726, 2026-10-27.**
+
+The maintainer accepts725 and requests one character alignment/scale, real rear
+views through the physical windows, and a repair for overlapping travel audio
+after encounters. Character framing now uses the original main actor's ground
+origin and one 2.4-native-unit span with uniform XYZ scale. Smaller bodies remain
+smaller; equipment/companions cannot shift or resize the main actor. Original
+poses, animation and child scales remain native. Rear eyes use reflected off-axis
+matrices with finally-restored culling; desktop mapping admits both half-spaces.
+Discovery, bounded adaptive targets, original camera-child transforms and accepted
+story/video resources remain unchanged.
+
+Native encounter travel leaves a looping Moving request alive, then continuation
+requests it again. Record the concrete objects of that flow's configured moving
+item and retire its old request before the next native leg, including scheduled
+starts. Native statements, callbacks, unrelated sounds and simultaneous native
+layers still run. Weak playback generations protect same-frame pooled reuse.
+Supplied725 logs establish the travel lifecycle, not audible source counts.
+
+Integrated focused validation passes17 local suites, all16 source checks and all
+306431 goldens. Character1500+31 controls, Desktop255+11 and actual native audio
+36+10 pass; Performance863+10 retains the725 work removal. Strict real Debug,
+Release and private reference-assembly compiles pass0W0E; docs-i18n passes. The
+read-only native audit verifies34 forms,21 configs,243 skinned renderers and12
+apertures against65 input pins. Compiled review changes only the three intended
+menu types, audio registration/two helpers and build stamps. Unchanged local
+coverage is inherited from725; this is not a new complete250-suite gate.
+
+The normal Debug installer ZIP remains dist/GloomhavenVR-1.2.2.zip. Engineering,
+failed/passing proof, worker archive verification and delivery receipts are under
+ignored debug/menu726. Test processes are stopped/reaped before cache cleanup;
+hardware inputs and retained proof remain. Headset picture/audible acceptance is
+still outstanding. See MENU726-COMMON-CHARACTERS-AND-TRAVEL.md for exact boundaries.
+
+**Menu frame pacing and character cabinets, Build725, 2026-10-27.**
+
+The maintainer accepts724 story depth. Fresh724/c5f70993d logs onRTX4090/D3D11
+identify recurring MenuDepth main-thread stalls during joystick movement:449
+reported spikes spend at least40ms there. Replace quarter-second full UI/global
+preview searches with cold pooled discovery and coalesced native lifecycle work.
+Fit completed original character/companion bounds around the pane, with shallow
+protrusion and physical-demand eye targets up to2048 under a shared96MiB budget.
+Imported body/equipment bind poses establish the fit without initial animation
+phase or head following. Suppress hidden/redundant UI captures and retain native
+mono fallback, colour/material clocks, callbacks and absolute shared geometry.
+
+A stricter automatic first-head test also proves an older724 direct-canvas batch
+identity defect. Early stable texture priming repairs it with the existing target;
+per-eye pixels refresh without additional normal renders, targets or blits. Native
+masks, alpha, effects, texture restoration and missing-head cleanup are covered.
+Final Character1095+29, Capture323+22, Desktop198+10 and Performance863+10 pass.
+The complete249-suite invocation has248 passes/one historical raster failure;
+15 affected suites plus two narrow selector-only reruns cover the bounded repair,
+producing249 distinct passing local results. Unchanged evidence is inherited;
+this is not a new single complete-gate pass. Final source16/16,306431 goldens,
+strict real/metadata builds0W0E and docs-i18n pass. Hosted final-runtime CI passes.
+
+The normal Debug ZIP target remains dist/GloomhavenVR-1.2.2.zip, with22 external
+movies,516 story companions and unchanged rendering shaders. Clean delivery
+identities/byte checks and retained failed/passing evidence live under ignored
+debug/menu-depth725. No new headset acceptance is claimed. See
+MENU725-PERFORMANCE-AND-PREVIEWS.md for causes, native/fixture boundaries, exact
+aggregate scope, final archive evidence and cleanup qualifications.
+
+**Spatial UI hardware repairs, Build724, 2026-10-27.**
+
+Both supplied local logs identify723 / `5ddc94991`; the remote717 drop is stale.
+The native GUI3D camera owns its model/light holder as a child, so moving that
+camera for an eye moved the scene with the head. Eye rendering now borrows only
+matrices. The actual door illustration's mip replacement failed literal sprite
+matching; catalogue/default/async lookup now uses exact existing mip provenance,
+with explicit reconstructed-region depth UVs and unchanged native colour/dissolve.
+Direct capture admits visible world canvases and updates private-layer exclusions.
+
+Main integrated validation passes14 focused local suites,16 source checks and
+all306431 golden assertions. Debug/Release strict compiles are0W0E. Independent
+character757+15 controls, capture56+14, final-glass171+8 and actual story/mip/corpus
+582+14 proofs cover the reported boundaries; unchanged723 coverage is inherited
+only for unaffected areas, with no new complete-gate claim. Compiled scope is six
+intended behavior types plus build/commit stamps, with no additions/removals.
+Original native LDR viewport mapping is preserved after rejecting an overbroad
+RenderTexture assumption. Physical headset appearance remains unverified.
+
+The normal Debug ZIP path remains `dist/GloomhavenVR-1.2.2.zip`; clean-build delivery
+identity and byte-verification receipts live under ignored `debug/menu-depth724/`.
+All completed worker evidence is independently archived/verified before worktree
+removal. See `MENU724-SPATIAL-UI-REPAIR.md` for exact source causes, native effect
+qualifications, retained failed hypotheses, cleanup corrections and test scope.
+
+**Spatial native menus and prepared illustrations, Build723, 2026-10-26.**
+
+The maintainer approved all reviewed menu-depth families and requested actual
+prepared depth inside story images. Native character creation/roster/skin/reveal/
+retirement previews now render the original live scene per window and tracked eye.
+Story and city/road pictures use native-colour relief; icons, original glows,
+frames, tabs and compendium screenshot planes receive shallow depth. Text, native
+layout, callbacks, permissions and shared absolute window geometry remain original.
+The desktop/main-menu and converted/direct world-space render paths are covered.
+
+All515 source-bound depth fields are prepared and validated, covering448 narrative
+IDs,523 asset bindings and521 GUIDs. The normal installer/archive now requires the
+finite516 external companions beside the DLL; existing22 movie files remain.
+The original UI/Dissolve mask material and its one-second reveal are retained,
+including exact native fragment/blend math and live native material clock polling.
+The shader bundle is loaded and checked in the exact editor before publication.
+
+Complete local invocation records247 suites; two older desktop/movie fixture ports
+needed explicit ordinary/no-depth boundaries, and one wrist run correctly refused
+mid-run source changes. All three have passing focused reruns; unchanged passing
+evidence is retained rather than rerunning unrelated suites. Final aggregate
+covers all248 distinct local suites:247 originals plus the native material suite's
+94 GPU assertions and13 causal controls. Its saturation mutation failed earlier
+than the original expected witness; only that metadata/control was corrected
+and rerun, with unchanged product/tolerance evidence inherited. Source16/16, real and metadata
+strict builds0W0E, docs-i18n and all306431 unfiltered golden assertions pass.
+Compiled review finds3 changed existing UI implementations and14 added types;
+remaining existing changes are build/version stamps, with no removals or wire/default
+change. All tests and hardware limits are recorded in `MENU723-SPATIAL-UI.md`.
+
+Original native material/shader/texture audit inputs are pinned and unchanged.
+Completed worker worktrees and test caches are cleaned after verified archival.
+The normal Debug installer ZIP is verified byte-for-byte against all22 movies,
+516 depth companions and the actual Build723 DLL; its renderer resource matches the
+18483-byte beee5adb bundle. Current packaging receipts live under
+`debug/menu-depth723/`. Final bookkeeping changes are documentation only; delivery
+builds refresh their clean dev identity after that checkpoint.
+Actual headset appearance, comfort/performance and paired multiplayer picture
+acceptance remain hardware observations; source/GPU fixtures do not establish them.
+
+**Level-up and confirmation containment, Build722, 2026-10-26.**
+
+The supplied719 log shows the native sibling LevelUpInventory floated independently and
+remaining sticky after completion. It now belongs to the actual original level-up/character
+window, with existing cards left of the full preview and upgrade choices right; original
+animations and callbacks remain. All three fixed-fit populations include the exact level
+roots. Generic confirmations track21 native entrypoints across16 producer scopes and5
+manager methods, retaining their original callback/actor/network authority and safe unowned
+fallback. Closing/replacing/rebinding restores exact native ownership; rejected Unity reparent
+cannot overwrite the preserved native home. Review covers other confirmation families too.
+
+Level-up282 assertions/8 integration checks/8 causal controls and dialog153/10 pass;
+integrated affected suites10/10, source16/16, strict real/metadata builds0W0E and full306431
+golden assertions pass. Compiled scope is4 changed UI types/4 added helpers plus version stamps.
+No asset/default/wire change. This bounded repair reuses unchanged721 evidence rather than
+repeating the complete local-suite sweep. Source proofs do not establish new headset/remote
+picture acceptance. See `LEVEL722-CONTAINMENT.md` and `CONFIRM722-AUDIT.md`; preserved receipts
+are under ignored `debug/level722`, `debug/confirm722`, `debug/level722-test-worker`.
+
+**Release1.2.1 published, Build721, 2026-10-23.**
+
+Published from main7b173b376 via reviewed PR21, with the exact tested dev tree
+f46f368a6. Full hosted dev CI39867327604 passes all110 runtime suites and
+source/build gates; PR CI39869661955 reuses it, and Release39870344161 succeeds.
+The immutable v1.2.1 tag names that main commit. The complete1,421,389,293-byte
+ZIP is uploaded and publicly downloadable without authentication (HTTP200,
+matching Content-Length), with digest verified during publication. GitHub marks
+it as the latest public stable release; the body contains the exact English-only
+highlights. Post-publication bookkeeping records release ancestry and advances
+dev to1.2.2. Local focused/source/strict/golden evidence and preserved hardware
+limits are in `RELEASE-1.2.1.md` and ignored `.planning/debug/release121/`.
+Completed owned worker worktrees and regenerable test caches are cleaned;
+hardware inputs, other worktrees and current release deliverables remain.
 
 **Accepted item surrender cleanup, Build720, 2026-10-23.**
 

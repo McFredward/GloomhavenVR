@@ -287,6 +287,8 @@ internal static partial class CanvasConversion
                     .CharacterCreator?.CreatorWindow, ref signature, ref members);
             MixOpenSubView(panel, display.ItemInventoryDisplay, ref signature, ref members);
             MixOpenSubView(panel, display.BattleGoalWindow, ref signature, ref members);
+            MixOpenSubView(panel, LevelUpComposite.FittedView, ref signature, ref members);
+            MixOpenSubView(panel, LevelUpComposite.InventoryView, ref signature, ref members);
         }
         catch (System.Exception)
         {

@@ -33,6 +33,7 @@ namespace UnityEngine
         public static Vector3 Lerp(Vector3 a,Vector3 b,float t)=>a+(b-a)*Mathf.Clamp01(t);
         public static Vector3 zero => new(0,0,0);
         public static Vector3 one => new(1,1,1);
+        public static Vector3 forward => new(0,0,1);
         public float sqrMagnitude => x*x+y*y+z*z;
         public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
@@ -110,7 +111,7 @@ namespace GloomhavenVR.WorldUI
         internal static readonly HashSet<byte> Missing=new();
         internal static bool Ready=true;
         internal static int Creates, Disposals;
-        internal static float Floor;
+        internal static float MapFloor;
         internal readonly byte Service;
         internal readonly Transform Root=new();
         internal bool IsReady=>Ready;
@@ -126,7 +127,7 @@ namespace GloomhavenVR.WorldUI
             if(Missing.Contains(service))return null;
             var station=new TownServiceStation(service); station.Root.position=center;station.Root.localScale=Vector3.one*scale;Live[service]=station;return station;
         }
-        internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,Floor,Root.position.z); }
+        internal void RefreshEnvironment(bool author) { LastAuthor=author; if(author)Root.position=new Vector3(Root.position.x,MapFloor,Root.position.z); }
         internal void SetVisibility(float value)=>Visibility=value;
         internal static bool NearVisitor; internal int AttentionQueries;
         internal bool PrepareActivityAttention(bool previous){AttentionQueries++;return NearVisitor;}
@@ -137,7 +138,8 @@ namespace GloomhavenVR.WorldUI
             bool authorPerformance,float performanceClock,GloomhavenVR.Net.TownActivitySoundState remote)
         { LastActivityAudioVisible=visible; }
         internal GloomhavenVR.Net.TownActivitySoundState PublishedFoley=>default;
-        internal void BindEnvironment(Transform frame,in GloomhavenVR.Net.TownActivityState state) { }
+        internal GloomhavenVR.Net.TownActivityState LocalLighting;
+        internal void BindEnvironment(Transform frame,in GloomhavenVR.Net.TownActivityState state) { LocalLighting=state; }
         internal int FaceSeeds;internal bool FaceAuthor,FaceReceived;internal GloomhavenVR.Net.TownFacePose FacePose;
         internal void SeedFace(GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){FaceSeeds++;FacePose=pose;}
         internal GloomhavenVR.Net.TownFacePose SampleFace(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock){FaceAuthor=author;FaceReceived=received;if(received)FacePose=remote;return FacePose;}

@@ -112,6 +112,14 @@ foreach ($movie in $moviePaths) {
     $movieSource = Join-Path $movieSourceRoot $movie
     if (-not (Test-Path -LiteralPath $movieSource -PathType Leaf)) { Write-Error "Missing required movie: $movieSource" }
 }
+# Prepared menu illustration depth is mandatory external content, never baked into the DLL.
+# This complete preflight precedes toolchain/download/build and installation/archive writes.
+. (Join-Path $root "scripts/menu-depth-files.ps1")
+$menuDepthSourceRoot = Join-Path $root "src/GloomhavenVR/Assets/MenuDepth"
+$menuDepthRoster = Join-Path $root "packaging/menu-depth-files.txt"
+$menuDepthPaths = @(Get-MenuDepthFiles $menuDepthSourceRoot $menuDepthRoster)
+Write-Host "Menu depth companions: 515 fields and manifest verified."
+
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
 $figureFolder = Join-Path $root "prebuilt"
@@ -364,6 +372,7 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 # Everything lands where the runtime probes it:
 #   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
 #   movies      -> BepInEx\plugins\GloomhavenVR\Movies\<manifest relative path>
+#   menu depth  -> BepInEx\plugins\GloomhavenVR\MenuDepth\Story\<manifest/field>
 #   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
 #   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
 #   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
@@ -401,6 +410,11 @@ foreach ($movie in $moviePaths) {
     $destination = Join-Path $movieDir $movie
     New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
     Copy-Item -LiteralPath (Join-Path $movieSourceRoot $movie) -Destination $destination -Force
+}
+foreach ($companion in $menuDepthPaths) {
+    $destination = Join-Path $pluginDir ("MenuDepth/" + $companion)
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+    [IO.File]::Copy((Join-Path $menuDepthSourceRoot $companion), $destination, $true)
 }
 Copy-Item $preloader -Destination $patcherDir -Force
 Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
@@ -621,6 +635,9 @@ if (-not (Test-Path $bootConfig)) {
 # says a second layout definition causes.
 # ---------------------------------------------------------------------------
 if (-not $NoPackage) {
+    # Revalidate the deployed companions before deleting/replacing an existing ZIP or stage.
+    # A partial installation must never become a new distributable archive.
+    $null = @(Get-MenuDepthFiles (Join-Path $pluginDir "MenuDepth") $menuDepthRoster)
     Step "Packaging release zip"
     $version = (Select-String -Path (Join-Path $root "src\GloomhavenVR\GloomhavenVR.csproj") `
                               -Pattern '<Version>(.*)</Version>').Matches[0].Groups[1].Value
@@ -729,8 +746,10 @@ if (-not $NoPackage) {
     # package-release.sh runs on its zip; a zip that renders "raumgroA~Yes" is not a release.
     $textProblems = @()
     $required += @($moviePaths | ForEach-Object { "BepInEx/plugins/GloomhavenVR/Movies/" + $_ })
+    $required += @($menuDepthPaths | ForEach-Object { "BepInEx/plugins/GloomhavenVR/MenuDepth/" + $_ })
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
+        Assert-MenuDepthArchive $archive $menuDepthRoster
         $entries = $archive.Entries | ForEach-Object { $_.FullName }
         $backslashEntries = @($entries | Where-Object { $_.Contains('\') })
         if ($backslashEntries) {

@@ -4,6 +4,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core;
 
@@ -194,6 +195,9 @@ internal static class SkyBackdrop
 
     private static bool _applied;   // mechanism effects currently active
     private static int _scanNextFrame;
+    private static bool _watchingScenes;
+    private static Camera? _seenHead;
+    private static int _seenHeadMask;
 
     private static readonly int BackgroundQueue = (int)RenderQueue.Background; // 1000
 
@@ -210,9 +214,34 @@ internal static class SkyBackdrop
     {
         if (!VRSession.IsRunning)
         {
+            StopWatchingScenes();
             if (_mech != Mechanism.Undecided || _applied)
                 FullReset();
+            NativeDefaultSky.Reset();
             return;
+        }
+        // The startup rig is already live behind the studio movie and logos.
+        // Only the actual ready menu (after tracked recenter), map or scenario
+        // may acquire surroundings; a scene name or camera alone is insufficient.
+        if (!Events.MenuWorldContext.AllowsSurroundings)
+        {
+            if (_mech != Mechanism.Undecided || _applied) FullReset();
+            NativeDefaultSky.Release();
+            _scanNextFrame = 0;
+            return;
+        }
+        if (!_watchingScenes)
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            _watchingScenes = true;
+        }
+        Camera? currentHead = VRRigDriver.HeadCamera;
+        int currentMask = currentHead != null ? currentHead.cullingMask : 0;
+        if (!ReferenceEquals(currentHead, _seenHead) || currentMask != _seenHeadMask)
+        {
+            _seenHead = currentHead;
+            _seenHeadMask = currentMask;
+            _scanNextFrame = 0;
         }
 
         if (skyOwnedElsewhere)
@@ -220,24 +249,62 @@ internal static class SkyBackdrop
             // MR hides the sphere for the chroma key (and SkyAlternative hides it for its own
             // 3D environment) — restore it to vanilla first so the owner records/disables a
             // clean renderer. Keep the decision cached.
-            if (_applied)
+            if (NativeDefaultSky.Owns(_sky))
+                FullReset();
+            else if (_applied)
                 RemoveEffects();
+            NativeDefaultSky.Release();
             return;
         }
 
+        if (NativeDefaultSky.RefreshLifetime()) FullReset();
+        if (_sky != null && !NativeDefaultSky.Owns(_sky) && !HeadCanRender(_sky))
+            FullReset();
         EnsureAcquired();
+        NativeDefaultSky.UpdatePose();
         if (_sky == null || _mat == null)
             return;
         ApplyEffects();
     }
 
     /// <summary>Full teardown (VR stop / hot reload). Restores the sphere and forgets the decision.</summary>
-    internal static void RestoreAll() => FullReset();
+    internal static void RestoreAll()
+    {
+        StopWatchingScenes();
+        FullReset();
+        NativeDefaultSky.Reset();
+    }
+
+    private static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => _scanNextFrame = 0;
+
+    private static void StopWatchingScenes()
+    {
+        if (!_watchingScenes) return;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        _watchingScenes = false;
+        _seenHead = null;
+        _seenHeadMask = 0;
+    }
 
     // ---- acquisition --------------------------------------------------------------------------
 
     private static void EnsureAcquired()
     {
+        // Build740: Default must also exist before any scenario has ever loaded.
+        // While using the render-only bank, retry native discovery on the same
+        // bounded cadence. A late native scene sky replaces our presentation,
+        // rather than rendering two domes or losing the scenario's own authority.
+        Renderer? arrived = null;
+        if (NativeDefaultSky.Owns(_sky) && Time.frameCount >= _scanNextFrame)
+        {
+            _scanNextFrame = Time.frameCount + ScanIntervalFrames;
+            arrived = FindNativeSky(headVisibleOnly: true);
+            if (arrived != null)
+            {
+                FullReset();
+                NativeDefaultSky.Release();
+            }
+        }
         // Unity fake-null: the sphere was destroyed by a scene unload → forget it and re-scan.
         if (_sky == null || _mat == null)
         {
@@ -248,7 +315,8 @@ internal static class SkyBackdrop
                 return;
             _scanNextFrame = Time.frameCount + ScanIntervalFrames;
 
-            Renderer? found = FindSky();
+            Renderer? found = arrived != null ? arrived
+                : FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer ?? NativeDefaultSky.Acquire();
             if (found == null)
                 return;
             Material? mat = found.sharedMaterial;
@@ -265,12 +333,19 @@ internal static class SkyBackdrop
     /// <see cref="SkyAlternative"/> hides the SAME renderer this class treats — one set of hints,
     /// no second definition of "the sky" to drift.</summary>
     internal static Renderer? FindSky()
+        => FindNativeSky(headVisibleOnly: false) ?? NativeDefaultSky.Renderer;
+
+    private static Renderer? FindNativeSky(bool headVisibleOnly)
     {
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
-            if (r == null)
+            if (r == null || NativeDefaultSky.Owns(r))
+                continue;
+            // A serialized scenario can arrive before its new rig does. Until
+            // the owned head actually sees that layer, keep the menu's own sky.
+            if (headVisibleOnly && !HeadCanRender(r))
                 continue;
             if (MatchesHint(r.gameObject.name))
                 return r;
@@ -279,6 +354,12 @@ internal static class SkyBackdrop
                 return r;
         }
         return null;
+    }
+
+    private static bool HeadCanRender(Renderer renderer)
+    {
+        Camera? head = VRRigDriver.HeadCamera;
+        return head != null && (head.cullingMask & (1 << renderer.gameObject.layer)) != 0;
     }
 
     private static bool MatchesHint(string? s)

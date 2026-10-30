@@ -15,6 +15,8 @@ internal static class StationLifecycle
         SkyAlternative.PlacedRoomRoot=new Transform{position=new Vector3(0,4,0)};
         for(byte service=1;service<=3;service++)
         {
+            GuildmasterRoomGeometry.Available=true;GuildmasterRoomGeometry.Floor=11;
+            MapRoomDriver.ParchmentRenderer!.transform.rotation=Quaternion.identity;
             SkyAlternative.PlacedRoomRoot=new Transform{position=new Vector3(0,4,0)};
             var station=TownServiceStation.Create(service,Vector3.zero,1)!;
             Check(station!=null,"station created");
@@ -29,15 +31,30 @@ internal static class StationLifecycle
             Near(station.FurnitureBottom,-.06f,"follower retains author support correction");
             int before=station.Root.PoseWrites;
             station.RefreshEnvironment(true);
-            Near(station.Root.position.y,4,"follower to author resolves actual floor with unchanged room/frame");
+            Near(station.Root.position.y,11,"follower to author resolves common native floor with unchanged room/frame");
             Near(station.ActorFloorOffset,0,"new author replaces old sole correction");
             Near(station.FurnitureBottom,0,"new author replaces old support correction");
             Check(station.Root.PoseWrites==before+1,"handover performs one placement");
             station.RefreshEnvironment(true);Check(station.Root.PoseWrites==before+1,"steady author does not re-place");
+            SkyAlternative.PlacedRoomRoot=new Transform{position=new Vector3(0,-8,0),rotation=Quaternion.Euler(0,133,0)};
+            int localRefreshes=TownServiceLighting.Last!.Refreshes;
+            station.RefreshEnvironment(true);
+            Check(station.Root.PoseWrites==before+1,"author scenery change cannot publish another station pose");
+            Near(station.Root.position.y,11,"author scenery change retains the common native floor");
+            Check(TownServiceLighting.Last.Refreshes==localRefreshes+1,"author scenery refresh remains local lighting work");
             station.RefreshEnvironment(false);station.Root.position=new Vector3(9,123,7);
             SkyAlternative.PlacedRoomRoot=new Transform{position=new Vector3(0,6,0)};
+            GuildmasterRoomGeometry.Floor=13;
             station.RefreshEnvironment(false);Near(station.Root.position.y,123,"viewer room change retains peer pose");
-            station.RefreshEnvironment(true);Near(station.Root.position.y,6,"next authority transition applies changed floor");
+            station.RefreshEnvironment(true);Near(station.Root.position.y,13,"next authority transition applies the current native floor");
+            before=station.Root.PoseWrites;
+            MapRoomDriver.ParchmentRenderer.transform.rotation=Quaternion.Euler(11,47,19);
+            station.RefreshEnvironment(true);
+            Check(station.Root.PoseWrites==before+1,"native parchment yaw invalidates the author placement cache");
+            Near(station.Root.rotation.eulerAngles.y,service==1?62:service==2?207:142,"station uses native parchment yaw with the original resident heading");
+            MapRoomDriver.Yaw=MapRoomDriver.Yaw+23;
+            station.RefreshEnvironment(true);
+            Check(station.Root.PoseWrites==before+1,"reading-side changes do not invalidate unchanged native geometry");
             int refreshes=TownServiceLighting.Last!.Refreshes;
             station.RefreshEnvironment(false);station.Root.localScale=Vector3.one*3;
             station.RefreshEnvironment(false);

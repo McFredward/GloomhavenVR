@@ -785,6 +785,8 @@ internal static partial class CanvasConversion
                     .CharacterCreator?.CreatorWindow);
             AddSeatVeilMember(panel, display.ItemInventoryDisplay);
             AddSeatVeilMember(panel, display.BattleGoalWindow);
+            AddSeatVeilMember(panel, LevelUpComposite.FittedView);
+            AddSeatVeilMember(panel, LevelUpComposite.InventoryView);
         }
         catch (System.Exception)
         {

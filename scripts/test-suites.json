@@ -122,6 +122,18 @@
       "weight": 45
     },
     {
+      "id": "level-up-composite",
+      "command": [
+        "bash",
+        "scripts/level-up-composite-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 38
+    },
+    {
       "id": "scenario-win-cheat",
       "command": [
         "bash",
@@ -464,6 +476,17 @@
       "weight": 47
     },
     {
+      "id": "initiative-binding-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-binding-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 42
+    },
+    {
       "id": "card-loss-modal",
       "command": [
         "bash",
@@ -510,6 +533,78 @@
         "ci"
       ],
       "weight": 45
+    },
+    {
+      "id": "map-ready-handoff",
+      "command": [
+        "bash",
+        "scripts/map-ready-handoff-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "city-ready",
+      "command": [
+        "bash",
+        "scripts/city-ready-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "ready-phase-owner",
+      "command": [
+        "bash",
+        "scripts/ready-phase-owner-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "shared-city-identity",
+      "command": [
+        "bash",
+        "scripts/shared-city-identity-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "city-ready-roster",
+      "command": [
+        "bash",
+        "scripts/city-ready-roster-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "city-preconvert",
+      "command": [
+        "bash",
+        "scripts/city-preconvert-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
     },
     {
       "id": "quest-window",
@@ -3010,6 +3105,230 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "menu-depth-media",
+      "command": [
+        "python3",
+        "-B",
+        "tests/menu-depth-media/check.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "menu-depth-data",
+      "command": [
+        "bash",
+        "scripts/menu-depth-data-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "menu-depth-character",
+      "command": [
+        "python3",
+        "scripts/menu-depth-character/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-capture",
+      "command": [
+        "python3",
+        "scripts/menu-depth-capture/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-laser",
+      "command": [
+        "python3",
+        "scripts/menu-depth-laser/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "menu-depth-desktop",
+      "command": [
+        "python3",
+        "scripts/menu-depth-desktop/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-graphic",
+      "command": [
+        "python3",
+        "scripts/menu-depth-graphic/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-material",
+      "command": [
+        "python3",
+        "scripts/menu-depth-material/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-performance",
+      "command": [
+        "python3",
+        "scripts/menu-depth-perf/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "travel-audio-runtime",
+      "command": [
+        "python3",
+        "scripts/check-travel-audio-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "levelup-native-runtime",
+      "command": [
+        "python3",
+        "scripts/check-levelup-native-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "menu-depth-cards",
+      "command": [
+        "python3",
+        "scripts/menu-depth-cards/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "character-tooltips",
+      "command": [
+        "python3",
+        "scripts/character-tooltip/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "character-tooltips-native-flat",
+      "command": [
+        "python3",
+        "scripts/character-tooltip/run.py",
+        "--native-flat"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "menu-depth-rotation",
+      "command": [
+        "python3",
+        "scripts/menu-depth-rotation/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-rotation-integrated",
+      "command": [
+        "python3",
+        "scripts/menu-depth-rotation/run-integrated.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-native-card",
+      "command": [
+        "bash",
+        "scripts/menu-depth-native-card-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "environment-menu-scope",
+      "command": [
+        "python3",
+        "scripts/check-environment-menu-scope.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "default-sky-runtime",
+      "command": [
+        "python3",
+        "scripts/default-sky-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "menu-world-runtime",
+      "command": [
+        "python3",
+        "scripts/menu-world-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
     }
   ]
 }

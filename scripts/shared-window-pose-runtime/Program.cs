@@ -17,7 +17,7 @@ internal static class Proof
     {
         FFSNetwork.IsOnline=true;FFSNetwork.IsHost=host;NetPlayerActors.Id=id;
         NetSession.FlatNetMode=false;VersionGuard.Fresh(knownHost?new[]{1,2,3,4}:new[]{2,3,4});
-        SharedWindowSpawnAuthority.Bind(()=>true);ModalFallback.Ready=true;
+        SharedWindowSpawnAuthority.Bind(()=>true);SharedWindowMoves.Bind(()=>false);ModalFallback.Ready=true;
         PanelLayout.Available=true;PanelLayout.Origin=new Vector3(-81,9,33);
         PanelLayout.Yaw=Quaternion.Euler(0,277,0);PanelLayout.WorldScale=23.39f;
         MapRoomDriver.Active=false;Time.unscaledTime=10;Time.frameCount=100;
@@ -112,7 +112,7 @@ namespace GloomhavenVR.Net
         internal static void FreshReward()=>ResetRewardPose();
         internal static void Fresh()
         {
-            StoryLocal.Reset();QuestLocal.Reset();EncounterLocal.Reset();
+            StoryLocal.Reset();QuestLocal.Reset();EncounterLocal.Reset();ResetReflow();
             StoryPeers.Clear();QuestPeers.Clear();EncounterPeers.Clear();
             StoryStamp.Clear();QuestStamp.Clear();EncounterStamp.Clear();
             StoryStampAt.Clear();QuestStampAt.Clear();EncounterStampAt.Clear();
@@ -120,6 +120,9 @@ namespace GloomhavenVR.Net
         }
         private static Local ProofLocal(SharedWindowKind kind)=>kind switch {SharedWindowKind.MapStory=>StoryLocal,SharedWindowKind.QuestConfirm=>QuestLocal,_=>EncounterLocal};
         internal static uint Key(SharedWindowKind kind)=>kind switch {SharedWindowKind.MapStory=>RemoteStorySync.HashDialog(CurrentBox!.dialogs),SharedWindowKind.QuestConfirm=>CurrentQuest!.Key,_=>CurrentEvent!.Key};
+        internal static void SetNativeKey(SharedWindowKind kind) => ProofLocal(kind).Key=Key(kind);
+        internal static void SampleMotionForProof(ref PresenceState presence) => SampleReflow(ref presence);
+        internal static bool ReflowForProof(SharedWindowKind kind) => ProofLocal(kind).Reflow;
         internal static bool Owns(SharedWindowKind kind)=>ProofLocal(kind).PoseOwned||ProofLocal(kind).Moving;
         internal static bool Adopted(SharedWindowKind kind)=>ReferenceEquals(ProofLocal(kind).Grab,SharedWindows.Grabs[kind])&&ProofLocal(kind).SwapFrame==int.MinValue;
         internal static SharedWindowEntry Publish(SharedWindowKind kind)
@@ -153,9 +156,16 @@ namespace GloomhavenVR.Net
 
 internal static class Program
 {
-    private static void Main()
+    private static void Main(string[] args)
     {
-        Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();
+        if(args.Length==1)
+        {
+            if(args[0]=="reward-handover")MoveOrderPairs.RewardPlacementHandover();
+            else if(args[0]=="auto-author-return")MoveOrderPairs.AutomaticAuthorReturn();
+            else throw new ArgumentException("Unknown partial shared-window scenario");
+            Console.WriteLine($"Partial shared-window scenario {args[0]}: {Proof.Checks} assertions passed.");return;
+        }
+        Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();MoveOrderPairs.Run();
         Console.WriteLine($"Shared window pose runtime: {Proof.Checks} production assertions passed.");
     }
     private static void Authority()

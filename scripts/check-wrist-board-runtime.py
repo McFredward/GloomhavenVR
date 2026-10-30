@@ -13,9 +13,16 @@ def hashes(root):
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/wrist-board-runtime');p.add_argument('--unity',type=Path,default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')));p.add_argument('--reuse-project',type=Path);a=p.parse_args()
  a.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=a.output_dir.resolve()));before=hashes(a.source_root)
+ print('Evidence: '+str(run),flush=True)
  project=a.reuse_project.resolve() if a.reuse_project else run/'unity'
  for name in ('Assets/Editor','Assets/Plugins','Packages','ProjectSettings'):(project/name).mkdir(parents=True,exist_ok=True)
  build=run/'production';build.mkdir();items=build/'PrivateItems.targets';items.write_text('<Project><Target Name="RemoveExistingOutput" BeforeTargets="CoreCompile"><ItemGroup><Compile Remove="obj/**/*.cs;bin/**/*.cs;'+str(a.source_root/'src/GloomhavenVR/obj')+'/**/*.cs;'+str(a.source_root/'src/GloomhavenVR/bin')+'/**/*.cs" /></ItemGroup></Target></Project>')
+ # The private output belongs to this run, even though compilation uses the
+ # original source project. Let completion cleanup identify its bin/obj caches.
+ (build/'CacheOwnership.csproj').write_text('<Project/>\n')
+ # This fixture loads the DLL and separately imports its board/hand assets.
+ # Loose movie/story Content is unused and would duplicate about 1GiB per run.
+ items.write_text(items.read_text().replace('</Project>', '<Target Name="NoUnusedLooseMediaCopies" BeforeTargets="AssignTargetPaths"><ItemGroup><Content Remove="@(Content)" /></ItemGroup></Target></Project>'))
  dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
  with (run/'build.log').open('w') as log:
   r=subprocess.run([dotnet,'build',str(a.source_root/'src/GloomhavenVR/GloomhavenVR.csproj'),'-c','Debug','-v','quiet','-p:BaseIntermediateOutputPath='+str(build/'obj')+'/', '-p:OutputPath='+str(build/'bin')+'/', '-p:UseSharedCompilation=false','-p:CustomAfterMicrosoftCommonTargets='+str(items)],cwd=a.source_root,stdout=log,stderr=subprocess.STDOUT)

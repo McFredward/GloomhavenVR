@@ -275,6 +275,57 @@ internal sealed class UguiPointer
         return true;
     }
 
+    /// <summary>A physical foreground supplies geometry, never permission or a synthetic callback.</summary>
+    internal bool TryRaycastSurface(Canvas canvas, Vector2 screenPos, Graphic surface, bool preferSurface,
+        Vector3 physicalPoint, float physicalDistance, out RaycastResult topHit, Transform? nativeRoot = null)
+    {
+        topHit = default;
+        GraphicRaycaster host = canvas != null ? canvas.GetComponent<GraphicRaycaster>() : null!;
+        if (host == null || !host.isActiveAndEnabled) return false;
+        bool any = false;
+        PointerEventData data = GetData(); data.position = screenPos;
+        Transform root = nativeRoot != null ? nativeRoot : surface.transform;
+        // A real 3D portrait can cover a flat button which sorts above its old
+        // mono RawImage. Select the portrait only if the ORIGINAL raycaster
+        // itself returns that exact graphic: locks, CanvasGroup/mask/reversed
+        // face tests and native raycastTarget are not bypassed.
+        Canvas logical = surface != null ? surface.canvas : null!;
+        // More Cards' original input row is outside its non-raycasting card
+        // holder. An adopted nested mini Canvas must not strand that explicit
+        // owner on another raycaster. Keep the visual Canvas query and compare
+        // its hits with the owner's original Canvas, within the same root only.
+        Canvas? ownerCanvas = nativeRoot != null && logical != null && !root.IsChildOf(logical.transform)
+            ? root.GetComponentInParent<Canvas>() : null;
+        List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas!);
+        if (_farRay && preferSurface && surface != null && logical != null && logical.isActiveAndEnabled
+            && (logical == canvas || nested != null && nested.Contains(logical)))
+        {
+            for (int pass = 0; pass < (ownerCanvas != null && ownerCanvas != logical ? 2 : 1); pass++)
+            {
+                Canvas? inputCanvas = pass == 0 && ownerCanvas != null && ownerCanvas != logical ? ownerCanvas : logical;
+                if (inputCanvas == null || !inputCanvas.isActiveAndEnabled
+                    || (inputCanvas != canvas && (nested == null || !nested.Contains(inputCanvas)))) continue;
+                GraphicRaycaster original = inputCanvas.GetComponent<GraphicRaycaster>();
+                if (original == null || !original.isActiveAndEnabled) continue;
+                _hits.Clear(); original.Raycast(data, _hits);
+                for (int i = 0; i < _hits.Count; i++)
+                    if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
+                    {
+                        if (_hits[i].gameObject.GetComponent<PokeOnlyTarget>() != null) continue;
+                        if (!any || Beats(_hits[i], topHit)) { topHit = _hits[i]; any = true; }
+                        break;
+                    }
+            }
+        }
+        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);
+        if (any)
+        {
+            topHit.worldPosition = physicalPoint; topHit.distance = physicalDistance;
+            data.pointerCurrentRaycast = topHit;
+        }
+        return any;
+    }
+
     /// <summary>Top hit of a single raycaster, if any.</summary>
     private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)
     {

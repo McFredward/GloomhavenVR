@@ -9,6 +9,7 @@ using GloomhavenVR.WorldUI;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using GloomhavenVR.Net.TownServices;
 
 public static class ValidateTownLighting
 {
@@ -57,6 +58,91 @@ public static class ValidateTownLighting
     }
     static void Save(string name, Color32[] image)
     { readback.SetPixels32(image); readback.Apply(); File.WriteAllBytes(Path.Combine(output, name + ".png"), readback.EncodeToPNG()); }
+    static readonly string[] LocalUniforms={"_TownSharedAmbient","_TownSharedKey","_TownKeyDirection","_TownKeyColour",
+        "_TownAmbientAr","_TownAmbientAg","_TownAmbientAb","_TownAmbientBr","_TownAmbientBg","_TownAmbientBb","_TownAmbientC"};
+    static bool LocalUniform(string name)=>Array.IndexOf(LocalUniforms,name)>=0;
+    static TownServiceValue LegacyRoom(TownServiceValue source,float seed)
+    {
+        var value=new TownServiceValue{Numbers=(float[])source.Numbers.Clone(),Text=(string[])source.Text.Clone()};
+        for(int i=0;i<(value.Text.Length-2)/2;i++)
+            if(LocalUniform(value.Text[2+i*2]))
+                for(int n=0;n<4;n++)value.Numbers[5+i*5+n]=seed+n*.17f;
+        return value;
+    }
+    static void MaterialIsolation()
+    {
+        var assets=new GloomhavenVR.Net.TownServices.TownServiceAssets();
+        foreach(string name in new[]{"TownNpc","TownEye","TownCornea","ForeignEnvironment"})
+        {
+            var shader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/Shaders/"+name+".shader");
+            Check(shader!=null&&shader.isSupported,name+" material shader compiles");
+            var original=new Material(shader);bool owned=name!="ForeignEnvironment";
+            original.SetFloat("_TownVisibility",.73f);original.EnableKeyword("FIXTURE_ORIGINAL_KEYWORD");
+            if(original.HasProperty("_MainTex"))
+            {
+                original.SetTexture("_MainTex",Texture2D.whiteTexture);original.SetTextureScale("_MainTex",new Vector2(.6f,.8f));
+                original.SetTextureOffset("_MainTex",new Vector2(.1f,.2f));
+            }
+            var pristine=new Material(original);
+            foreach(string uniform in LocalUniforms)
+            {
+                Check(original.HasProperty(uniform),name+" carries original environment field "+uniform);
+                if(uniform=="_TownSharedAmbient"||uniform=="_TownSharedKey")original.SetFloat(uniform,1);
+                else original.SetVector(uniform,new Vector4(.13f,.27f,.41f,.55f));
+            }
+            TownServiceMaterial.Reset();var snapshot=TownServiceMaterial.Read(original,assets);
+            TownServiceMaterial.Validate(snapshot,assets);
+            // All non-environment properties are compared directly to the native
+            // source material, including texture identity/UVs and controller data.
+            Check(snapshot.Text[1]==string.Join("\n",original.shaderKeywords),name+" original keywords remain exact");
+            for(int i=0;i<shader.GetPropertyCount();i++)
+            {
+                string property=shader.GetPropertyName(i);int n=5+i*5;
+                var actual=new Vector4(snapshot.Numbers[n],snapshot.Numbers[n+1],snapshot.Numbers[n+2],snapshot.Numbers[n+3]);
+                if(owned&&LocalUniform(property)){Check(actual==Vector4.zero,name+" publishes neutral "+property);continue;}
+                switch(shader.GetPropertyType(i))
+                {
+                    case ShaderPropertyType.Color:Check(actual==(Vector4)original.GetColor(property),name+" native color "+property);break;
+                    case ShaderPropertyType.Vector:Check(actual==original.GetVector(property),name+" native vector "+property);break;
+                    case ShaderPropertyType.Float:case ShaderPropertyType.Range:
+                        Check(actual.x==original.GetFloat(property),name+" native scalar "+property);break;
+                    case ShaderPropertyType.Texture:
+                        Vector2 scale=original.GetTextureScale(property),offset=original.GetTextureOffset(property);
+                        Check(actual==new Vector4(scale.x,scale.y,offset.x,offset.y)
+                            &&ReferenceEquals(assets.Resolve<Texture>(snapshot.Text[3+i*2]),original.GetTexture(property)),name+" native texture and UVs "+property);break;
+                }
+            }
+            var replay=TownServiceMaterial.Apply(snapshot,assets,null);
+            if(owned)
+            {
+                var oldA=LegacyRoom(snapshot,.2f);var oldB=LegacyRoom(snapshot,.8f);
+                TownServiceMaterial.Validate(oldA,assets);TownServiceMaterial.Validate(oldB,assets);
+                var before=(float[])oldA.Numbers.Clone();
+                var same=TownServiceMaterial.Apply(oldA,assets,replay);
+                Check(ReferenceEquals(replay,same),name+" old host environment cannot replace observer material");
+                same=TownServiceMaterial.Apply(oldB,assets,same);
+                Check(ReferenceEquals(replay,same),name+" another old room reuses original neutral pooled material");
+                Check(oldA.Numbers.SequenceEqual(before),name+" received old room packet stays immutable");
+                foreach(string uniform in LocalUniforms)
+                    Check(uniform=="_TownSharedAmbient"||uniform=="_TownSharedKey"?same.GetFloat(uniform)==0:same.GetVector(uniform)==Vector4.zero,
+                        name+" old room cannot write observer "+uniform);
+                original.SetFloat("_TownVisibility",.36f);TownServiceMaterial.Reset();
+                var controller=TownServiceMaterial.Read(original,assets);
+                Check(!snapshot.Same(controller),name+" original dissolve change still publishes");
+                var changed=TownServiceMaterial.Apply(controller,assets,same);
+                Check(!ReferenceEquals(changed,replay)&&changed.GetFloat("_TownVisibility")==.36f,name+" original dissolve still replays");
+                replay=changed;
+            }
+            else
+                foreach(string uniform in LocalUniforms)
+                    Check(uniform=="_TownSharedAmbient"||uniform=="_TownSharedKey"?replay.GetFloat(uniform)==1:replay.GetVector(uniform)==original.GetVector(uniform),
+                        "foreign shader retains identically named native field "+uniform);
+            if(original.HasProperty("_MainTex"))Check(replay.GetTexture("_MainTex")==pristine.GetTexture("_MainTex")
+                &&replay.GetTextureScale("_MainTex")==pristine.GetTextureScale("_MainTex")
+                &&replay.GetTextureOffset("_MainTex")==pristine.GetTextureOffset("_MainTex"),name+" replay retains original texture identity/UVs");
+            TownServiceMaterial.Release(replay);UnityEngine.Object.DestroyImmediate(original);UnityEngine.Object.DestroyImmediate(pristine);
+        }
+    }
     static Light Lamp(Vector3 position)
     {
         Light light = new GameObject("Actual practical").AddComponent<Light>();
@@ -93,6 +179,7 @@ public static class ValidateTownLighting
             && opaqueDefaults.GetFloat("_DstBlend")==0f
             && opaqueDefaults.GetFloat("_ZWrite")==1f,
             "normal TownNpc shader retains opaque blend and solid depth defaults");
+        MaterialIsolation();TownLightingEditorLifetime.Flush();
         var guideRoot=new GameObject("Actual temple guide lighting probe");guideRoot.layer=VRLayers.ModLayer;
         var guide=GameObject.CreatePrimitive(PrimitiveType.Cube);guide.transform.SetParent(guideRoot.transform,false);guide.layer=VRLayers.ModLayer;
         guide.transform.localScale=new Vector3(.8f,.8f,.1f);
@@ -113,21 +200,32 @@ public static class ValidateTownLighting
         {
             var state=new TownActivityState{HasSharedPerformance=true,HasAuthoredFoley=true};TownServiceLighting.SampleEnvironment(guideRoot.transform,ref state);
             presentation.BindEnvironment(guideRoot.transform,guideRoot.transform,in state);
-            Check(!guideMesh.HasPropertyBlock(),"shared lighting leaves original guide mesh publishable without undeclared property blocks");
+            Check(!guideMesh.HasPropertyBlock(),"local lighting leaves original guide mesh publishable without undeclared property blocks");
             var assets=new GloomhavenVR.Net.TownServices.TownServiceAssets();
             var materialSnapshot=GloomhavenVR.Net.TownServices.ActualMeshCapture.Capture(guideMesh,assets);
             GloomhavenVR.Net.TownServices.TownServiceMaterial.Validate(materialSnapshot,assets);
-            var ownerGuide=Picture("guide-shared-owner");
+            var ownerGuide=Picture("guide-local-owner");
             var observerAmbient=new SphericalHarmonicsL2();observerAmbient.AddAmbientLight(new Color(.8f,0,0));RenderSettings.ambientProbe=observerAmbient;
             var remoteGuide=GloomhavenVR.Net.TownServices.TownServiceMaterial.Apply(materialSnapshot,assets,null);
             guideMesh.sharedMaterial=remoteGuide;
-            var observerGuide=Picture("guide-shared-observer");
-            Check(WholeDifference(ownerGuide,observerGuide)<.1f,"actual guide mesh capture and material playback retain shared ambient pixels in another room");
-            remoteGuide.SetFloat("_TownSharedAmbient",0);var missingGuide=Picture("guide-negative-local-ambient");
-            Check(WholeDifference(ownerGuide,missingGuide)>.5f,"guide negative local ambient produces a visible parity gap");negatives++;
-            remoteGuide.SetFloat("_TownSharedAmbient",1);
+            var observerGuide=Picture("guide-local-observer");
+            guideMesh.sharedMaterial=guideMaterial;var nativeObserverGuide=Picture("guide-native-observer");guideMesh.sharedMaterial=remoteGuide;
+            Check(WholeDifference(nativeObserverGuide,observerGuide)<.1f,"actual material playback matches the native original in the observer's own environment");
+            Check(WholeDifference(ownerGuide,observerGuide)>.5f,"the actual guide shader responds to each viewer's own environment");
+            var oldRoom=LegacyRoom(materialSnapshot,.8f);GloomhavenVR.Net.TownServices.TownServiceMaterial.Validate(oldRoom,assets);
+            var retained=GloomhavenVR.Net.TownServices.TownServiceMaterial.Apply(oldRoom,assets,remoteGuide);
+            Check(ReferenceEquals(retained,remoteGuide)&&WholeDifference(observerGuide,Picture("guide-observer-after-remote-switch"))<.1f,
+                "another player's old-format room change neither replaces the observer material nor changes its final pixels");
+            var contaminated=new Material(remoteGuide);contaminated.SetFloat("_TownSharedAmbient",1);
+            var packed=new MaterialPropertyBlock();packed.CopySHCoefficientArraysFrom(new[]{guideAmbient});
+            string[] nativeSH={"unity_SHAr","unity_SHAg","unity_SHAb","unity_SHBr","unity_SHBg","unity_SHBb","unity_SHC"};
+            string[] ownedSH={"_TownAmbientAr","_TownAmbientAg","_TownAmbientAb","_TownAmbientBr","_TownAmbientBg","_TownAmbientBb","_TownAmbientC"};
+            for(int term=0;term<7;term++)contaminated.SetVector(ownedSH[term],packed.GetVectorArray(nativeSH[term])[0]);
+            guideMesh.sharedMaterial=contaminated;var wrongRoom=Picture("guide-negative-other-room");guideMesh.sharedMaterial=remoteGuide;
+            Check(WholeDifference(observerGuide,wrongRoom)>.5f,"negative original author-room replay visibly contaminates observer pixels");negatives++;
+            UnityEngine.Object.DestroyImmediate(contaminated);
             remoteGuide.SetFloat("_TownTransparent",0);var opaqueGuide=Picture("guide-negative-opaque");
-            Check(WholeDifference(ownerGuide,opaqueGuide)>1f,"guide negative alpha removal is visibly opaque");negatives++;
+            Check(WholeDifference(observerGuide,opaqueGuide)>1f,"guide negative alpha removal is visibly opaque");negatives++;
             remoteGuide.SetFloat("_TownTransparent",1);
             var undeclared=new MaterialPropertyBlock();undeclared.SetFloat("_UnknownOutput",1);guideMesh.SetPropertyBlock(undeclared);
             bool rejected=false;try{GloomhavenVR.Net.TownServices.ActualMeshCapture.Capture(guideMesh,assets);}catch(System.IO.InvalidDataException){rejected=true;}
@@ -136,7 +234,7 @@ public static class ValidateTownLighting
             guideMesh.sharedMaterial=guideMaterial;
             GloomhavenVR.Net.TownServices.TownServiceMaterial.Release(remoteGuide);
             guideMaterial.SetFloat("_TownVisibility",.77f);presentation.BindEnvironment(guideRoot.transform,guideRoot.transform,in state);
-            Check(guideMaterial.GetFloat("_TownVisibility")==.77f,"shared mesh uniform binding preserves controller-owned dissolve updates");
+            Check(guideMaterial.GetFloat("_TownVisibility")==.77f,"local mesh uniform binding preserves controller-owned dissolve updates");
         }
         TownLightingEditorLifetime.Flush();UnityEngine.Object.DestroyImmediate(guideRoot);UnityEngine.Object.DestroyImmediate(guideMaterial);UnityEngine.Object.DestroyImmediate(originalGuide);
         camera.backgroundColor=Color.black;RenderSettings.ambientProbe=default;RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientIntensity=0;
@@ -186,23 +284,30 @@ public static class ValidateTownLighting
                 for(int term=0;term<7;term++)
                     Check(Vector4.Distance(nativePacking.GetVectorArray(originalNames[term])[0],block.GetVector(sharedNames[term]))<.00001f,
                         npc+" authored probe packing matches Unity's actual native packing term "+term);
-                Color32[] ownerAmbient=Picture(npc+"-shared-owner-ambient");
-                Check(Difference(nativeAmbient,ownerAmbient)<.5f,npc+" shared probe preserves native owner pixels");
+                Color32[] ownerAmbient=Picture(npc+"-local-owner-ambient");
+                Check(Difference(nativeAmbient,ownerAmbient)<.5f,npc+" local probe preserves native owner pixels");
                 var ambientObserver=new SphericalHarmonicsL2();ambientObserver.AddAmbientLight(new Color(.6f,0,0));
                 RenderSettings.ambientProbe=ambientObserver;
-                presentation.BindEnvironment(root.transform,root.transform,in authored);
-                Color32[] observerAmbient=Picture(npc+"-shared-observer-ambient");
-                Check(Difference(ownerAmbient,observerAmbient)<.1f,npc+" observer room ambient cannot change shared skin or eye pixels");
-                // Negative control: same shaders and meshes, intentionally remove
-                // the author's per-renderer binding. The local red ambient must
-                // produce a visibly different result, proving this test observes it.
+                // The independent expected image is Unity's unmodified native
+                // shader/probe path, using the same current shipping geometry.
                 foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
                     var local=new MaterialPropertyBlock();renderer.GetPropertyBlock(local);
-                    local.SetFloat("_TownSharedAmbient",0);renderer.SetPropertyBlock(local);
+                    local.SetFloat("_TownSharedAmbient",0);local.SetFloat("_TownSharedKey",0);renderer.SetPropertyBlock(local);
                 }
-                Color32[] missingBinding=Picture(npc+"-negative-local-ambient");
-                Check(Difference(ownerAmbient,missingBinding)>.5f,npc+" negative control local ambient is visibly divergent");negatives++;
+                Color32[] nativeObserver=Picture(npc+"-native-observer-ambient");
+                var localState=new TownActivityState{HasSharedPerformance=true,HasAuthoredFoley=true};
+                TownServiceLighting.SampleEnvironment(root.transform,ref localState);
+                presentation.BindEnvironment(root.transform,root.transform,in localState);
+                Color32[] observerAmbient=Picture(npc+"-local-observer-ambient");
+                Check(Difference(nativeObserver,observerAmbient)<.5f,npc+" local observer binding matches native local ambient pixels");
+                Check(Difference(ownerAmbient,observerAmbient)>.5f,npc+" own room affects the real local actor");
+                presentation.BindEnvironment(root.transform,root.transform,in authored);
+                Color32[] wrongRoom=Picture(npc+"-negative-other-room-ambient");
+                Check(Difference(observerAmbient,wrongRoom)>.5f,npc+" negative other-player probe visibly contaminates local actor pixels");negatives++;
+                presentation.BindEnvironment(root.transform,root.transform,in localState);
+                Check(Difference(observerAmbient,Picture(npc+"-observer-after-remote-switch"))<.1f,
+                    npc+" retaining the observer's own sample isolates final pixels from another room");
                 foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
                     var restored=new MaterialPropertyBlock();renderer.GetPropertyBlock(restored);

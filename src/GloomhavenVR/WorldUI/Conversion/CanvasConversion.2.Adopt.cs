@@ -695,14 +695,17 @@ internal static partial class CanvasConversion
             return;
 
         BgGraphicScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: false, BgGraphicScratch);
+        // An exact producer role is known before its native reveal. Register
+        // inactive/culled originals too: capture neutralizes inactive GrabPass
+        // children, and their original enabled flag needs the same owner receipt.
+        panel.Target.GetComponentsInChildren(includeInactive: panel.BackgroundFilter != null, BgGraphicScratch);
         int hidden = 0;
         for (int i = 0; i < BgGraphicScratch.Count; i++)
         {
             Graphic g = BgGraphicScratch[i];
             if (g == null || !g.enabled || !(g is Image || g is RawImage))
                 continue;
-            if (g.canvasRenderer == null || g.canvasRenderer.cull)
+            if (g.canvasRenderer == null || (g.canvasRenderer.cull && panel.BackgroundFilter == null))
                 continue;
             // Task #4 guard: an Image driving a stencil Mask is a CLIPPER, not a backing —
             // disabling it would stop the stencil write and break the mask's whole subtree
@@ -720,14 +723,23 @@ internal static partial class CanvasConversion
             if (g.color.a < BackgroundOpaqueAlpha)
                 continue;
 
-            var grect = (RectTransform)g.transform;
-            grect.GetWorldCorners(BgCornerScratch);
-            Vector3 ga = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
-            Vector3 gc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
-            float gw = Mathf.Abs(gc.x - ga.x);
-            float gh = Mathf.Abs(gc.y - ga.y);
-            if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
-                continue; // smaller than the frame → foreground content, keep it
+            if (panel.BackgroundFilter != null)
+            {
+                // Narrative producers identify their exact native dimmer. Their
+                // actual imageHolder can fill the frame too and remains artwork.
+                if (!panel.BackgroundFilter(g)) continue;
+            }
+            else
+            {
+                var grect = (RectTransform)g.transform;
+                grect.GetWorldCorners(BgCornerScratch);
+                Vector3 ga = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
+                Vector3 gc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
+                float gw = Mathf.Abs(gc.x - ga.x);
+                float gh = Mathf.Abs(gc.y - ga.y);
+                if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
+                    continue; // smaller than the frame → foreground content, keep it
+            }
 
             panel.HiddenBackgrounds.Add(g);
             g.enabled = false; // hide the backing AND its raycast blocker

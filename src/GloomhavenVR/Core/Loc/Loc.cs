@@ -1035,7 +1035,7 @@ internal static partial class Loc
         // environments replaced the panorama skyboxes; MR precedence is the user's own rule, so
         // the hint states it — the German MR sentence is a fixed formulation, keep it verbatim).
         ["vr_o_sky"] = Pair("Environment", "Umgebung"),
-        ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a cellar or a night forest under real stars. 'Off (black)' shows no surroundings at all, just black, without switching mixed reality on. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — Keller oder Nachtwald unter echten Sternen. 'Aus (schwarz)' zeigt gar keine Umgebung, nur Schwarz, ohne Mixed Reality einzuschalten. Bei Mixed Reality ist der Himmel immer aus."),
+        ["h_vr_o_sky"] = Pair("Choose the surroundings for the main menu, 3D map and scenarios. Default shows the game's animated sky; Cellar and Swamp Night show a 3D environment. 'Off (black)' hides the surroundings. Mixed reality takes precedence.", "Wählt die Umgebung für Hauptmenü, 3D-Karte und Szenarien. Standard zeigt den animierten Himmel des Spiels; Keller und Sumpfnacht zeigen eine 3D-Umgebung. 'Aus (schwarz)' blendet die Umgebung aus. Mixed Reality hat Vorrang."),
         // The three dropdown choices, shown instead of the raw enum members (Default/Cellar/
         // SwampNight stay the config/log identity, like the board-movement labels above).
         ["sky_default"] = Pair("Default", "Standard"),

@@ -170,7 +170,8 @@ internal sealed partial class FlatScreen
                 || !owner._coverageMaterialOpaque
                 || owner._screenMaterial != owner._coverageMaterial
                 || owner._screenMaterial.shader != owner._coverageShader) return null;
-            Renderer? renderer = !ReferenceEquals(owner._backQuad, null) ? owner._backRenderer : owner._quadRenderer;
+            Renderer? renderer = owner.WorldMenuBackdropForHead(
+                !ReferenceEquals(owner._backQuad, null) ? owner._backRenderer : owner._quadRenderer);
             return renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
                 && renderer.sharedMaterial == owner._screenMaterial ? renderer : null;
         }
@@ -185,7 +186,8 @@ internal sealed partial class FlatScreen
         Shader? shader = material != null ? material.shader : null;
         if (ReferenceEquals(material, _coverageMaterial) && ReferenceEquals(shader, _coverageShader)) return;
         _coverageMaterial = material; _coverageShader = shader;
-        _coverageMaterialOpaque = shader != null && shader.name == "Hidden/BlitCopy";
+        _coverageMaterialOpaque = shader != null && (shader.name == "Hidden/BlitCopy"
+            || (_worldMenuBackdropDepth && shader == _worldMenuBackdropShader));
     }
 
     private const float ScreenAspect = 16f / 9f;
@@ -512,6 +514,7 @@ internal sealed partial class FlatScreen
         if (_visible && _quad == null)
         {
             VRLog.Warn("WorldUI", "FlatScreen quad was destroyed externally — rebuilding.");
+            ReleaseWorldMenu();
             _visible = false;
         }
 
@@ -557,13 +560,14 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickBackdropDepth()
     {
+        TickWorldMenuBackdrop();
         RefreshOpaqueBackdropMaterial();
         if (_screenMaterial == null)
             return;
 
         bool menuLike = VRModeStateMachine.CurrentMode == VRMode.Menu2D || IsPreMenuScene();
         int wantQueue = menuLike
-            ? (int)UnityEngine.Rendering.RenderQueue.Background
+            ? (int)UnityEngine.Rendering.RenderQueue.Background + (_worldMenuBackdropDepth ? 2 : 0)
             : _screenMaterialQueueDefault >= 0
                 ? _screenMaterialQueueDefault
                 : (int)UnityEngine.Rendering.RenderQueue.Geometry;

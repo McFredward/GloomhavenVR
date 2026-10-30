@@ -19,7 +19,8 @@ internal static partial class PanelSupersample
             Entry entry = Entries[i];
             if (!ReferenceEquals(entry.Panel, panel)) continue;
             if (entry.DisplayRect == null || entry.DisplayGo == null || !entry.DisplayGo.activeInHierarchy
-                || entry.DisplayCanvas == null || !entry.DisplayCanvas.isActiveAndEnabled
+                || entry.DisplayCanvas == null || (!entry.DisplayCanvas.isActiveAndEnabled
+                    && !(entry.MenuDepthDisplay?.HasHeadPresentation ?? false))
                 || entry.DisplayImage == null || !entry.DisplayImage.enabled)
                 return false;
             entry.DisplayRect.GetWorldCorners(BackingCaptureCorners);

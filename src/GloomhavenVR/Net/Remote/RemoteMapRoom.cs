@@ -291,6 +291,9 @@ internal static class RemoteMapRoom
 
     /// <inheritdoc cref="_adoptedSelectKey"/>
     private static float _adoptedSelectAt;
+    // Retain the exact adoption source through room stand-down, when ActiveLocations
+    // deliberately returns null before the first presence sample can consume it.
+    private static MapLocationInteractor? _adoptedSelectInteractor;
 
     /// <summary>How long an unconsumed adopted-selection suppression stays believed. Far longer
     /// than the frame the click runs in and far shorter than any two deliberate human clicks on the
@@ -358,6 +361,7 @@ internal static class RemoteMapRoom
         _adoptedSelectKey = 0u;
         _hasAdoptedSelect = false;
         _adoptedSelectAt = 0f;
+        _adoptedSelectInteractor = null;
         _wantSurface = MapIconLayer.MapSurface.Unknown;
         _wantFromPeer = 0;
         _wantNextAttempt = 0f;
@@ -1013,6 +1017,11 @@ internal static class RemoteMapRoom
     private static void RequestSelection(MapLocationInteractor interactor, MapLocation? want,
         uint wantKey, int fromPeer, bool reopen = false, ulong versionToken = 0ul)
     {
+        if (MapInputGate.PublicDecisionOwnsInput)
+        {
+            ClearPendingSelection();
+            return; // A city/event decision must not queue a later surprise browsing click.
+        }
         uint currentKey = KeyOf(interactor.Staged);
         if (MapInputGate.IsBlocked)
         {
@@ -1070,7 +1079,7 @@ internal static class RemoteMapRoom
             || !sameSubject
             || (_pendingSelectPeer != _versionLocalPlayer
                 && (!Peers.TryGetValue(_pendingSelectPeer, out PeerRoom peer) || !peer.InRoom))
-            || StoryComposite.PointOfNoReturn
+            || StoryComposite.PointOfNoReturn || MapInputGate.PublicDecisionOwnsInput
             || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
         {
             ClearPendingSelection();
@@ -1098,6 +1107,8 @@ internal static class RemoteMapRoom
         _hasAdoptedSelect = true;
         _adoptedSelectAt = Time.unscaledTime;
         bool drove = interactor.AdoptSelection(want, $"player {fromPeer}'s selection edge", reopen);
+        if (drove)
+            _adoptedSelectInteractor = interactor;
         if (versionToken != 0ul && (!reopen || drove) && KeyOf(interactor.Staged) == wantKey)
         {
             _displayedSelectKey = wantKey;
@@ -1128,6 +1139,15 @@ internal static class RemoteMapRoom
 
     private static bool EnsureVersionVisit()
     {
+        // A public city proposal/event supersedes casual quest browsing just like a
+        // native host quest proposal. Retire its causal opening, not merely its local
+        // input: late cosmetic snapshots must not reopen it during or after the event.
+        if (MapCityEventReadyUp.OwnsMapDecision)
+        {
+            RetireVersionVisit();
+            ConsumeRetiredBrowsingInput();
+            return false;
+        }
         if (!MapRoomDriver.Active || !FFSNetwork.IsOnline || StoryComposite.PointOfNoReturn)
         {
             SuspendOrRetireVersionVisit();
@@ -1171,9 +1191,12 @@ internal static class RemoteMapRoom
 
     private static void SuspendOrRetireVersionVisit()
     {
+        if (MapCityEventReadyUp.OwnsMapDecision)
+            ConsumeRetiredBrowsingInput();
         object? identity = VersionMapIdentity();
         bool proposal = NativeMapQuestSelection.TryGetHostProposal(out var selected, out _) && selected != null;
-        if (StoryComposite.PointOfNoReturn || !FFSNetwork.IsOnline || identity == null
+        if (StoryComposite.PointOfNoReturn || MapCityEventReadyUp.OwnsMapDecision
+            || !FFSNetwork.IsOnline || identity == null
             || !ReferenceEquals(identity, _versionMapIdentity) || proposal)
             RetireVersionVisit();
         else
@@ -1184,6 +1207,23 @@ internal static class RemoteMapRoom
             _versionSuspended = true;
             ClearPendingSelection();
         }
+    }
+
+    private static void ConsumeRetiredBrowsingInput()
+    {
+        // A remote adoption can precede this frame's first presence sample. Room
+        // stand-down clears its echo receipt; without also consuming its input
+        // revision, returning after a city event invents a fresh human quest click.
+        // Consume only while that public native decision owns browsing. A later
+        // genuine post-event input still increments the revision and publishes.
+        MapLocationInteractor? locations = MapRoomDriver.ActiveLocations
+            ?? _adoptedSelectInteractor ?? _versionInputInteractor;
+        if (locations == null)
+            return;
+        _versionInputInteractor = locations;
+        _versionLocalInputRevision = locations.LocalSelectionInputRevision;
+        _versionLocalPublicationRevision = locations.SelectionPublicationRevision;
+        _adoptedSelectInteractor = null;
     }
 
     private static void RetireVersionVisit()

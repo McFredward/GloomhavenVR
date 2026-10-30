@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Stable terrain contact offsets resolved by the resident author, never by observers.
+/// <summary>Stable native map-floor contacts resolved by the resident author, never by observers.
 /// Separate authored supports retain their top anchors; transform-only changes mirror exactly.</summary>
 internal sealed class TownServiceGrounding : IDisposable
 {
@@ -97,9 +97,7 @@ internal sealed class TownServiceGrounding : IDisposable
     internal void Resolve(out float actorOffset, out float furnitureBottom)
     {
         actorOffset = furnitureBottom = 0f;
-        Transform? room = SkyAlternative.PlacedRoomRoot;
-        if (room == null) return;
-        var floor = new FloorSample(room);
+        if (!TownServicePlacement.TryCanonicalFloor(out float floor)) return;
         if (_actor != null)
             actorOffset = Mathf.Min(Height(floor, new Vector3(-.12f, 0f, .65f)),
                 Height(floor, new Vector3(.12f, 0f, .65f)));
@@ -108,39 +106,10 @@ internal sealed class TownServiceGrounding : IDisposable
         foreach (Vector3 point in _footprint) furnitureBottom = Mathf.Min(furnitureBottom, Height(floor, point));
     }
 
-    // Read the original floor arrays once for the complete footprint, not once per
-    // beveled support corner. This is placement work, never a per-frame floor scan.
-    private sealed class FloorSample
-    {
-        private readonly Transform _room;
-        private readonly Transform? _ground;
-        private readonly Vector3[] _vertices = Array.Empty<Vector3>();
-        private readonly int[] _indices = Array.Empty<int>();
-        internal FloorSample(Transform room)
-        {
-            _room = room; _ground = room.Find("RoomGeo/Ground") ?? room.Find("RoomGeo/Floor");
-            MeshFilter? filter = _ground != null ? _ground.GetComponent<MeshFilter>() : null;
-            Mesh? mesh = filter != null ? filter.sharedMesh : null;
-            if (mesh == null || !mesh.isReadable) return;
-            _vertices = mesh.vertices; _indices = mesh.triangles;
-        }
-        internal float Height(Vector3 world)
-        {
-            if (_ground == null || _indices.Length == 0) return _room.position.y;
-            Vector3 local = _ground.InverseTransformPoint(world);
-            float best = float.NegativeInfinity;
-            for (int i = 0; i + 2 < _indices.Length; i += 3)
-                if (TownServicePlacement.TryHeight(local, _vertices[_indices[i]], _vertices[_indices[i+1]],
-                    _vertices[_indices[i+2]], out float height)) best = Mathf.Max(best, height);
-            return float.IsNegativeInfinity(best) ? _room.position.y
-                : _ground.TransformPoint(new Vector3(local.x, best, local.z)).y;
-        }
-    }
-
-    private float Height(FloorSample floor, Vector3 local)
+    private float Height(float floor, Vector3 local)
     {
         Vector3 world = _station.TransformPoint(local);
-        world.y = floor.Height(world);
+        world.y = floor;
         return _station.InverseTransformPoint(world).y;
     }
 

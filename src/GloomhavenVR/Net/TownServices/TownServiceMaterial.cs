@@ -13,12 +13,15 @@ internal static class TownServiceMaterial
     {
         internal int Frame = -1;
         internal Shader? Shader;
+        internal bool LocalEnvironment;
         internal string[] Names = Array.Empty<string>();
         internal ShaderPropertyType[] Types = Array.Empty<ShaderPropertyType>();
         internal TownServiceValue Scratch = new();
         internal TownServiceValue Published = new();
     }
     private static ConditionalWeakTable<Material, Sample> _samples = new();
+    private sealed class ShaderEnvironment { internal bool Local; }
+    private static readonly ConditionalWeakTable<Shader, ShaderEnvironment> EnvironmentShaders = new();
     private static readonly TownServiceValue Empty = new();
     private sealed class Shared
     { internal TownServiceValue Value = null!; internal Material Material = null!; internal int References; }
@@ -38,6 +41,7 @@ internal static class TownServiceMaterial
         if (sample.Shader != shader || sample.Names.Length != count)
         {
             sample.Shader = shader; sample.Names = new string[count]; sample.Types = new ShaderPropertyType[count];
+            sample.LocalEnvironment = OwnedEnvironmentShader(shader);
             sample.Scratch = new TownServiceValue { Numbers = new float[4 + count * 5], Text = new string[2 + count * 2] };
             for (int i = 0; i < count; i++) { sample.Names[i] = shader.GetPropertyName(i); sample.Types[i] = shader.GetPropertyType(i); }
         }
@@ -49,7 +53,11 @@ internal static class TownServiceMaterial
         {
             string name = sample.Names[i]; ShaderPropertyType type = sample.Types[i];
             Vector4 value = Vector4.zero; string texture = string.Empty;
-            switch (type)
+            // A local room preference is not native shared artwork. Preserve the
+            // complete named/type table, but keep only the owned environment
+            // fields neutral. Textures, native colours, keywords, practicals,
+            // animation clocks and every foreign shader remain exact.
+            if (!sample.LocalEnvironment || !LocalEnvironmentProperty(name)) switch (type)
             {
                 case ShaderPropertyType.Color: value = material.GetColor(name); break;
                 case ShaderPropertyType.Vector: value = material.GetVector(name); break;
@@ -90,6 +98,7 @@ internal static class TownServiceMaterial
 
     internal static Material? Apply(TownServiceValue value, TownServiceAssets assets, Material? owned)
     {
+        value = NeutralEnvironment(value, assets);
         if (owned != null && SharedMaterials.TryGetValue(owned, out Shared? before) && value.Same(before.Value)) return owned;
         Release(owned);
         if (value.Text.Length == 0) return null;
@@ -99,6 +108,46 @@ internal static class TownServiceMaterial
             SharedValues.Add(value, shared); SharedMaterials.Add(shared.Material, shared);
         }
         shared.References++; return shared.Material;
+    }
+
+    // User paired745 review: switching any participant's environment must have
+    // no effect on another participant. Old packets retain their original wire
+    // table and validate normally, but cannot introduce local light/probe values
+    // into the pool identity or override another viewer's Unity environment.
+    private static bool OwnedEnvironmentShader(Shader shader) => EnvironmentShaders.GetValue(shader, value =>
+    {
+        // Shader.name marshals a fresh Unity string. Classify each shader once,
+        // rather than allocating a name for every property of every snapshot.
+        string name = value.name;
+        return new ShaderEnvironment { Local = name == "GloomhavenVR/TownNpc"
+            || name == "GloomhavenVR/TownEye" || name == "GloomhavenVR/TownCornea" };
+    }).Local;
+
+    private static bool LocalEnvironmentProperty(string name) =>
+        name == "_TownSharedAmbient" || name == "_TownSharedKey"
+            || name == "_TownKeyDirection" || name == "_TownKeyColour"
+            || name == "_TownAmbientAr" || name == "_TownAmbientAg" || name == "_TownAmbientAb"
+            || name == "_TownAmbientBr" || name == "_TownAmbientBg" || name == "_TownAmbientBb"
+            || name == "_TownAmbientC";
+
+    private static TownServiceValue NeutralEnvironment(TownServiceValue value, TownServiceAssets assets)
+    {
+        if (value.Text.Length < 2) return value;
+        Shader? shader = assets.Resolve<Shader>(value.Text[0]);
+        if (shader == null || !OwnedEnvironmentShader(shader)) return value;
+        float[]? neutral = null;
+        for (int i = 0; i < (value.Text.Length - 2) / 2; i++)
+        {
+            if (!LocalEnvironmentProperty(value.Text[2 + i * 2])) continue;
+            int n = 5 + i * 5;
+            for (int component = 0; component < 4; component++)
+            {
+                if (value.Numbers[n + component] == 0f) continue;
+                neutral ??= (float[])value.Numbers.Clone();
+                neutral[n + component] = 0f;
+            }
+        }
+        return neutral == null ? value : new TownServiceValue { Numbers = neutral, Text = value.Text };
     }
     // Only this owned shader has a verified unscaled, rate-one station clock. All other
     // material properties and shaders retain their existing exact immutable pool identity.

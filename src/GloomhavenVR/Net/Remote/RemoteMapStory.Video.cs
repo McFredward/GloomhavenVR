@@ -23,7 +23,13 @@ internal static partial class RemoteMapStory
 
     internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry, SharedWindowPoseContext? context = null, float referenceScale = 0f)
     {
-        VideoPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: context, kind: (int)SharedWindowKind.Video, referenceScale: referenceScale);
+        bool accepted = SharedWindowMoves.Accepted(sender, SharedWindowKind.Video, entry.ContentKey);
+        var incoming = new PeerEntry(in entry, Time.unscaledTime, context: context,
+            kind: (int)SharedWindowKind.Video, referenceScale: referenceScale, allowPose: accepted);
+        if (!accepted && VideoPeers.TryGetValue(sender, out PeerEntry previous) && previous.ContentKey == entry.ContentKey
+            && SharedWindowMoves.PoseStillCurrent(sender, SharedWindowKind.Video, entry.ContentKey))
+            incoming = new PeerEntry(in incoming, in previous);
+        VideoPeers[sender] = incoming;
         NoteStamp(sender, in entry, VideoStamp, VideoStampAt, Time.unscaledTime);
     }
 
@@ -50,6 +56,7 @@ internal static partial class RemoteMapStory
         {
             PeerEntry peer = pair.Value;
             if (peer.ContentKey != key || !peer.HasPose || Time.unscaledTime - peer.At > PeerStaleSeconds) continue;
+            if (!SharedWindowMoves.MayFollow(pair.Key, SharedWindowKind.Video, key)) continue;
             if (peer.Initial && !SharedWindowSpawnAuthority.AcceptInitial(pair.Key, peer.Context, (int)SharedWindowKind.Video)) continue;
             if (!VideoStampAt.TryGetValue(pair.Key, out float at)) continue;
             if (best != 0 && peer.Initial && !initial) continue;

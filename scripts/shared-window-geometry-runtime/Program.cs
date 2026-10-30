@@ -45,6 +45,13 @@ public static class InteractionProgram
     }
     public static IEnumerator Run()
     {
+        // This physical geometry suite supplies no network controller. Keep that boundary
+        // explicit while compiling the unchanged optional bridge under strict warnings.
+        SharedWindowInteractionBridge.CanBegin = null;
+        SharedWindowInteractionBridge.MayWrite = null;
+        SharedWindowInteractionBridge.Began = null;
+        SharedWindowInteractionBridge.Released = null;
+        SharedWindowInteractionBridge.Canceled = null;
         NativeGeometryReference();
         SharedWindows.Online = true; GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
         GloomhavenVR.Rig.VRRigDriver.BaseWorldScale = 12f;

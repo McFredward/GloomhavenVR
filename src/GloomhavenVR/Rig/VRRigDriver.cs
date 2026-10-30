@@ -61,6 +61,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     internal static Transform? RigRoot { get; private set; }
 
+    internal static bool TrackingSettled => Instance != null && Instance._rigRoot != null
+        && Instance._camera != null && !Instance._pendingRecenter;
+
     /// <summary>The rig's OWN head-tracked camera while the rig exists (never a game camera).</summary>
     internal static Camera? HeadCamera { get; private set; }
 
@@ -708,6 +711,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                     RememberScenarioStart();
             }
         }
+
+        // The studio movie shares this rig. Admit the world menu only after the actual
+        // menu has appeared AND the tracked recenter above completed, never at rig build.
+        MenuWorldContext.Tick(_kind == RigKind.Menu, !_pendingRecenter);
 
         // Spawn-ring settle window (bounded — see SpawnRingSettleSeconds). TickSpawnRingSettle is
         // the ring's ONLY implementation — this poll and the first-pose attempt above are the same

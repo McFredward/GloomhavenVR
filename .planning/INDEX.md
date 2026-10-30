@@ -1,6 +1,12 @@
 # Planning index
 
-Updated 2026-10-18: Build704 direct MR comparison and host-source preparation boundary.
+Updated 2026-10-30: Build751 restores scenario story laser/bar processing after
+a destroyed card-plane wrapper and beds local woodland terrain beneath fixed
+shared NPC soles, preserving the cellar and environment isolation. Class B uses
+only targeted laser/terrain cases, one direct environment consumer and strict/
+source/compiled checks; unchanged750 coverage is inherited. STATE.md and ignored
+mp751 evidence record exact counts, failures and hardware limits. Windows builds
+its archive from dev. Passive map-stall cause remains open in MP746-PERFORMANCE.md.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +16,23 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md](MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md) | Left-gap previews, actual menu surface laser geometry, story retirement and first-frame backdrop ownership; complete aggregate validation |
+| [MENU747-COMPLETE-PREVIEWS-AND-STORY.md](MENU747-COMPLETE-PREVIEWS-AND-STORY.md) | Complete native More Cards previews, exact composed loadout backing lease and bounded verification |
+| [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |
+| [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
+| [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
+| [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
+| [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
+| [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
+| [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
+| [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |
+| [MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md](MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md) | Accepted preview shadows/card relief/level-up list repairs and the latest complete integration checkpoint |
+| [MENU728-DEPTH-CARDS-AND-LEVELUP.md](MENU728-DEPTH-CARDS-AND-LEVELUP.md) | Native source/final-window depth, complete level-up presentation, original raised menu cards and integration evidence |
+| [MENU727-CHARACTER-DEPTH-PREFERENCE.md](MENU727-CHARACTER-DEPTH-PREFERENCE.md) | Default-on local character depth switch, immediate native flat fallback/re-enable, focused verification and Windows-side archive delivery |
+| [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |
+| [MENU725-PERFORMANCE-AND-PREVIEWS.md](MENU725-PERFORMANCE-AND-PREVIEWS.md) | Build724 hardware stall evidence, event-driven discovery, shallow character cabinets, adaptive targets, direct first-head repair and qualified integration coverage |
+| [MENU724-SPATIAL-UI-REPAIR.md](MENU724-SPATIAL-UI-REPAIR.md) | Build723 hardware causes, fixed camera-child scenes, actual native mip depth binding, final-glass proofs and focused delivery validation |
+| [MENU723-SPATIAL-UI.md](MENU723-SPATIAL-UI.md) | Native character portals, complete source-bound illustration depth corpus, UI layers and validation boundaries |
 | [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
 | [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
 | [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |

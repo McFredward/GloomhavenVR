@@ -102,8 +102,31 @@ Move a window by grabbing its top bar directly or with the laser. While holding 
 use **that hand's stick** to move it closer or farther away. Grip the bar with both hands to resize
 the window; use its **X** to close it.
 
+After a laser drag, a window normally turns toward you when you release it.
+For shared windows, everyone sees the turn toward the last player who released
+the window. **VR Options ▸ Panels ▸ Turn to you on release** controls this;
+the releasing player's setting applies to a shared window.
+
+**More character cards:** open the character window's **Cards** view and point at
+**More Cards** or the card icon at the top right. Press the trigger to open the
+unlocked-card list, even when no level-up is in progress; press again to close it.
+The game's usual availability rules still apply.
+
 **Chest rewards:** use **Continue** in the reward window. In multiplayer, everyone sees
 the reward; the player controlling that character confirms for the group.
+
+**Spatial menus:** character previews show the live model with perspective that follows
+your viewing position. Story and event illustrations have relief inside their windows;
+icons, frames and tabs have shallow depth. Compendium screenshots sit slightly behind
+their frames. Ability, item, monster and attack-modifier cards shown in menus also sit
+slightly in front of the window, including hover previews. Move a window or lean sideways
+to see the effect; text and controls stay sharp.
+To turn a character in the party or creation preview, point the laser at the figure,
+hold the trigger and move sideways. Release the trigger to stop turning; the figure's
+position and the window stay fixed.
+Toggle **VR Options ▸ Panels ▸ 2D screen ▸ 3D character previews** to switch the figures
+between 3D and their original flat live image immediately. The option starts enabled on
+every system and leaves card, story and video depth unchanged.
 
 **Stereo videos:** the intro, character films, ambient films and studio logo have depth
 inside the movable video window. With Cheats enabled, use **VR Options ▸ Advanced ▸ Cheats
@@ -115,7 +138,7 @@ of the window; the film keeps its recorded camera view.
 
 | Mark on the window | Who sees it? |
 |---|---|
-| <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits by the window's edge, clear of its content. |
 | **No symbol: local** | Only you. |
 
 ## The campaign map

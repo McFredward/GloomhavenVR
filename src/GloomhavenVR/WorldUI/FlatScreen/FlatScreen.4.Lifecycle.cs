@@ -484,6 +484,7 @@ internal sealed partial class FlatScreen
 
     private void Hide()
     {
+        ReleaseWorldMenu();
         if (_pressing)
         {
             VirtualMouse.Release();

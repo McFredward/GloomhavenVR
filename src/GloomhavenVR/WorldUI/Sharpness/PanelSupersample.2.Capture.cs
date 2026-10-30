@@ -1115,7 +1115,7 @@ internal static partial class PanelSupersample
         // the test, because it carries its own cadence and its own thrash guards and because a
         // measurement that only runs when something else already changed would be exactly this
         // project's "a rule read too late never runs". See ServiceEyeGrid.
-        bool gridChanged = ServiceEyeGrid(e);
+        bool gridChanged = e.MenuDepthDisplay?.IsHeadRaster != true && ServiceEyeGrid(e);
         if (dirty || scaleChanged || frameChanged || gridChanged)
         {
             // ModBuild 204: ATTRIBUTE THE RE-ALLOCATION. The three conditions can co-occur and the
@@ -1148,8 +1148,9 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void RecordAchievedFactor(Entry e)
     {
-        float w = e.Frame.width > 1f ? e.RtW / e.Frame.width : e.EffectiveFactor;
-        float h = e.Frame.height > 1f ? e.RtH / e.Frame.height : e.EffectiveFactor;
+        Rect sampledFrame = MenuDepthAllocationFrame(e, e.Frame);
+        float w = sampledFrame.width > 1f ? e.RtW / sampledFrame.width : e.EffectiveFactor;
+        float h = sampledFrame.height > 1f ? e.RtH / sampledFrame.height : e.EffectiveFactor;
         e.AchievedFactor = Mathf.Min(w, h);
     }
 
@@ -1623,9 +1624,11 @@ internal static partial class PanelSupersample
         TargetLife life = LifeOf(e);
         bool moving = IsMoving(e);
         int msaa = e.Msaa;
+        // The ordinary photo budget stays unchanged. Head rasters have their
+        // separate exact XR-sized reservation, never a movement-driven rate.
         long budget = System.Math.Min(MaxPanelVramBytes,
             MaxTotalVramBytes - (_vramTotal - e.VramBytes));
-        ResolveRate(e, frame, ref msaa, budget, out float rate, out int rtW, out int rtH,
+        ResolveRate(e, MenuDepthAllocationFrame(e, frame), ref msaa, budget, out float rate, out int rtW, out int rtH,
                     out long vram);
         if (rtW == e.RtW && rtH == e.RtH)
         {
@@ -1682,6 +1685,8 @@ internal static partial class PanelSupersample
             return;
         }
         long previous = e.VramBytes;
+        if (e.MenuDepthDisplay == null || !e.MenuDepthDisplay.IsHeadRaster)
+            ReleaseMenuDepth(e, preserveFrame: true);
         RenderTexture old = e.Rt;
         RenderTexture? oldMip = e.MipRt;
         // The texture the quad is showing RIGHT NOW, captured before it is replaced: the carry-over
@@ -1776,8 +1781,11 @@ internal static partial class PanelSupersample
         bool due = Time.frameCount >= e.NextCaptureFrame;
         if (visible && due)
             e.NextCaptureFrame = Time.frameCount + CaptureIntervalFrames;
-        if (e.Cam != null && e.Cam.enabled != (visible && due))
-            e.Cam.enabled = visible && due;
+        // A successful stereo display captures this camera explicitly for both
+        // eyes at head pre-cull. Its automatic mono draw would be a third capture.
+        bool automatic = visible && due && e.MenuDepthDisplay == null;
+        if (e.Cam != null && e.Cam.enabled != automatic)
+            e.Cam.enabled = automatic;
         if (e.DisplayGo != null && e.DisplayGo.activeSelf != visible)
             e.DisplayGo.SetActive(visible);
         // THE PATH COUNTER (ModBuild 197). A frame in which the quad IS shown and no capture is
@@ -1903,6 +1911,7 @@ internal static partial class PanelSupersample
         e.NestedTotal = nested;
         e.NestedCaptured = Mathf.Min(nestedOnLayer, nested);
         e.Sweeps++;
+        SyncOwnedMembers(e);
         double sweepMs = (Time.realtimeSinceStartup - sweepStart) * 1000.0;
         e.SweepMs += sweepMs;
         // Split the cost by what the window was doing, because that is the ONLY way the log can
@@ -2452,6 +2461,8 @@ internal static partial class PanelSupersample
         if (_hooksInstalled)
             return;
         _hooksInstalled = true;
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;
+        MenuDepth.MenuDepthSources.BeforeHeadCapture += CaptureMenuDepth;
         Camera.onPreCull += OnPreCull;
         Camera.onPostRender += OnPostRender;
         // THE TWO EVENTS THAT MAKE THE RELEASE REPORT DECIDABLE. Font.textureRebuilt fires when a
@@ -2469,6 +2480,8 @@ internal static partial class PanelSupersample
         if (!_hooksInstalled)
             return;
         _hooksInstalled = false;
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = 0;
+        MenuDepth.MenuDepthSources.BeforeHeadCapture -= CaptureMenuDepth;
         Camera.onPreCull -= OnPreCull;
         Camera.onPostRender -= OnPostRender;
         Font.textureRebuilt -= OnFontTextureRebuilt;
@@ -2540,7 +2553,7 @@ internal static partial class PanelSupersample
                 // would inflate CaptureTicks, MotionCaptures and the two coincidence counters, and
                 // the CAPTURE PATH field's whole readability rests on those sharing one denominator
                 // with the frame count. The prime writes its own projection and does its own resolve.
-                if (ReferenceEquals(mine, _primingEntry))
+                if (ReferenceEquals(mine, _primingEntry) || MenuDepth.MenuDepthDisplay.IsCapturing(cam))
                     return;
                 mine.LastCaptureStart = Time.realtimeSinceStartup;
                 // THE CAPTURE-COINCIDENCE COUNTERS, recorded at the LAST instant before this camera
@@ -2580,6 +2593,8 @@ internal static partial class PanelSupersample
                     NoteQuadSample(Entries[i]);
                 }
             }
+            if (cam == Rig.VRRigDriver.HeadCamera)
+                CaptureMenuDepth(cam);
             // THE UNION, not one bit: since ModBuild 194 every engaged panel holds its own pool
             // layer, so a camera that is not one of ours must lose ALL of them for the duration of
             // its render or a panel would be drawn into the eye as well as into its own capture.
@@ -2612,7 +2627,7 @@ internal static partial class PanelSupersample
                 return;
             // See OnPreCull: a priming render is not a frame's capture, and PrimeNewTarget resolves
             // and books it itself.
-            if (ReferenceEquals(e, _primingEntry))
+            if (ReferenceEquals(e, _primingEntry) || MenuDepth.MenuDepthDisplay.IsCapturing(cam))
                 return;
             ResolveAndMip(e);
             // ModBuild 204: the display target the quad shows has now had one COMPLETE capture +
@@ -2849,6 +2864,7 @@ internal static partial class PanelSupersample
 
     private static void StandDown(Entry e, int index, string why)
     {
+        ReleaseOwnedMembers(e);
         int refusedRestores = RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
         MipBiasNextReport.Remove(e.Window); // a re-engaged window reports its bias immediately
         // ModBuild 204: the target-life record dies with the entry, for the same reason. Its counters
@@ -2883,7 +2899,7 @@ internal static partial class PanelSupersample
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE stood down on '{e.Window}' ({why}): the window's canvas "
                           + "is back on its original layer and is drawn straight into the eye again, "
                           + $"and {Mb(e.VramBytes)} MB of render target was released (session total "
-                          + $"now {Mb(_vramTotal)} MB). Its private capture layer {layer} went back "
+                          + $"now {Mb(_vramTotal + _menuDepthVramTotal)} MB). Its private capture layer {layer} went back "
                           + $"into the pool ({FreeLayers.Count} of {PoolSize} free), so a window that "
                           + "was refused for want of one can now be re-considered. Input was never "
                           + "affected either way.");
@@ -2941,6 +2957,7 @@ internal static partial class PanelSupersample
 
     private static void DestroyEntryObjects(Entry e)
     {
+        ReleaseMenuDepth(e);
         if (e.Cam != null)
             e.Cam.targetTexture = null;
         if (e.CamGo != null)
@@ -3150,7 +3167,7 @@ internal static partial class PanelSupersample
             VRLog.Alert(Scope, $"PANEL SUPERSAMPLE failed in {where} — throw #{count} at this site "
                 + "this session, and it is NOT attributable to one window (it happened outside the "
                 + "per-window guard). WHAT HAPPENS NOW, measured rather than asserted: all "
-                + $"{Entries.Count} engaged window(s) are stood down and {Mb(_vramTotal)} MB of "
+                + $"{Entries.Count} engaged window(s) are stood down and {Mb(_vramTotal + _menuDepthVramTotal)} MB of "
                 + "render target is released, then the eligibility pass re-engages every one of them "
                 + "that is still eligible — so the honest cost of ONE throw is a single frame with "
                 + "no supersampling plus a full target rebuild, NOT the permanent outage the "

@@ -21,14 +21,21 @@ to Codex and record the user's instructions of 2026-09-08.
 - Review worker changes, integrate them into `dev`, run the complete required
   checks, and push directly to `origin/dev`. This is authorized by the user;
   another confirmation is unnecessary. Never push worker branches or force-push.
-- During implementation, workers run the relevant focused suites and source checks
-  for their owned changes. For substantial integrations, the primary agent runs
-  the complete local gate, including `scripts/wire-tests.sh` and its golden vectors.
-  The maintainer's explicit 2026-10-06 clarification permits focused subsets for
-  small, bounded changes. After a limited repair, rerun the affected checks and
-  reuse already passing evidence for unchanged areas rather than repeating the
-  entire suite. Record the tested scope and inherited evidence honestly: a focused
-  `--suite` pass is not a new complete-gate pass.
+- Follow [docs/TEST-STRATEGY.md](docs/TEST-STRATEGY.md), the maintainer's binding
+  2026-10-27 testing policy. Classify before implementation: A documentation/content,
+  B bounded behavior, C broad/critical integration, R release. A requires applicable
+  content checks; B requires a strict build for C# changes, all source gates for
+  production C# changes and affected suites/controls with justified evidence reuse.
+  C requires the complete local gate, including `scripts/wire-tests.sh` goldens;
+  R requires complete applicable coverage and trusted hosted release proof.
+  Unknown dependencies or missing reusable evidence escalate to C. Workers test
+  their owned scope; the integrator validates the final union once. Do not repeat
+  complete gates after bounded repairs when unchanged input-bound proof survives.
+  During active B-only runtime development, the integrator completes a full
+  checkpoint by day end or ten runtime-changing dev commits, whichever comes first.
+  Record actual scope, counts, inherited proof, failures, elapsed validation and
+  hardware limits. A focused `--suite` pass is not a complete-gate pass. This policy
+  supersedes older unconditional full-gate instructions in CLAUDE.md and phase notes.
 - Speak to the user in German. Write code, comments, and developer documentation
   in English. Product strings remain English and German through `Core/Loc`.
 - Hardware evidence lives in the main checkout's gitignored `.planning/debug/`;
@@ -50,6 +57,16 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- The maintainer's 2026-10-27 delivery clarification supersedes earlier local ZIP requests:
+  the Windows installation script already builds the archive. Integrate and push changes to
+  `dev`; do not build or deliver a local ZIP unless explicitly requested again.
+- The maintainer's Build729 motion review requires stable quality for the entire
+  character window, including its text and figure. Player movement must not trigger
+  capture-rate reductions, pixel mush or flicker. Source-only sampling/target tests
+  cannot certify this: exercise the actual window coordinator and final head pixels.
+  Skin/personal-quest tooltips belong to the right of the unchanged window; audit
+  character creation too. Laser dragging the portrait rotates only its presentation
+  about its fixed native ground origin, never the gameplay actor or window.
 - The maintainer's 2026-10-18 video review ruling places every deliberate movie
   test action under Advanced > Cheats, behind the existing default-off Cheats
   configuration gate. These movies contain major spoilers. Do not expose their

@@ -13,9 +13,10 @@ internal static class TownServiceLayout
     internal static Environment ForRoom(Transform? room) => room == null ? Environment.Open
         : room.Find("RoomGeo/Ground") != null ? Environment.Forest : Environment.Cellar;
 
-    internal static Quaternion Frame(Transform? room, Transform? parchment) => room != null
-        ? Quaternion.Euler(0f, room.eulerAngles.y, 0f)
-        : parchment != null ? GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation) : Quaternion.identity;
+    // Keep the room parameter for the measured-layout audit callers, but never
+    // import a viewer's local scenery rotation into shared residents or counters.
+    internal static Quaternion Frame(Transform? room, Transform? parchment) =>
+        parchment != null ? GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation) : Quaternion.identity;
 
     internal static void Resolve(Environment environment, byte service, int visitor,
         out Vector3 position, out float yaw)

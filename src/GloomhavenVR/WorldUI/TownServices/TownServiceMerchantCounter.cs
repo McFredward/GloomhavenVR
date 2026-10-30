@@ -33,8 +33,7 @@ internal sealed class TownServiceMerchantCounter : IDisposable
     private readonly List<Material> _materials = new();
     private readonly Dictionary<Material, Material> _copies = new();
     private readonly TownServiceGrounding _grounding;
-    private Transform? _room;
-    private Vector3 _position, _scale, _roomScale;
+    private Vector3 _position, _scale;
     private Quaternion _rotation;
     private bool _grounded;
     private bool _disposed;
@@ -77,14 +76,10 @@ internal sealed class TownServiceMerchantCounter : IDisposable
 
     internal void SetVisibility(float visibility)
     {
-        Transform? room = SkyAlternative.PlacedRoomRoot;
-        Vector3 roomScale = room != null ? room.lossyScale : Vector3.one;
-        if (!_grounded || Root.position != _position || Root.rotation != _rotation || Root.lossyScale != _scale
-            || room != _room || roomScale != _roomScale)
+        if (!_grounded || Root.position != _position || Root.rotation != _rotation || Root.lossyScale != _scale)
         {
             _grounding.Resolve(out float actorOffset, out float bottom); _grounding.Apply(actorOffset, bottom);
             _grounded = true; _position = Root.position; _rotation = Root.rotation; _scale = Root.lossyScale;
-            _room = room; _roomScale = roomScale;
         }
         visibility = Mathf.Clamp01(visibility);
         if (_visibility == visibility) return;

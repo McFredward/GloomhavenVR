@@ -26,6 +26,97 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build747: complete native More Cards previews
+
+WorldUI registers `MenuDepthFurtherAbilityHoverObserver` on the original
+`UILevelUpCard.MouseEnter`. This browse path skips the ordinary ability-card
+position hook and writes its position after the native preview toggle. Its
+temporary sorting Canvas initially escapes the inventory mask, but conversion
+adoption subsequently exposes the missing raise and cuts the preview.
+
+The postfix runs after that final native writer and uses the existing tooltip
+placement, top ordering and pooled-home restoration. Native navigation,
+highlight, selectable/gamepad, preview visibility and exact converted-owner
+guards retain permission. It creates no card, callback, per-frame census or
+capture target. The existing native hide observer releases the original lease.
+Failures retain native behavior and report bounded context. See
+[the review](../.planning/MENU747-COMPLETE-PREVIEWS-AND-STORY.md) for causal
+render evidence and the separate composed-story backing repair.
+
+## Build733: shared city-event readiness
+
+WorldUI registers `MapCityEventReadyUp` before native map proposals can arrive.
+The exact host `SelectCityEvent` occurrence reveals the original client readiness
+control without invoking the city-entry continuation, which would also consent.
+The existing encounter pose channel temporarily follows this original preflight;
+native reset, host withdrawal and actual event entry retire its lease. Native
+event pages, personal votes, participant permissions and ACKs remain game-owned.
+
+The helper observes fourteen original Harmony targets: host `ConfirmCityEvent`,
+client `ProxySelectedCityEvent`, ready `Initialize`, `Reset`, `ShouldBeVisible` and
+`InputToggle`, controller `ResetUI`, `ClearHostSelectedCityEvent`,
+`ProxyHostCancelledCityEvent`, `CancelPreviewCityEvent` and `ToggleReadyUpUI`,
+`UIEventPanel.StartEvent`, `QuestManager.OnSelectedLogQuest` and
+`MapLocation.OnPointerClick`.
+City participant initialization enables the game's existing departure validation.
+The resulting original ACK coroutine, timeout and continuation execute unchanged.
+Disabled observers can see the public offer without receiving a vote; original
+visibility blockers still apply. Presentation/probe failures cannot escape into
+the native network dispatcher or turn a disabled observer into an actionable one.
+
+The exact native city role remains authoritative during incidental quest-focus
+refreshes and the all-ready ACK wait. A same-role original 2D confirmation retains
+its occurrence without adding a vote. New quest browsing yields to public city
+readiness and the native event card, including original questlog and map pointer
+input; gameplay selection methods and event actions run unchanged. The existing
+causal browsing register retires superseded openings rather than replaying them
+after the event. Accepted native quest proposals are preserved.
+
+The pooled toggle's native role now bounds quest grouping, loadout parking and
+parking leases. Its original readiness tracker bar is adopted before the city's
+first conversion and shares the same capture. This adds no new actor, gameplay
+message, wire layout, persisted setting or duplicate native window controller.
+See [the combined review](../.planning/CITY-QUEST-READY-733.md) for evidence and
+the distinction between source/runtime validation and headset outcomes.
+
+## Build726: one native travel loop per resumed map flow
+
+WorldUI registers `NativeMapTravelAudio` on the six synchronous timed/point map
+travel producers, the native `AudioController.PlayAudioSubItem` result and both
+flows' destruction. A prefix/finalizer pair scopes observation while the physical
+map room is active; the original producer, arguments, callbacks and exceptions
+always run unchanged. There is no replicated-state writer or new receiver.
+
+The encounter leg schedules a looping Moving item without stopping it, then its
+continuation requests Moving again. Before the next request, retire only concrete
+audio objects captured for that exact flow's configured item. Preserve every layer
+of the new request, unrelated same-ID sounds and native arrival/destruction work.
+An object's subitem, start timestamp, item identity and weak playback generation
+protect against pooled reuse, including same-frame timestamp collisions. Pending
+DSP starts are owned too; zero-fade stopping prevents transient overlap. Flow
+destruction releases owned pending requests even after room teardown. Ordinary
+flat calls remain native. Capture failures retain native playback and report
+bounded context; no global audio-ID suppression or repeated source census occurs.
+
+## Build725: event-driven spatial UI discovery
+
+WorldUI registers `MenuDepthLifecycleObserver` alongside the existing exact
+`Character3DDisplayManager.Display` observer. Its postfixes observe the original
+typed UI owners' initialization, Graphic lifetime/hierarchy changes, RawImage
+texture assignments, window enrollment and character-manager readiness. They
+coalesce changed identities for discovery rather than periodically scanning all
+UI hierarchies and global preview objects. Inherited native methods are deduplicated
+by runtime method identity before patching. Text and unrelated graphic effects
+are rejected before hierarchy or owner-field work.
+
+The observer cannot skip native initialization, change gameplay arguments or
+invoke native actions. Observation failures retain native presentation and produce
+bounded context. Pooled inactive content receives one cold census; real late
+arrivals and reparenting are handled before their first capture. The source registry
+flushes pending work only outside a capture lease and restores borrowed rendering
+state on failure. Shared placement, original colours/material clocks, animation,
+permissions and joystick movement integration remain native.
+
 ## Build670: exact native item-confirmation observation
 
 WorldUI registers `MapItemConfirmationRequestObserver` on

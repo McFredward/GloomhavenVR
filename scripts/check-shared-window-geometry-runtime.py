@@ -53,6 +53,7 @@ def main():
     try:
         paths = {
             'grab': 'src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs',
+            'move_bridge': 'src/GloomhavenVR/WorldUI/Modal/SharedWindowInteractionBridge.cs',
             'law': 'src/GloomhavenVR/WorldUI/Modal/SharedWindowSizeLaw.cs',
             'size': 'src/GloomhavenVR/WorldUI/Modal/SharedWindowSize.cs',
             'convert': 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs',
@@ -114,7 +115,7 @@ def main():
         sources = {
             'Grab.cs': prefix + 'internal sealed partial class GrabbableModal {\n' + grab + '\n}}',
             'Size.cs': prefix + 'internal static partial class SharedWindowSize {\n' + size + '\n}}',
-            'Law.cs': original['law'],
+            'MoveBridge.cs': original['move_bridge'], 'Law.cs': original['law'],
             'Conversion.cs': prefix + 'internal static partial class CanvasConversion {\n' + block(original['convert'], 'internal static void PlaceHost(') + '\n}}',
             'Codec.cs': 'using UnityEngine; namespace GloomhavenVR.Net { internal static class NetProtocol {\n' + codec + '\n}}',
             'Bridge.cs': original['bridge'],

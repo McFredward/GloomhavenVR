@@ -681,9 +681,31 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     private const float MipRescanInterval = 1f;
     private float _nextMipRescan;
 
+    // Issue #24: a live old scenario UI can outlast the singleton which replaced it.
+    // WorldSurface only releases dead targets. Retaining its old panel while reading
+    // InitiativeTrack.Instance in the fitter/picker can split visible row and input
+    // across two originals, matching the reported distant row or unclickable dock.
+    // No issue-specific log proves that hardware trigger; own one exact original
+    // structurally, and report a real replacement if it happens again.
+    private InitiativeTrack? _convertedTrack;
+
+    private bool OwnsCurrentTrack() => Panel != null && Panel.IsAlive
+        && Panel.HostGo != null && Panel.HostCanvas != null && Panel.HostRect != null
+        && Panel.Target.IsChildOf(Panel.HostTransform)
+        && _convertedTrack != null && ReferenceEquals(_convertedTrack, InitiativeTrack.Instance)
+        && ReferenceEquals(Panel.Target, _convertedTrack.transform);
+
     public override void Tick()
     {
-        bool wasConverted = Panel != null;
+        if (Panel != null && !OwnsCurrentTrack())
+        {
+            InitiativeTrack? current = InitiativeTrack.Instance;
+            VRLog.Note("WorldUI", "INITIATIVE TARGET REBIND: retiring the previous native row "
+                + $"(old={(_convertedTrack != null ? _convertedTrack.GetInstanceID() : 0)}, "
+                + $"current={(current != null ? current.GetInstanceID() : 0)}, alive={Panel.IsAlive}). "
+                + "The dock, depth picker and row effects now adopt the same current original.");
+            ReleaseCurrentPanel(); // restore the OLD original before adopting its replacement
+        }
         base.Tick();
         if (Panel != null)
         {
@@ -731,21 +753,6 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 PanelMipBake.Rescan(InitiativeTrack.Instance, Name);
             }
         }
-        else if (wasConverted)
-        {
-            _slide.Abort("panel released"); // layout writers back to the game before anything else
-            _pin.Release("panel released"); // …and the buttons their authored hover/press amplitudes
-            _reorderActive = false; // host gone — the next conversion starts a fresh hold
-            _fitSignature = -1;     // …and a fresh settle window for the new host
-            _fitArmedUntil = 0f;
-            _fitArmGeneration = -1;
-            RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
-            RestoreEnemyInfoFlatten(); // …and the hover popup its authored rotation/z
-            UnregisterDepthPick();
-            // Full-restore contract: the 2D track gets its authored sprites/textures back the
-            // moment the canvas returns to the game (baked copies are a VR presentation detail).
-            PanelMipBake.Restore(InitiativeTrack.Instance);
-        }
     }
 
     /// <summary>
@@ -762,6 +769,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     public override void LateTick()
     {
+        // A native replacement can arrive after Update (additive UI/scene activation).
+        // Rebind before placement, row animation and any capture of this late frame.
+        if (Panel != null && !OwnsCurrentTrack())
+            Tick();
         base.LateTick();
         if (Panel != null)
         {
@@ -1437,19 +1448,32 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         return sig == 0 ? 1 : sig;
     }
 
-    public override void Shutdown()
+    protected override void ReleasePanel(ConvertedPanel panel)
     {
-        _slide.Abort("surface shutdown"); // layout writers back to the game while the row still lives
-        _pin.Release("surface shutdown"); // …same window: the buttons are still alive here
-        _reorderActive = false; // the panel is about to be released — drop any active hold
-        _fitSignature = -1;     // …and let the next conversion measure the row from scratch
+        // All exits share this hand-off: retarget, native target loss, VR-off and
+        // shutdown. Looking up Instance here would restore the NEW track's mip
+        // originals while leaving the released one treated and its picker registered.
+        _slide.Abort("panel released");
+        _pin.Release("panel released");
+        _reorderActive = false;
+        _fitSignature = -1;
         _fitArmedUntil = 0f;
         _fitArmGeneration = -1;
-        RestoreDepth(); // before base releases the panel (holder still alive here)
-        RestoreEnemyInfoFlatten(); // …same window for the hover popup's authored rotation/z
+        RestoreDepth();
+        RestoreEnemyInfoFlatten();
         UnregisterDepthPick();
-        PanelMipBake.Restore(InitiativeTrack.Instance); // originals back before the release
-        base.Shutdown();
+        PanelMipBake.Restore(_convertedTrack);
+        _convertedTrack = null;
+        // A completed framework release can leave this surface's reference alive
+        // until its next tick (IsAlive tests the native target, not the host lease).
+        // Do not replay that old native-home snapshot over subsequent game layout.
+        var active = CanvasConversion.ActivePanels;
+        for (int i = 0; i < active.Count; i++)
+            if (ReferenceEquals(active[i], panel))
+            {
+                base.ReleasePanel(panel);
+                break;
+            }
     }
 
     private void UnregisterDepthPick()
@@ -1594,6 +1618,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     protected override void OnConverted()
     {
+        _convertedTrack = Panel != null ? Panel.Target.GetComponent<InitiativeTrack>() : null;
         if (Panel != null && InitiativeTrack.Instance != null)
             Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;
 
@@ -1696,6 +1721,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         target = null!;
         worldHit = default;
 
+        // Never resolve a portrait from a different singleton through this host's
+        // registered picker. Tick/LateTick retire the old registration and rebind.
+        if (!OwnsCurrentTrack())
+            return false;
+
         Transform? holder = InitiativeTrack.Instance != null
             ? InitiativeTrack.Instance.initiativeTrackHolder
             : null;
@@ -1747,7 +1777,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (rightLen2 < 1e-12f || upLen2 < 1e-12f)
             return false; // degenerate / not laid out yet
 
-        Vector3 normal = Vector3.Cross(right, up).normalized;
+        // Unity's Vector3.normalized returns zero below 1e-5. The cross product
+        // scales with AREA, so valid millimetre-sized portraits at small board zoom
+        // hit that cutoff even though both measured edges passed the checks above.
+        // Normalize the independent axes first: only plane direction matters here.
+        Vector3 normal = Vector3.Cross(right / Mathf.Sqrt(rightLen2),
+            up / Mathf.Sqrt(upLen2)).normalized;
         float denom = Vector3.Dot(direction, normal);
         if (denom < 1e-5f)
             return false; // parallel or back-side

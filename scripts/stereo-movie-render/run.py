@@ -18,7 +18,9 @@ import re
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
+from project_compilers import cleanup_project_compilers
 
 
 def execute(command, log, timeout=420):
@@ -157,6 +159,19 @@ def main():
                 'nested foreign camera cannot restore enclosing packed plane early')]
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
         fixture = ROOT / 'tests/GloomhavenVR.StereoMovieRenderTests'
+        input_paths = [*(fixture.rglob('*.cs')), fixture / 'StereoMovieRender.csproj', fixture / 'Startup/Startup.csproj',
+            Path(__file__), ROOT / 'scripts/stereo-movie-render/Editor/StereoVideoRunner.cs',
+            ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'src/GloomhavenVR/Net/VideoWindowState.cs',
+            ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs', ROOT / 'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle',
+            *[source_root / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.4.Lifecycle.cs',
+                'FlatScreen.7.CaptureRender.cs', 'FlatScreenStereo.2.Compositor.cs', 'FlatScreenStereo.4.PerEye.cs',
+                'FlatScreenStereo.5.Movie.cs', 'NativeMovieCameraPlane.cs', 'NativeVideoMovies.cs', 'NativeEmbeddedMoviePatches.cs',
+                'StereoVideoSurface.cs')]]
+        input_hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in input_paths}
+        (run / 'source-inputs.json').write_text(json.dumps(input_hashes, indent=2) + '\n')
+        for path in input_paths:
+            target = run / 'source' / path.relative_to(ROOT)
+            target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(path, target)
         dotnet = str(Path.home() / '.dotnet/dotnet')
         for name, movie_code, lease_code, expected in cases:
             case = run / name
@@ -251,14 +266,8 @@ def main():
                 if dependency.name != retained.name: shutil.copyfile(dependency, dependencies / dependency.name)
             manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected, 'method': method})
         manifest['dependencies'] = str(run / 'dependencies')
-        (run / 'source-hashes.json').write_text(json.dumps({'sha256': {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in [*(fixture.rglob('*.cs')), fixture / 'StereoMovieRender.csproj', startup_fixture / 'Startup.csproj', Path(__file__),
-                ROOT / 'scripts/stereo-movie-render/Editor/StereoVideoRunner.cs', ROOT / 'src/GloomhavenVR/Net/VideoWindowState.cs',
-                ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs',
-                *[source_root / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.4.Lifecycle.cs',
-                    'FlatScreen.7.CaptureRender.cs', 'FlatScreenStereo.2.Compositor.cs', 'FlatScreenStereo.4.PerEye.cs',
-                    'FlatScreenStereo.5.Movie.cs', 'NativeMovieCameraPlane.cs', 'NativeVideoMovies.cs', 'NativeEmbeddedMoviePatches.cs', 'StereoVideoSurface.cs')]]},
-            'boundaries': 'Decoder readiness/pixels and XR eye input. Startup additionally supplies decoder URL metadata after attempting the actual setter: the private text placeholder reads back empty, cause unknown. Production parsing/admission are unchanged. Startup adds actual stereo constructor/config binding, native source admission, Show/Tick/capture/split/stereo lifecycle. FlatScreen constructor is a minimal ownership port pinned to its actual owner assignment. Nonmovie scene services and physical quad pose are explicit fixture ports; final-cull Harmony seam is covered separately by desktop-render-runtime; actual built-in fallback Camera.Render executes here.',
+        (run / 'source-hashes.json').write_text(json.dumps({'sha256': input_hashes,
+            'boundaries': 'Decoder readiness/pixels and XR eye input. Startup additionally supplies decoder URL metadata after attempting the actual setter: the private text placeholder reads back empty, cause unknown. Production parsing/admission are unchanged. Startup adds actual stereo constructor/config binding, native source admission, Show/Tick/capture/split/stereo lifecycle. FlatScreen constructor is a minimal ownership port pinned to its actual owner assignment. Nonmovie scene services and physical quad pose are explicit fixture ports; final-cull Harmony seam is covered separately by desktop-render-runtime; actual built-in fallback Camera.Render executes here. Startup has no menu-depth graphic sources or borrowed UI eye camera; the separate menu-depth-desktop suite exercises that path.',
             'limits': 'No native MOV decode or native URL transport/admission, headset/XR provider, D3D11, comfort, audio, multiplayer or native plane latch timing evidence. Production finite-key admission is exercised with supplied decoder metadata.'}, indent=2) + '\n')
         manifest_path = run / 'manifest.json'
         manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
@@ -268,12 +277,21 @@ def main():
             print((run / 'results.txt').read_text(), end='', flush=True)
         if result or not (run / 'results.txt').exists():
             raise RuntimeError('Actual movie raster fixture failed: ' + str(run))
+        stable = all(hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest for path, digest in input_hashes.items())
+        (run / 'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(input_hashes)}) + '\n')
+        if not stable: raise RuntimeError('Movie fixture source changed during execution: ' + str(run))
         status = 0
     finally:
-        receipt = cleanup_completed_run('stereo-movie-render', status, completion, ROOT, process_reaped=True)
-        (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
-        for kind, previous in previous_handlers.items():
-            signal.signal(kind, previous)
+        try:
+            compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
+            (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+            if compilers['remaining']:
+                raise RuntimeError('Private movie project compilers remain; retaining caches: ' + str(run))
+            receipt = cleanup_completed_run('stereo-movie-render', status, completion, ROOT, process_reaped=True)
+            (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        finally:
+            for kind, previous in previous_handlers.items():
+                signal.signal(kind, previous)
 
 
 if __name__ == '__main__':

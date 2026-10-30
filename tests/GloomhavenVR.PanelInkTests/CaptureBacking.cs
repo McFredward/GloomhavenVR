@@ -7,16 +7,26 @@ namespace GloomhavenVR.WorldUI
 {
     internal static partial class PanelSupersample
     {
+        // Rendering is exercised by the real head-pixel suites. This fixture
+        // supplies only the presentation-lifetime result consumed by the crop.
+        private sealed class HeadPresentation { internal bool HasHeadPresentation { get; set; } }
         private sealed class Entry
         {
             internal ConvertedPanel Panel=null!;internal RectTransform? DisplayRect;
             internal GameObject? DisplayGo;internal Canvas? DisplayCanvas;internal RawImage? DisplayImage;
+            internal HeadPresentation? MenuDepthDisplay;
         }
         private static readonly List<Entry> Entries=new();
         internal static void ResetTest()=>Entries.Clear();
         internal static void CaptureTest(ConvertedPanel panel,GameObject display)
             => Entries.Add(new(){Panel=panel,DisplayRect=display.transform,DisplayGo=display,
                 DisplayCanvas=display.GetComponent<Canvas>(),DisplayImage=display.GetComponent<RawImage>()});
+        internal static void HeadPresentationTest(ConvertedPanel panel,bool active)
+        {
+            foreach (Entry entry in Entries)
+                if (ReferenceEquals(entry.Panel,panel))
+                    entry.MenuDepthDisplay=new(){HasHeadPresentation=active};
+        }
     }
 }
 static partial class Program
@@ -38,6 +48,18 @@ static partial class Program
         PanelSupersample.CaptureTest(panel,display);
         Check(PanelSupersample.TryGetBackingCaptureRect(panel,out Rect frame)&&frame.xMin==-100&&frame.yMin==-80,
             "actual display footprint is transformed back into host coordinates");
+        Canvas photoCanvas=display.GetComponent<Canvas>()!;
+        photoCanvas.enabled=false;
+        Check(!PanelSupersample.TryGetBackingCaptureRect(panel,out _),
+            "disabled photograph without a spatial replacement has no backing footprint");
+        PanelSupersample.HeadPresentationTest(panel,true);
+        Check(PanelSupersample.TryGetBackingCaptureRect(panel,out Rect spatial)&&spatial.xMin==frame.xMin
+            &&spatial.width==frame.width&&spatial.height==frame.height,
+            "active spatial head presentation retains actual backing footprint");
+        PanelSupersample.HeadPresentationTest(panel,false);
+        Check(!PanelSupersample.TryGetBackingCaptureRect(panel,out _),
+            "retired spatial presentation cannot retain a disabled photograph footprint");
+        photoCanvas.enabled=true;
         Rect[] outside={new(-220,-10,20,20),new(200,-10,20,20),new(-10,-200,20,20),new(-10,180,20,20)};
         Rect[] overflow={new(-80,-10,20,20),new(60,-10,20,20),new(-10,-60,20,20),new(-10,40,20,20)};
         var pieces=new List<Rect>();var witnesses=new List<Graphic>();

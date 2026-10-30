@@ -20,6 +20,7 @@ alongside the web guide, then run `python3 scripts/check-docs-i18n.py`.
 | [AGENTS.md](../AGENTS.md), [CLAUDE.md](../CLAUDE.md) | Integration workflow and technical contracts |
 | [STATE.md](../.planning/STATE.md), [planning index](../.planning/INDEX.md) | Current build, open issues, hardware evidence and planning status |
 | [DEVELOPING.md](DEVELOPING.md) | Build setup, packaging, assets and local gates |
+| [TEST-STRATEGY.md](TEST-STRATEGY.md) | Binding risk classes, focused checks, complete checkpoints and evidence reuse |
 | [CI-CD.md](CI-CD.md) | Hosted checks, main-branch release procedure, recovery and verification limits |
 | [PATCH-INVENTORY.md](PATCH-INVENTORY.md) | Generated patch targets and registrations; regenerate with `scripts/patch-inventory.sh generate` |
 | [NET-ACTION-SURFACE.md](NET-ACTION-SURFACE.md) | Reviewed receiver-patch classifications; checked by `check-desync-surface.py` |

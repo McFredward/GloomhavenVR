@@ -395,6 +395,10 @@ internal static class VRModeStateMachine
         // is simply not on offer, in any mode, under any config.
         if (role == HandRole.NonDominant)
             set &= ~Interactors.Ray;
+        // The ready main menu has the same near-hand/two-hand window grip as other
+        // world panels. Boot movies keep their previous pointer-only policy.
+        if (mode == VRMode.Menu2D && MenuWorldContext.IsReady)
+            set |= Interactors.Grab;
         return set;
     }
 

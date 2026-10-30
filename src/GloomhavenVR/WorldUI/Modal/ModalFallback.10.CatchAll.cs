@@ -191,6 +191,8 @@ internal static partial class ModalFallback
         // never in OpenWindows, never in Converted, never counted by the churn fuse and never a
         // subject of the refusal table, "parent wins", the retraction bridge or the DOUBLE HOST
         // audit. See the class note on EnchantressComposite for why that is structural.
+        LevelUpComposite.Tick();
+
         EnchantressComposite.Tick();
 
         // ModBuild 473 — THE MAP-ROOM DIALOG SEATS, beside the enchantress composite because they

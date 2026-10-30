@@ -130,7 +130,8 @@ internal static partial class CanvasConversion
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
         bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false,
-        bool keepBackgroundHidden = false, bool flattenWindow = false, UIWindow? sharedWindow = null)
+        bool keepBackgroundHidden = false, bool flattenWindow = false, UIWindow? sharedWindow = null,
+        System.Func<Graphic, bool>? backgroundFilter = null)
     {
         if (target == null)
         {
@@ -315,6 +316,23 @@ internal static partial class CanvasConversion
 
         // Re-parent and center: anchors collapse to the middle so the captured
         // size becomes absolute.
+        // Build744: the pause/options opening could briefly show a displaced menu.
+        // A disabled native Canvas still reports itself as a root and keeps its
+        // own ScreenSpaceCamera adapter. Adoption assigns the head camera while
+        // the reveal gate holds it disabled: Unity then rewrites its native frame
+        // to the head's square pixel grid/pose (742 log:1920x1920, scale .18 and
+        // z about -1380). A forced reveal can expose that bad frame before the next
+        // fit repairs it. Pin only this explicit menu family and only a native
+        // root camera Canvas. The setter must run BEFORE parenting; on an enabled
+        // nested Canvas it addresses the inherited root instead of this adapter.
+        Canvas? menuCanvas = capHeightToCanvas ? target.GetComponent<Canvas>() : null;
+        if (menuCanvas != null && menuCanvas.isRootCanvas
+            && menuCanvas.renderMode == RenderMode.ScreenSpaceCamera)
+        {
+            panel.NativeMenuCanvas = menuCanvas;
+            panel.OriginalNativeMenuCanvasMode = menuCanvas.renderMode;
+            menuCanvas.renderMode = RenderMode.WorldSpace;
+        }
         target.SetParent(hostRect, worldPositionStays: false);
         target.anchorMin = new Vector2(0.5f, 0.5f);
         target.anchorMax = new Vector2(0.5f, 0.5f);
@@ -419,6 +437,7 @@ internal static partial class CanvasConversion
         if (transparentBackground)
         {
             panel.HideBackground = true;
+            panel.BackgroundFilter = backgroundFilter;
             // Issue 5: for the full-screen-menu family, leave the backing disabled on Release so a
             // momentary flat re-show on X-close cannot flash the full-window blur veil.
             panel.KeepBackgroundHidden = keepBackgroundHidden;

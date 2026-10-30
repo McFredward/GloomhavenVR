@@ -191,7 +191,9 @@ internal sealed class Flight : MonoBehaviour
             return;
         }
 
-        // MODE GATING. Menu2D has no scene to fly through. ModalUI is deliberately NOT excluded —
+        // MODE GATING. Before actual menu arrival there is no world to fly through.
+        // Build742 admits the ready world menu without granting native table/gameplay state.
+        // ModalUI is deliberately NOT excluded —
         // the player must keep full movement while a dialog floats, the same call turning makes.
         //
         // BOARDTARGETING IS NO LONGER A BLANKET BLOCK (user, hardware test 2026-08-03: "Obwohl
@@ -205,13 +207,10 @@ internal sealed class Flight : MonoBehaviour
         // most wants to fly around and look at the map. Forward/back flight runs here; only STRAFE
         // stands down, because that is the axis AoE really owns (see StrafeAllowed, same rule as
         // the turning contest).
-        // …AND "Menu2D has no scene to fly through" IS NOW EXACT RATHER THAN APPROXIMATE. Since
-        // ModBuild 178 the 3D map room resolves to TableIdle, not Menu2D (VRModeStateMachine's
-        // TableInFrontOfPlayer feeds the composition), so this line no longer stands the player
-        // still in a room that DOES have a scene to fly through. No test is needed here for that:
-        // the mode itself carries the fact, and one mechanism is the point.
+        // The main menu deliberately keeps Menu2D for native input/camera policy. Its own
+        // positive readiness is the new presentation-only exception; boot/intro stay blocked.
         VRMode mode = VRModeStateMachine.CurrentMode;
-        if (mode == VRMode.Menu2D && !RigTarget.IsDevProxy)
+        if (mode == VRMode.Menu2D && !MenuWorldContext.IsReady && !RigTarget.IsDevProxy)
         {
             ReportIdle("the mode is Menu2D (the flat 2D menu — no scene to fly through)");
             ReleaseLift();

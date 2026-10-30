@@ -16,13 +16,18 @@ def production_hashes(root):
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--reuse-project',type=Path);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/board-rules-runtime');p.add_argument('--unity',type=Path,default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')));p.add_argument('--unitypy-python',type=Path,default=Path('/home/claw/unitypy-venv/bin/python'));a=p.parse_args()
  a.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=a.output_dir.resolve()));project=a.reuse_project.resolve() if a.reuse_project else run/'unity';assets=project/'Assets';(assets/'Editor').mkdir(parents=True,exist_ok=True);(assets/'Plugins').mkdir(exist_ok=True);(project/'Packages').mkdir(exist_ok=True);(project/'ProjectSettings').mkdir(exist_ok=True)
+ print('Evidence: '+str(run),flush=True)
  # A stale normal bin/Debug DLL is never evidence: build requested sources in this run's
  # private output/intermediate tree before loading Unity, even when reusing its import cache.
  dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
  source_before=production_hashes(a.source_root)
  build=run/'production';build.mkdir();build_log=run/'build.log'
+ # This marker owns only the run's private output, not the original project.
+ (build/'CacheOwnership.csproj').write_text('<Project/>\n')
  items=build/'PrivateItems.targets'
  items.write_text('<Project><Target Name="RemoveExistingOutput" BeforeTargets="CoreCompile"><ItemGroup><Compile Remove="obj/**/*.cs;bin/**/*.cs" /><Compile Remove="'+str(a.source_root/'src/GloomhavenVR/obj')+'/**/*.cs" /><Compile Remove="'+str(a.source_root/'src/GloomhavenVR/bin')+'/**/*.cs" /></ItemGroup></Target></Project>')
+ # Only the compiled DLL and explicitly imported native board assets are used.
+ items.write_text(items.read_text().replace('</Project>', '<Target Name="NoUnusedLooseMediaCopies" BeforeTargets="AssignTargetPaths"><ItemGroup><Content Remove="@(Content)" /></ItemGroup></Target></Project>'))
  with build_log.open('w') as log:
   result=subprocess.run([dotnet,'build',str(a.source_root/'src/GloomhavenVR/GloomhavenVR.csproj'),'-c','Debug','-v','quiet','-p:BaseIntermediateOutputPath='+str(build/'obj')+'/', '-p:OutputPath='+str(build/'bin')+'/', '-p:UseSharedCompilation=false','-p:CustomAfterMicrosoftCommonTargets='+str(items)],cwd=a.source_root,stdout=log,stderr=subprocess.STDOUT)
  if result.returncode:raise SystemExit('FAIL: current private production build; see '+str(build_log))

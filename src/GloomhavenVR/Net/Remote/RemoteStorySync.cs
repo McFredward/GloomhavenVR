@@ -122,7 +122,7 @@ internal static partial class RemoteStorySync
     private readonly struct PeerStory
     {
         public PeerStory(byte flags, byte page, byte pageCount, uint key, byte poseStamp,
-                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken, SharedWindowPoseContext? context, float referenceScale)
+                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken, SharedWindowPoseContext? context, float referenceScale, bool allowPose = true)
         {
             Flags = flags;
             Page = page;
@@ -136,10 +136,20 @@ internal static partial class RemoteStorySync
             Canonical = context.HasValue && context.Value.ToWorld(in pose, out world);
             Initial = context.HasValue && context.Value.IsInitial(1);
             Pose = world;
-            if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags = (byte)(Flags & ~NetProtocol.StoryPoseBit);
+            if (!allowPose || !Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags = (byte)(Flags & ~NetProtocol.StoryPoseBit);
             At = at;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
+        }
+
+        internal PeerStory(in PeerStory content, in PeerStory pose)
+        {
+            Flags = (byte)((content.Flags & ~NetProtocol.StoryPoseBit) | (pose.Flags & NetProtocol.StoryPoseBit));
+            Page = content.Page; PageCount = content.PageCount; Key = content.Key; At = content.At;
+            PoseStamp = pose.PoseStamp; SizeCode = pose.SizeCode; Pose = pose.Pose;
+            Context = pose.Context; ReferenceScale = pose.ReferenceScale;
+            Canonical = pose.Canonical; Initial = pose.Initial;
+            OpeningEpoch = pose.OpeningEpoch; OpeningToken = pose.OpeningToken;
         }
 
         public readonly byte Flags;
@@ -253,6 +263,7 @@ internal static partial class RemoteStorySync
     /// rather than inheriting one. Nothing here owns a GameObject, so this IS the teardown.</summary>
     internal static void Reset()
     {
+        SharedWindowMoves.Reset();
         Peers.Clear();
         PeerPoseStamp.Clear();
         PoseTrack.Reset();
@@ -466,6 +477,8 @@ internal static partial class RemoteStorySync
     /// </summary>
     private static void TrackFrame(bool reset)
     {
+        if (reset) SharedWindowMoves.Close(SharedWindowKind.ScenarioStory);
+        else SharedWindowMoves.Open(SharedWindowKind.ScenarioStory, _localKey);
         if (reset || !ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) || grab == null
             || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
         {
@@ -476,6 +489,8 @@ internal static partial class RemoteStorySync
             return;
         }
 
+        bool claimed = SharedWindowMoves.HasLocalClaim(SharedWindowKind.ScenarioStory);
+        if (claimed && !_localPoseOwned) { _localPoseOwned = true; _localMoving = true; }
         if (!_haveFrameBaseline)
         {
             _lastFramePos = pos;
@@ -604,8 +619,14 @@ internal static partial class RemoteStorySync
         }
 
         MapStoryLifecycle.PoseOpening(in p, p.StoryKey, out uint openingEpoch, out uint openingToken);
-        Peers[senderId] = new PeerStory(p.StoryFlags, p.StoryPage, p.StoryPageCount, p.StoryKey,
-                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken, p.WindowPoseContext, p.WindowScales?.Reference(1) ?? 0f);
+        bool acceptedPose = SharedWindowMoves.Accepted(senderId, SharedWindowKind.ScenarioStory, p.StoryKey);
+        var incoming = new PeerStory(p.StoryFlags, p.StoryPage, p.StoryPageCount, p.StoryKey,
+            p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken,
+            p.WindowPoseContext, p.WindowScales?.Reference(1) ?? 0f, acceptedPose);
+        if (!acceptedPose && Peers.TryGetValue(senderId, out PeerStory previous) && previous.Key == p.StoryKey
+            && SharedWindowMoves.PoseStillCurrent(senderId, SharedWindowKind.ScenarioStory, p.StoryKey))
+            incoming = new PeerStory(in incoming, in previous);
+        Peers[senderId] = incoming;
 
         if ((p.StoryFlags & NetProtocol.StoryPoseBit) == 0)
         {
@@ -827,9 +848,9 @@ internal static partial class RemoteStorySync
 
     private static void ResolvePose(uint key)
     {
-        if (_localMoving || (ModalFallback.TryGetStoryGrab(out GrabbableModal? held)
-            && held != null && held.IsGrabbed))
-            return; // a stationary grip still owns the window; never fight a hand.
+        bool heldLocally = ModalFallback.TryGetStoryGrab(out GrabbableModal? held) && held != null && held.IsGrabbed;
+        if (SharedWindowMoves.Active ? SharedWindowMoves.MayWrite(SharedWindowKind.ScenarioStory)
+            : _localMoving || heldLocally) return;
 
         // LAST MOVER WINS. Among peers holding the same dialog and publishing a pose, follow the
         // one whose stamp changed most recently.
@@ -841,6 +862,7 @@ internal static partial class RemoteStorySync
             PeerStory s = kv.Value;
             if (s.Key != key || !s.HasPose)
                 continue;
+            if (!SharedWindowMoves.MayFollow(kv.Key, SharedWindowKind.ScenarioStory, key)) continue;
             if (!MapStoryLifecycle.MatchesPose(false, kv.Key, s.OpeningEpoch, s.OpeningToken))
                 continue;
             if (!PeerPoseChangedAt.TryGetValue(kv.Key, out float at))
@@ -859,7 +881,7 @@ internal static partial class RemoteStorySync
 
         // Our own move outranks a peer move that is older than it. Ownership is per-open, so
         // "older" is measured on the same local clock the peer's arrival is measured on.
-        if (_localPoseOwned && (bestInitial || bestAt < _localMoveSettleAt))
+        if (!SharedWindowMoves.Active && _localPoseOwned && (bestInitial || bestAt < _localMoveSettleAt))
             return;
 
         PeerStory owner = Peers[bestPeer];
@@ -874,6 +896,12 @@ internal static partial class RemoteStorySync
                         "the PAGE sync is untouched by this, which is why an unplaceable window can " +
                         "never hold anybody up");
             return;
+        }
+        if (SharedWindowMoves.Active)
+        {
+            grab.YieldSharedControl();
+            _localMoving = _localPoseOwned = false;
+            _localMoveSettleAt = 0f;
         }
         grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);

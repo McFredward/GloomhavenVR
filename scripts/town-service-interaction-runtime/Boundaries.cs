@@ -464,3 +464,13 @@ namespace GloomhavenVR.WorldUI
         internal void Apply(Transform? content) { }
     }
 }
+
+// These established scopes contain no owner-bound confirmation lease. The native
+// confirmation scope executes the real retirement before an external composite.
+namespace GloomhavenVR.WorldUI
+{
+    internal static class ConfirmationOnOwner
+    {
+        internal static bool ReleaseForExternalOwner(UnityEngine.UI.UIWindow window) => true;
+    }
+}

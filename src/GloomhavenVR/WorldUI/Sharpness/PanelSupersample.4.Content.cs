@@ -348,8 +348,7 @@ internal static partial class PanelSupersample
         // CardHilight host. The ordinary 2x cap would still crop a correctly
         // measured ring; reserve up to 3x only while this offer is active.
         float expansion = offeredAura ? 3f : MaxContentExpansion;
-        float padX = QuantiseUp(hostRect.width * (expansion - 1f) * 0.5f);
-        float padY = QuantiseUp(hostRect.height * (expansion - 1f) * 0.5f);
+        MeasureFramePadding(panel.Target, hostRect, union, expansion, out float padX, out float padY);
         float needLeft = Mathf.Clamp(QuantiseUp(hostRect.xMin - union.xMin), 0f, padX);
         float needRight = Mathf.Clamp(QuantiseUp(union.xMax - hostRect.xMax), 0f, padX);
         float needDown = Mathf.Clamp(QuantiseUp(hostRect.yMin - union.yMin), 0f, padY);
@@ -446,6 +445,19 @@ internal static partial class PanelSupersample
                               + "MaxContentExpansion (and expect the VRAM cost to follow), or switch "
                               + "[WorldUI] PanelSupersample off for this session." + bandNote);
         }
+    }
+
+    /// <summary>The native ready toggle paints its vote icons above its65px button and slides
+    /// them in from outside it. Its complete measured ink needs its own per-edge allowance.
+    /// All other panels retain the ordinary expansion, band-limit and allocation contracts.</summary>
+    private static void MeasureFramePadding(Component? target, Rect host, Rect ink, float expansion,
+        out float padX, out float padY)
+    {
+        padX = QuantiseUp(host.width * (expansion - 1f) * 0.5f);
+        padY = QuantiseUp(host.height * (expansion - 1f) * 0.5f);
+        if (target == null || target.GetComponent<UIReadyToggle>() == null) return;
+        padX = Mathf.Max(padX, QuantiseUp(Mathf.Max(host.xMin - ink.xMin, ink.xMax - host.xMax)));
+        padY = Mathf.Max(padY, QuantiseUp(Mathf.Max(host.yMin - ink.yMin, ink.yMax - host.yMax)));
     }
 
     /// <summary>Snap an overspill (always &gt;= 0) UP to the capture-frame grid — see

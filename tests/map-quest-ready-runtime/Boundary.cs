@@ -13,6 +13,8 @@ namespace UnityEngine
 {
     internal class GameObject
     {
+        public object? Component;
+        public T? GetComponent<T>() where T: class => Component as T;
         public string name = "fixture"; public Transform transform = new RectTransform(); public bool activeSelf = true, Destroyed;
         public void SetActive(bool value) => activeSelf = value;
         public static bool operator ==(GameObject? a,GameObject? b)
@@ -120,6 +122,7 @@ internal sealed class UIQuestPopupManager
 }
 internal sealed partial class UIReadyToggle
 {
+    public UIReadyToggle() { window.gameObject.Component = this; }
     public enum EReadyUpType { Participant, Player }
     public EReadyUpToggleStates readyUpToggleState;
     private EReadyUpType readyUpType;

@@ -783,8 +783,10 @@ internal static class LoadoutConfirmPark
     ///
     /// <para>ONLINE it is the multiplayer ready toggle — and the toggle is a SINGLETON reused for
     /// quests, city events, rewards, retirement and town records, so this refuses to touch it unless
-    /// its own <c>readyUpToggleState</c> is NOT <c>Quests</c>. That is exact rather than merely
-    /// likely: <c>MPConfirmEnterScenario</c> calls <c>Initialize</c> without the
+    /// its own <c>readyUpToggleState</c> is exactly <c>NotSet</c>. The former exclusion of only
+    /// <c>Quests</c> also accepted city events, rewards and retirement, allowing an old open
+    /// loadout to steal their shared ready control into the private character window.
+    /// <c>MPConfirmEnterScenario</c> calls <c>Initialize</c> without the
     /// <c>readyUpToggleState</c> argument, so the loadout ready-up leaves it at its default
     /// <c>NotSet</c> (UIReadyToggle.cs:452,467), while <c>MapRoom/MapQuestReadyUp</c> claims the
     /// toggle only while it reads <c>Quests</c>. The two parkers are therefore mutually exclusive BY
@@ -805,7 +807,7 @@ internal static class LoadoutConfirmPark
             if (!Singleton<UIReadyToggle>.IsInitialized)
                 return null;
             UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
-            if (toggle == null || toggle.readyUpToggleState == EReadyUpToggleStates.Quests)
+            if (toggle == null || toggle.readyUpToggleState != EReadyUpToggleStates.NotSet)
                 return null;
             readyToggle = true;
             return toggle.gameObject;
@@ -956,6 +958,18 @@ internal static class LoadoutConfirmPark
             }
             _standDown = true;
             return false;
+        }
+
+        // A preceding city/reward ready-up may already have floated this exact pooled
+        // original. Retire its capture/fit/restoration owner BEFORE recording home,
+        // just as the quest parker does. Otherwise its later release reparents the
+        // newly adopted loadout control and permanently trips our stand-down guard.
+        // A genuine user close retains ownership; the normal tick retries afterward.
+        if (readyToggle)
+        {
+            UIWindow? nativeWindow = control.GetComponent<UIWindow>();
+            if (nativeWindow == null || !ModalFallback.ReleaseForComposite(nativeWindow))
+                return false;
         }
 
         // THE RECORD IS PER OBJECT (MapTravelConfirm's ModBuild 226 rule): with two possible controls
@@ -2204,7 +2218,8 @@ internal static class LoadoutConfirmPark
                           + "ready toggle as a window of its own again from here, which is deliberate: "
                           + "a confirm nobody can reach is a worse fault than a confirm in an ugly "
                           + "frame.");
-        ReadyToggleParkClaim.Set(null, "LoadoutConfirmPark is not presenting the loadout confirm");
+        ReadyToggleParkClaim.Drop(EReadyUpToggleStates.NotSet,
+            "LoadoutConfirmPark is not presenting the loadout confirm");
     }
 
     // ---- the falsifier -----------------------------------------------------------------------------

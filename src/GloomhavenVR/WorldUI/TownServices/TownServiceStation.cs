@@ -30,6 +30,7 @@ internal sealed class TownServiceStation : IDisposable
     private Transform? _room;
     private Vector3 _center;
     private float _scale;
+    private float _layoutYaw;
     private bool _placed, _authorPose;
     private float _lightScale;
     private readonly Renderer[] _renderers;
@@ -138,22 +139,24 @@ internal sealed class TownServiceStation : IDisposable
     internal void RefreshEnvironment(bool authorPose)
     {
         Transform? room = SkyAlternative.PlacedRoomRoot;
-        bool changed = !_placed || room != _room || (authorPose && !_authorPose);
+        bool environmentChanged = !ReferenceEquals(room, _room);
+        bool changed = !_placed || (authorPose && !_authorPose);
         if (authorPose && MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale))
         {
-            changed |= center != _center || scale != _scale;
+            float layoutYaw = TownServiceLayout.Frame(null, MapRoomDriver.ParchmentRenderer?.transform).eulerAngles.y;
+            changed |= center != _center || scale != _scale || layoutYaw != _layoutYaw;
             if (changed && TownServicePlacement.TryResolve(_service, center, scale, out Vector3 position, out Quaternion rotation))
             {
                 Root.SetPositionAndRotation(position, rotation);
                 Root.localScale = Vector3.one * scale;
-                _center = center; _scale = scale;
+                _center = center; _scale = scale; _layoutYaw = layoutYaw;
                 _grounding.Resolve(out float actorFloor, out float furnitureBottom);
                 SetGrounding(actorFloor, furnitureBottom);
             }
         }
         float lightScale = Root.lossyScale.x;
-        if (changed || lightScale != _lightScale)
-        { _lighting.Refresh(Root, authorPose); _lightScale = lightScale; _room = room; _placed = true; }
+        if (changed || environmentChanged || lightScale != _lightScale)
+        { _lighting.Refresh(Root); _lightScale = lightScale; _room = room; _placed = true; }
         _authorPose = authorPose;
         _decor.Tick();
         _skinning.Tick();

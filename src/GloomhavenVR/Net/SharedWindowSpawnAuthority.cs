@@ -19,6 +19,7 @@ internal static class SharedWindowSpawnAuthority
         _transportOnline = transportOnline;
         SharedWindowSpawnBridge.InitialAuthor = IsInitialAuthor;
         SharedWindowSpawnBridge.TryInitialPose = TryInitialPose;
+        SharedWindowMoves.Bind(transportOnline);
     }
 
     internal static int AuthorId

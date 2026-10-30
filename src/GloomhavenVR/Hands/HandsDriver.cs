@@ -36,6 +36,7 @@ internal sealed class HandsDriver : MonoBehaviour
     private bool _simActive;
     private float _simTrigger;
     private float _simGrip;
+    private bool _menuWorldReady;
 
     // Cached step delegates so the guarded per-frame calls allocate nothing (instance
     // method groups would allocate a fresh delegate each frame). Built once in Awake.
@@ -108,6 +109,14 @@ internal sealed class HandsDriver : MonoBehaviour
         // rig-homing first (sets _simActive + hand refs), simulation after. Cached
         // delegates → no per-frame allocation.
         TickGuard.Run("Hands.Rig", _tickRig!);
+        // Menu2D remains the native mode across intro -> menu. Its new near-grab offer
+        // therefore needs the readiness edge as well as the existing mode-change edge.
+        bool menuReady = MenuWorldContext.IsReady;
+        if (menuReady != _menuWorldReady)
+        {
+            _menuWorldReady = menuReady;
+            ApplyMode(VRModeStateMachine.CurrentMode);
+        }
         if (_simActive)
             TickGuard.Run("Hands.Simulation", _tickSim!);
         // Held-card MODE ([Cards] InHandHold): is each hand READING its card (it billboards to

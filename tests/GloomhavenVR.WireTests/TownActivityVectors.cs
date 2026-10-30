@@ -49,8 +49,8 @@ internal static class TownActivityVectors
                 &&parsed.TownActivityRecordSeen&&!parsed.HasTownActivity,"reordered79+80+truncated81 preserves atomic marker"+remaining);
         presence.HasTownActivity=false;count=PresenceSerializer.Write(in presence,bytes);t.True(PresenceSerializer.TryRead(bytes,count,out parsed)&&!parsed.HasTownActivity,"absence retains oldwire");
         offset=7082;t.True(TownActivityCodec.Write(bytes,ref offset,in state)&&offset==7137,"worst snapshot exact7137");
-        int completeWorst=offset+3+510+30+20+9+24+14+27+4741; // Complete cloth, held101/float249 and118/119/120/121.
-        t.True(completeWorst==12515&&ExtrasFragments.MaxSnapshotBytes-completeWorst==285
+        int completeWorst=offset+3+510+30+20+9+24+14+27+4741+183; // Complete cloth, held101/float249 and118/119/120/121.
+        t.True(completeWorst==12698&&ExtrasFragments.MaxSnapshotBytes-completeWorst==102
             &&PresenceSerializer.MaxSize-completeWorst==257,"complete activity and captured window references retain transport and allocation margins");
         t.True(NetProtocol.Version==3&&NetProtocol.ExtIdTownResidents==79&&TownResidentsCodec.LegacyPayload==115&&TownResidentsCodec.LegacyClothPayload==139&&TownResidentsCodec.MaxPayload==145&&TownFaceCodec.MaxPayload==94,"79 retains its prefix and adds bounded cloth controls");
     }

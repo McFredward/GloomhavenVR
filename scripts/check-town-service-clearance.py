@@ -28,9 +28,11 @@ def sources(root):
 
 
 def mutations():
+    frame = "parchment != null ? GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation) : Quaternion.identity"
     return [
         ("priest-behind-player", "TownServiceLayout.cs", "service == 2 ? 160f : 90f", "service == 2 ? -85f : 90f", "residents stay in the front semicircle of the authored map reading side"),
-        ("room-scale", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.Euler(0f, (room.localScale = Vector3.one * 3.5f).y, 0f)", "layout preserves every original scenery transform"),
+        ("room-scale", "TownServiceLayout.cs", frame, "room != null ? Quaternion.Euler(0f, (room.localScale = Vector3.one * 3.5f).y, 0f) : (" + frame + ")", "layout preserves every original scenery transform"),
+        ("room-yaw", "TownServiceLayout.cs", frame, "room != null ? Quaternion.Euler(0f, room.eulerAngles.y, 0f) : (" + frame + ")", "local environment yaw preserves common native layout"),
         ("oversized-resident", "TownServiceLayout.cs", "ResidentRadius = 2.3f", "ResidentRadius = 4.8f", "residents fit the original room radius"),
         ("oversized-visitor", "TownServiceLayout.cs", "radius = visitor == 1 ? 2.4f : visitor == 3 ? 2.65f : 2.5f;", "radius = 5.8f;", "visitor workspaces fit the original room radius"),
         ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = ResidentRadius + (environment == Environment.Forest ? .05f : 0f);", "environment choice preserves shared layout"),

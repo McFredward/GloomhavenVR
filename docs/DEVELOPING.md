@@ -215,25 +215,31 @@ re-packs the OLD output, and looks exactly like the edit did nothing.
 
 ## Gates
 
-Run these on the final integrated tree before pushing:
+Follow [TEST-STRATEGY.md](TEST-STRATEGY.md), the binding 2026-10-27 policy.
+Choose the risk class before implementation: A documentation/content uses
+applicable content checks; B bounded behavior uses a strict build for C# changes,
+all source gates for production C# changes and affected suites/controls with
+justified input-bound evidence reuse. Unknown dependencies or missing reusable
+evidence require C. C broad/critical integrations and complete checkpoints use
+the commands below once on the integrated candidate. Releases require complete
+applicable coverage plus the hosted proof described in CI-CD.md.
+
+For a **complete** local gate:
 
 ```sh
 scripts/ci-build.sh Release        # 0 errors AND 0 warnings — TreatWarningsAsErrors is on
 scripts/refactor-guard.sh check --summary # umbrella gate; create a baseline before editing
-python3 scripts/check-docs-i18n.py # the four player-facing docs and their German twins
+python3 scripts/check-docs-i18n.py # player-facing docs and their German twins
 ```
 
-`refactor-guard.sh check` is an umbrella: it runs **seventeen** checkers before it diffs the
-compiled form — `patch-inventory.sh check`,
-`check-frame-order.sh`, `check-mirrors.sh`, `check-partial-order.py`, `check-instrument-writes.py`,
-`check-remote-defaults.py`, `check-wire-coverage.py`, `check-tune-fields.py`,
-`check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
-`check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
-`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
-duplicated work at the final gate, not extra coverage. The strict build and bilingual-docs checks
-must also be run explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`,
-taken before editing); exit 1 means compiled output differs, so inspect its verdict and explain
-the changes.
+`refactor-guard.sh check` is an umbrella: it runs the manifest's source group,
+`wire-tests.sh` (all local suites and golden vectors), bundle validation, public
+surface comparison and the compiled diff. Running `wire-tests.sh` again after
+the guard, or all local suites before it, duplicates the expensive runtime work.
+The strict build and bilingual-docs checks must also be run explicitly for a
+complete gate. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`,
+taken before editing). Exit 1 can mean compiled output differs; inspect the
+verdict, distinguish an earlier check failure and explain the changes.
 
 During implementation, each worker runs only the focused runtime suites and source checks
 relevant to its owned changes. Use the suite ID in `scripts/test-suites.json`, or list the
@@ -248,16 +254,23 @@ python3 scripts/run-test-suites.py --group local --suite native-playback
 vectors, and must never be reported as a complete gate. Record selected IDs, source bindings,
 assertion counts and limitations. Substantial integrations require the complete final local
 gate above; `scripts/wire-tests.sh` runs all local suites and then the golden vectors.
-The maintainer's 2026-10-06 instruction permits focused checks for bounded repairs: rerun the
-affected checks, review the final compiled changes and reuse passing evidence only where its
-bound production sources remain unchanged. Do not repeat successful unrelated suites merely
-because a limited fixture or repair changed. Hosted CI and release requirements remain as
-documented below; a focused local repair is not a new full-suite certification.
+The 2026-10-27 strategy makes focused checks the normal path for bounded changes,
+extending the maintainer's 2026-10-06 repair clarification. Rerun affected checks,
+review final scope and reuse passing evidence only when production inputs,
+transitive dependencies, fixtures, native assets/references and toolchain remain
+unchanged. `results.json` alone does not bind those inputs. Follow the strategy's
+compiled-review rules where applicable. Do not repeat successful unrelated suites
+merely because a limited fixture or repair changed. The integrator performs a
+complete checkpoint by day end or ten runtime-changing dev commits during active
+B-only development, whichever comes first. Hosted CI and release requirements
+remain as documented below; focused evidence is not a new full-suite certification.
 
-Independent tests run concurrently by default. The source group contains 14 read-only gates;
+Independent tests run concurrently by default. Discover current source-suite IDs
+with `python3 scripts/run-test-suites.py --group source --list`;
 `wire-tests.sh` runs the complete local suite inventory through the same bounded scheduler, then executes
 the unchanged golden wire vectors. Every suite retains its own negative controls and build
-outputs. A failed or cancelled suite fails the whole invocation. No test is skipped for speed.
+outputs. A failed or cancelled suite fails the whole invocation. Complete runs
+execute the entire selected group; a focused run is explicitly reported as partial.
 
 The runner chooses concurrency from available CPU and memory, capped at eight suites, and
 limits nested managed build processes. Override it when sharing the machine:
@@ -272,6 +285,10 @@ per-suite durations and `results.json` remain under `.planning/debug/test-runs/`
 prints the selected directory and replays complete logs without interleaving their text.
 Independent suites have separate temporary directories; overlapping runs lock each suite's
 checkout outputs. Complete wire invocations also serialize their shared build/executable.
+The runner performs completion cleanup after processes stop for passing, failed
+and interrupted suites. Standalone fixture callers must use the same
+`cleanup_completed_run` lifecycle. Preserve evidence, hardware inputs, pins and
+current deliverables; do not retain regenerable project caches to speed up reruns.
 
 Full hosted CI runs the source checks and standalone native presentation harnesses on every
 dev push and manual run. Internal PRs may reuse successful full-dev evidence for an identical

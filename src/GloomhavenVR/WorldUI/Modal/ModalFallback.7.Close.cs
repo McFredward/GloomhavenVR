@@ -138,6 +138,12 @@ internal static partial class ModalFallback
         if (MapRoom.MapLocationInteractor.HandleSharedQuestClose(window))
             return;
 
+        // This public city preflight is not a private dismissible window. Escape/Hide
+        // would leave its native vote intact and hide only one participant's copy.
+        // Original ready/cancel controls own consent and host withdrawal instead.
+        if (ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window))
+            return;
+
         // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
         // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.
@@ -160,6 +166,13 @@ internal static partial class ModalFallback
             RescueForMandatoryDecision(window, mandatoryReason, 0f, "a mod close request");
             return;
         }
+
+        // Build750: this admitted X/escape gesture leaves the original source
+        // page. Decline its exact outstanding request before native Hide or mode
+        // exit can replace the item/character data used by its No callback.
+        // Shared consent, permanent windows and mandatory continuation have
+        // already kept their original close authority above.
+        ConfirmationOnOwner.BeforeUserWindowClose(window);
 
         // A purchase can leave the native HUD in its home mode while the converted
         // shop is still open. Preserve explicit close intent through the fallback
@@ -1443,7 +1456,14 @@ internal static partial class ModalFallback
             WindowGroupRule rule = WindowGroups[r];
             if (rule.RequiresMapRoom && !MapRoom.MapRoomDriver.Active)
                 continue; // nothing can re-home it here — see WindowGroupRule.RequiresMapRoom
-            if (window.GetComponent(rule.Member) == null)
+            Component? member = window.GetComponent(rule.Member);
+            if (member == null)
+                continue;
+            // The ready toggle is one pooled native window for quests, city events,
+            // loadouts, rewards and retirement. Only its Quests incarnation belongs
+            // to UIQuestPopup. An older visible quest card must not suppress a city
+            // proposal (or any other ready-up) merely because the component matches.
+            if (member is UIReadyToggle ready && ready.readyUpToggleState != EReadyUpToggleStates.Quests)
                 continue;
             for (int i = 0; i < Converted.Count; i++)
             {

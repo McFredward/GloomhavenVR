@@ -158,3 +158,13 @@ namespace GloomhavenVR.WorldUI
         internal static void Release(ConvertedPanel p) { p.Released = true; p.ReleaseCount++; ActivePanels.Remove(p); Events.Trace.Add("release"); }
     }
 }
+
+// These established scopes contain no owner-bound confirmation lease. The native
+// confirmation scope executes the real retirement before an external composite.
+namespace GloomhavenVR.WorldUI
+{
+    internal static class ConfirmationOnOwner
+    {
+        internal static bool ReleaseForExternalOwner(UnityEngine.UI.UIWindow window) => true;
+    }
+}

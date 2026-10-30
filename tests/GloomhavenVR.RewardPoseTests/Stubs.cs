@@ -40,6 +40,15 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.Net
 {
+    // Explicit legacy-inactive123 boundary. Native reward handshake/readiness and original
+    // opening identity still execute below; active ordered pose transport is exercised by
+    // the separate actual shared-window sampler/receiver/resolver pairs.
+    internal static class SharedWindowMoves
+    {
+        internal static void Close(GloomhavenVR.WorldUI.SharedWindowKind kind) { }
+        internal static bool Accepted(int sender, GloomhavenVR.WorldUI.SharedWindowKind kind, uint key) => true;
+        internal static bool PoseStillCurrent(int sender, GloomhavenVR.WorldUI.SharedWindowKind kind, uint key) => true;
+    }
     internal static class AvatarSerializer
     {
         internal static void WriteU32(byte[] data, ref int at, uint value)
@@ -100,7 +109,12 @@ namespace GloomhavenVR.Net
             internal readonly bool HasPose;
             internal readonly byte Frame, SizeCode;
             internal readonly RigPose Pose;
-            internal PeerEntry(in SharedWindowEntry e, float at, SharedWindowPoseContext? context = null, int kind = 0, float referenceScale = 0f) { ReferenceScale = referenceScale; ContentKey = e.ContentKey; At = at; HasPose = (e.Flags & 2) != 0; Frame = e.Frame; SizeCode = e.SizeCode; Pose = e.Pose; }
+            internal PeerEntry(in SharedWindowEntry e, float at, SharedWindowPoseContext? context = null,
+                int kind = 0, float referenceScale = 0f, bool allowPose = true)
+            { ReferenceScale = referenceScale; ContentKey = e.ContentKey; At = at; HasPose = allowPose && (e.Flags & 2) != 0; Frame = e.Frame; SizeCode = e.SizeCode; Pose = e.Pose; }
+            internal PeerEntry(in PeerEntry content, in PeerEntry pose)
+            { ContentKey = content.ContentKey; At = content.At; ReferenceScale = pose.ReferenceScale;
+                HasPose = pose.HasPose; Frame = pose.Frame; SizeCode = pose.SizeCode; Pose = pose.Pose; }
         }
         private static void TrackFrame(GloomhavenVR.WorldUI.SharedWindowKind kind, Local local, bool reset) { local.HaveBaseline = true; }
         private static void WritePose(GloomhavenVR.WorldUI.SharedWindowKind kind, Local local, ref SharedWindowEntry entry) { if (local.PoseOwned) entry.Flags |= 2; entry.Frame = 2; entry.SizeCode = 1; entry.PoseStamp = 0; entry.Pose = new RigPose { Position = default, Rotation = default }; }

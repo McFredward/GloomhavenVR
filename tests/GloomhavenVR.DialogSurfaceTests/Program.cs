@@ -7,7 +7,7 @@ using GloomhavenVR.WorldUI.Surfaces;
 internal static class Program
 {
     private static int _checks;
-    private static void Check(bool value, string why)
+    internal static void Check(bool value, string why)
     { ++_checks; if (!value) throw new InvalidOperationException(why); }
     private static (DialogSurface Surface, UIConfirmationBoxManager Manager) Start(bool alreadyOpen = false)
     {
@@ -26,6 +26,8 @@ internal static class Program
         var (surface, manager) = Start(true);
         Check(Choreographer.s_Choreographer == null && CanvasConversion.Converts == 1,
             "already-open map confirmation converts without scenario choreographer");
+        Check(CanvasConversion.Last!.ModLayerEnabled,"standalone confirmation admits isolated filtered capture and scoped blur treatment");
+        Check(CanvasConversion.Last!.HideBackground,"standalone confirmation removes only full-frame backdrops before reveal and allocation");
         CanvasConversion.Last!.HostRaycaster.enabled = false;
         surface.Tick();
         Check(CanvasConversion.Last.HostRaycaster.enabled, "modal lock cannot disable original confirmation raycaster");
@@ -49,15 +51,15 @@ internal static class Program
         Check(manager.CurrentBox.IsOpen && CanvasConversion.Converts == converts + 1,
             "queued confirmation reopens immediately on the same native box");
         FlatScreen.ManualScreenActive = true; surface.Tick();
-        Check(!CanvasConversion.Last!.IsAlive && manager.CurrentBox.IsOpen,
+        Check(!CanvasConversion.ActivePanels.Contains(CanvasConversion.Last!) && manager.CurrentBox.IsOpen,
             "desktop rescue releases only presentation, preserving native waiter");
         FlatScreen.ManualScreenActive = false; surface.Tick();
-        Check(CanvasConversion.Last!.IsAlive, "return from desktop restores already-open confirmation");
+        Check(CanvasConversion.ActivePanels.Contains(CanvasConversion.Last!), "return from desktop restores already-open confirmation");
         VRModeStateMachine.TableInFrontOfPlayer = false; surface.Tick();
-        Check(!CanvasConversion.Last.IsAlive && DialogSurface.FallbackWindow == null,
+        Check(!CanvasConversion.ActivePanels.Contains(CanvasConversion.Last!) && DialogSurface.FallbackWindow == null,
             "leaving table releases world presentation without hiding native window");
         VRModeStateMachine.TableInFrontOfPlayer = true; surface.Tick();
-        Check(CanvasConversion.Last.IsAlive, "return to map recovers without a new Show event");
+        Check(CanvasConversion.ActivePanels.Contains(CanvasConversion.Last!), "return to map recovers without a new Show event");
         surface.Shutdown();
 
         foreach (string failure in new[] { "null", "throw", "place" })
@@ -78,7 +80,7 @@ internal static class Program
             Check(DialogSurface.FallbackWindow == null, "closed native dialog releases fallback claim");
             CanvasConversion.ReturnNull = CanvasConversion.ThrowConvert = CanvasConversion.ThrowPlace = false;
             manager.Show(); surface.Tick();
-            Check(CanvasConversion.Last != null && CanvasConversion.Last.IsAlive,
+            Check(CanvasConversion.Last != null && CanvasConversion.ActivePanels.Contains(CanvasConversion.Last),
                 "next native opening retries dedicated conversion after prior failure");
             surface.Shutdown();
         }
@@ -91,12 +93,14 @@ internal static class Program
         CanvasConversion.ThrowPlace = CanvasConversion.ThrowRelease = true;
         manager.Show();
         try { surface.Tick(); } catch (InvalidOperationException) { }
-        Check(CanvasConversion.Last != null && CanvasConversion.Last.IsAlive && DialogSurface.FallbackWindow == null,
+        Check(CanvasConversion.Last != null && CanvasConversion.ActivePanels.Contains(CanvasConversion.Last) && DialogSurface.FallbackWindow == null,
             "failed restoration retains conversion ownership for retry");
         CanvasConversion.ThrowRelease = false; surface.Tick();
         Check(CanvasConversion.Releases == 1 && DialogSurface.FallbackWindow == manager.CurrentBox.Window,
             "retry restores original subtree before fallback publication");
         surface.Shutdown();
+        OwnerCases.Run();
+        CaptureBoundaryCases745.Run();
         Console.WriteLine($"Dialog surface: {_checks} assertions passed.");
     }
 }

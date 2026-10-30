@@ -772,6 +772,10 @@ internal static class StoryComposite
     /// <summary>The mod-owned container. Null when nothing is parked.</summary>
     private static RectTransform? _dock;
 
+    /// <summary>Only the original desktop narrative dimmer while its children are parked.</summary>
+    private static NarrativeBackdrop.Lease? _narrativeBackdrop;
+    private static NarrativeBackdrop.LoadoutLease? _loadoutBackdrop;
+
     /// <summary>THE HOST — the window the composite is drawn IN. ModBuild 236: this is the LOADOUT
     /// window, not the story window.</summary>
     private static UIWindow? _parkHost;
@@ -4257,6 +4261,8 @@ internal static class StoryComposite
             // story window's children with nobody holding a reference to it would strand the whole
             // dialog for the session — the exact class of leak the catch below exists to prevent.
             _dock = dock;
+            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story), story.transform);
+            _loadoutBackdrop = new NarrativeBackdrop.LoadoutLease(loadout, image);
             _dockSize = measured;
             _parkHost = loadout;
             _parkSource = story;
@@ -4405,6 +4411,9 @@ internal static class StoryComposite
     {
         if (_dock == null || _picture == null || _parkHost == null)
             return;
+
+        _narrativeBackdrop?.Sync();
+        _loadoutBackdrop?.Sync();
 
         ConvertedPanel? panel = ModalFallback.PanelFor(_parkHost);
 
@@ -4576,10 +4585,19 @@ internal static class StoryComposite
         && g.color.a > 0.02f
         && !g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal);
 
+    private static void ReturnNarrativeBackdrop()
+    {
+        _narrativeBackdrop?.Dispose();
+        _narrativeBackdrop = null;
+    }
+
     private static void Unpark(string why)
     {
+        _loadoutBackdrop?.Dispose();
+        _loadoutBackdrop = null;
         if (_dock == null)
         {
+            ReturnNarrativeBackdrop();
             _parkHost = null;
             _parkSource = null;
             _picture = null;
@@ -4633,8 +4651,8 @@ internal static class StoryComposite
                               + "end of the intro) that means it simply disappears, which is the user's "
                               + "\"Da der Dialog fertig ist soll er darin verschwinden\". THE CLAIM ON THE "
                               + "STORY WINDOW GOES WITH IT: the refusal is conditional on this park and "
-                              + "lapses on the same tick. THE HOST IS NOT TOUCHED AT ALL — the loadout "
-                              + "window keeps floating, in the same panel and the same pose, and its "
+                              + "lapses on the same tick. THE HOST IS NOT TOUCHED AT ALL in its panel, pose "
+                              + "or native controls. The viewer's desktop dimmer lease retires before hand-back; its "
                               + "paper-expand tween and confirm button were never ours.");
         }
         catch (System.Exception e)
@@ -4649,6 +4667,7 @@ internal static class StoryComposite
         }
         finally
         {
+            ReturnNarrativeBackdrop();
             Moved.Clear();
             MovedIndex.Clear();
             // THE DOCK IS DESTROYED ONLY WHEN IT IS EMPTY. If the source window was destroyed under

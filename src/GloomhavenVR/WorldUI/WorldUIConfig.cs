@@ -27,9 +27,9 @@ namespace GloomhavenVR.WorldUI;
 /// The legacy per-frame billboard is a different, long-defaulted-off dial
 /// (<c>[WorldUI] PanelsFollowView</c>) and is not related to this one.</para>
 ///
-/// <para><b>SHARED (blue-barred) WINDOWS ARE OUTSIDE ALL THREE MODES</b> and never turn, whatever
-/// this says — see <see cref="SharedWindows.IsShared"/> for that rule and why it is not
-/// configurable.</para>
+/// <para>The maintainer's paired multiplayer review of 2026-10-29 supersedes the earlier shared
+/// exception: shared windows use the last accepted releaser's mode and facing. Other participants
+/// follow that synchronized pose; their own mode cannot add a private correction.</para>
 ///
 /// <para>The member ORDER is the settings-dropdown index map (LaserOnly=0/Always=1/Never=2) — the
 /// preset row casts the dropdown index straight to this enum, exactly like
@@ -124,6 +124,8 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> ImmersiveTownSpeech = null!;
     /// <summary>Local playback preference for physical resident and furniture foley.</summary>
     internal static ConfigEntry<bool> ImmersiveTownSoundEffects = null!;
+    /// <summary>Local live-character preview depth; off retains the original flat live image.</summary>
+    internal static ConfigEntry<bool> CharacterPreviewDepth = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
@@ -614,6 +616,10 @@ internal static class WorldUIConfig
             "Play physical foley from immersive residents and their furniture, including coins, spells, prayer props " +
             "and the merchant cabinet. This is a local listening preference and applies immediately. " +
             "It does not mute ordinary game, card or interface sounds.");
+        CharacterPreviewDepth = _file.Bind("WorldUI", "CharacterPreviewDepth", Defaults.CharacterPreviewDepth,
+            "Show live character previews in menu windows with 3D depth and perspective matching your viewing position. " +
+            "Off immediately restores the original flat live image. Enabled by default on all systems. " +
+            "This is a local viewing preference; story illustrations and video depth keep their own presentation.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
             "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +
@@ -923,14 +929,16 @@ internal static class WorldUIConfig
             "'starting...' indicator in the void.");
         ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", Defaults.ScreenWidth,
             new ConfigDescription(
-                "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
+                "Initial width of the floating 2D screen in real-world meters (16:9, height follows). " +
+                "Resize the main menu with both hands on its window handle. " +
                 "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m). " +
                 "Bounded because this screen is the ONLY surface that carries the main menu and " +
                 "the A/X rescue: a 0 m screen is a rescue you cannot see. Range 0.4-8.",
                 new AcceptableValueRange<float>(0.4f, 8f)));
         ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", Defaults.ScreenDistance,
             new ConfigDescription(
-                "Distance from the head to the floating 2D screen in real-world meters. Bounded " +
+                "Initial distance from the head to the floating 2D screen in real-world meters. " +
+                "Move the main menu freely using its window handle. Bounded " +
                 "for the same reason as ScreenWidth, and at the near end also because a screen " +
                 "inside your own head renders as nothing at all. Range 0.3-8.",
                 new AcceptableValueRange<float>(0.3f, 8f)));
@@ -983,10 +991,9 @@ internal static class WorldUIConfig
             "whole drag, so re-deriving the yaw on release throws your own aim away. Always = both " +
             "(what every window did before this setting existed). Never = a released window keeps " +
             "exactly the orientation you let go at. This is a ONE-SHOT on release in every mode — " +
-            "no window ever follows your head. SHARED multiplayer windows (the blue grab bar) are " +
-            "excluded from all three and never turn: they belong to everyone in the room, so a " +
-            "facing correction here would turn them away from the other players and would silently " +
-            "disagree with the pose this client just published.");
+            "no window ever follows your head. Shared multiplayer windows also use this setting: " +
+            "the last player to release an accepted grab chooses the facing, and everyone sees " +
+            "the same synchronized turn. Other players' settings do not change that released pose.");
         GrabBarTweenMs = _file.Bind("WorldUI", "GrabBarTweenMs", Defaults.GrabBarTweenMs,
             new ConfigDescription(
                 "How long a floated window's GRAB BAR takes to change shape or place, in " +

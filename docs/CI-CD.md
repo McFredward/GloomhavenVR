@@ -88,16 +88,24 @@ on `dev`; a push or merge to `main` is a release action.
 
 ### 2.2 Review the exact candidate
 
-Before editing, create a local compiled-form baseline if one is not already available.
+Select local test scope using [TEST-STRATEGY.md](TEST-STRATEGY.md). Bounded dev
+changes use focused validation; broad/critical integrations, complete checkpoints
+and releases require complete applicable coverage. This local policy does not
+change hosted CI selection, trusted proof rules or publication checks.
+
+When compiled scope comparison is required, create a local compiled-form baseline
+before editing if one is not already available.
 Workers must first detach the shared baseline symlinks as described in
-[CLAUDE.md](../CLAUDE.md#the-gates--run-all-of-them-before-you-push); never overwrite the
+[CLAUDE.md](../CLAUDE.md#testing-scope--classify-the-change-before-running-gates); never overwrite the
 integration baseline through a worktree link:
 
 ```bash
 bash scripts/refactor-guard.sh baseline
 ```
 
-After integration, run the complete local gates with the real game references available:
+For a complete local checkpoint, run these commands on the integrated candidate
+with the real game references available. For a bounded repair, rerun affected
+checks and reuse only valid unchanged input-bound proof as the strategy specifies:
 
 ```bash
 bash scripts/refactor-guard.sh check --summary

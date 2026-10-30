@@ -221,7 +221,7 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal bool PrepareSharedSelectionChange(MapLocation? loc, bool newOpening = false)
     {
-        if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn
+        if (!MapRoomDriver.Active || MapInputGate.PublicDecisionOwnsInput || StoryComposite.PointOfNoReturn
             || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
             return false;
         string? from = DecisionIdOf(_selected);
@@ -803,8 +803,11 @@ internal sealed class MapLocationInteractor
         if (!_maskTaken)
         {
             _maskTaken = true;
-            _maskWasLeft = left != null ? left.Ray.Mask.value : Physics.DefaultRaycastLayers;
-            _maskWasRight = right != null ? right.Ray.Mask.value : Physics.DefaultRaycastLayers;
+            // A map can arrive before the tracked hands. Restore the same native-only default
+            // that a fresh RayInteractor uses, so later hands cannot return to the main menu
+            // with its palm trigger boxes promoted into native physics occluders.
+            _maskWasLeft = left != null ? left.Ray.Mask.value : Physics.DefaultRaycastLayers & ~VRLayers.ModLayerMask;
+            _maskWasRight = right != null ? right.Ray.Mask.value : Physics.DefaultRaycastLayers & ~VRLayers.ModLayerMask;
             VRLog.Info(Scope, $"MAP ROOM pick mask TAKEN: 0x{_maskWasLeft:X8}/0x{_maskWasRight:X8} → "
                               + $"0x{_maskInForce:X8} ({_locations.Count} location icon(s)). A mask of 0 "
                               + "is CORRECT here and not a failure: the icons are the only physics pick "

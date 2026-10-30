@@ -1,0 +1,46 @@
+{
+  "unity_version": "2021.3.5f1",
+  "target": "StandaloneWindows64",
+  "graphics_apis": [
+    "Direct3D11",
+    "OpenGLCore",
+    "Vulkan"
+  ],
+  "type_trees": true,
+  "runtime_load_checked": true,
+  "bundle_bytes": 87819,
+  "bundle_sha256": "9698e2dd0bac9d6966265861c44b5c8e2c008732877e898612ee52fa25ead3d1",
+  "sources": [
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
+      "sha256": "bb7107ec8a76c7aa0bb9fdfa1d98bfeb61dd9fdb6310a016e9981b69d906dc2f"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthGraphic.shader",
+      "sha256": "ad504c496ff2bd6201135918f929b864c42ea04869f85a8ca81653edfce444eb"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthCharacter.shader",
+      "sha256": "0a345f2ae34bd91353b7aba5c33c4cb3c01ad104ca63999bafdf8485855af567"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthHeadResolve.shader",
+      "sha256": "bd638e2d84e4f17cd309df632944145984db338bef074326a091ba369ae84b76"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/Unity-LICENSE.txt",
+      "sha256": "9ce7cf0c6902bea1d3919d78c20ef28fb052b545fecace901e4d98e8c2bcf4ce"
+    },
+    {
+      "path": "unity/menu-depth-render/Editor/MenuDepthBuilder.cs",
+      "sha256": "e2949d1652b72998c6629a06cb15285b765539f822acc156ea0ce46641a315ac"
+    }
+  ],
+  "native_card_shader": {
+    "proof": "src/GloomhavenVR/Assets/MenuDepth/Rendering/NativeCard.provenance.json",
+    "native_program_graphics_apis": [
+      "Direct3D11"
+    ],
+    "d3d11_pixels_verified": false
+  }
+}

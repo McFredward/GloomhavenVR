@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName><GenerateDocumentationFile>false</GenerateDocumentationFile></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
+    <Reference Include="$(UnityManaged)/UnityEngine/UnityEngine*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(UnityManaged)/UnityEngine/UnityEditor.CoreModule.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/Unity.TextMeshPro.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/GH.Runtime.dll"><Private>false</Private><Aliases>native</Aliases></Reference>
+    <Reference Include="$(GameManaged)/GH.Runtime.FirstPass.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/GH.Shared.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/InControl.dll"><Private>false</Private></Reference>
+    <PackageReference Include="HarmonyX" Version="2.7.0" PrivateAssets="all"/>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
+  </ItemGroup>
+</Project>

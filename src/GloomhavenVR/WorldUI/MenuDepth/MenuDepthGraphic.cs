@@ -1,0 +1,469 @@
+using System;
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace GloomhavenVR.WorldUI.MenuDepth;
+
+/// <summary>
+/// Deliberate depth in the original graphic mesh. Layout, native sprite/UV, stencil,
+/// colour animation and hit rectangles remain owned by the original UI.
+/// </summary>
+[DisallowMultipleComponent]
+internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenuDepthHeadBoundsSource, IMaterialModifier, IMenuDepthRaycastSource
+{
+    private readonly List<UIVertex> _input = new(96);
+    private readonly List<UIVertex> _stream = new(96);
+    private readonly List<UIVertex> _grid = new();
+    private readonly List<int> _triangles = new();
+    private Image? _image;
+    private Sprite? _sprite;
+    private MenuDepthHeightfield? _field;
+    private float _depthRatio;
+    private Vector4 _depthUv = new(1f, 1f, 0f, 0f);
+    private bool _configured, _planeOnly, _planeRegistrationReleased;
+    private readonly List<MenuDepthCardPlane> _planeOwners = new(2);
+    private bool _projected;
+    private bool _headBackingMesh;
+    private const float CardBackingWidthRatio = 1f / 4096f;
+    private Vector3 _eye;
+    private Material? _baseMaterial, _depthMaterial;
+    private Material? _nativeMaterial;
+    private Shader? _nativeShader;
+    private bool _nativeDissolve, _nativeCardMaterial;
+    private static readonly int DissolveId = Shader.PropertyToID("_GvrMenuDepthDissolve");
+    private static readonly int SourceBlendId = Shader.PropertyToID("_GvrMenuDepthSrcBlend");
+    private static readonly int MaskId = Shader.PropertyToID("_Mask");
+    private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
+    private static readonly int EdgeWeightId = Shader.PropertyToID("_EdgeWeight");
+    private static int _refused;
+    private Color32[]? _rayAlpha;
+    private Texture2D? _rayAlphaTexture;
+    private Matrix4x4 _rayAlphaUv = Matrix4x4.identity;
+
+    public Graphic Graphic => graphic;
+    public Transform RayRoot => transform;
+    public bool IsReady => _configured && IsActive() && _image != null && (_field == null || _sprite != null)
+        && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null)
+        && (!_planeOnly || HasPlaneOwner(false));
+
+    public bool TryGetHeadBounds(MenuDepthEye eye, out Rect clipBounds)
+    {
+        clipBounds = default;
+        if (!IsReady || _image == null) return false;
+        Rect rect = _image.rectTransform.rect;
+        float depth = (_field != null ? rect.width : Mathf.Min(rect.width, rect.height)) * _depthRatio;
+        var bounds = new Bounds(new Vector3(rect.center.x, rect.center.y, depth * .5f),
+            new Vector3(rect.width, rect.height, Mathf.Abs(depth)));
+        clipBounds = MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip * transform.localToWorldMatrix, bounds);
+        return true;
+    }
+
+    public bool TryRaycast(Vector3 origin, Vector3 direction, float maxDistance, out MenuDepthRayHit hit)
+    {
+        hit = default;
+        if (!IsReady || _image == null || _planeOnly || HasPlaneOwner(false)) return false;
+        bool grid = _field != null;
+        List<UIVertex> vertices = grid ? _grid : _stream;
+        if (vertices.Count == 0 || (grid && _triangles.Count == 0)) return false;
+        Matrix4x4 matrix = transform.localToWorldMatrix, inverse = matrix.inverse;
+        Vector3 localOrigin = inverse.MultiplyPoint3x4(origin), localDirection = inverse.MultiplyVector(direction);
+        float depth = grid ? 0f : Mathf.Min(_image.rectTransform.rect.width, _image.rectTransform.rect.height) * _depthRatio;
+        int count = grid ? _triangles.Count : vertices.Count;
+        bool any = false;
+        for (int i = 0; i + 2 < count; i += 3)
+        {
+            UIVertex a = vertices[grid ? _triangles[i] : i];
+            UIVertex b = vertices[grid ? _triangles[i + 1] : i + 1];
+            UIVertex c = vertices[grid ? _triangles[i + 2] : i + 2];
+            Vector3 bias = new(0f, 0f, depth);
+            if (!MenuDepthRayGeometry.Triangle(localOrigin, localDirection, a.position + bias, b.position + bias,
+                c.position + bias, maxDistance, out float distance, out Vector3 barycentric)) continue;
+            float alpha = a.color.a * barycentric.x + b.color.a * barycentric.y + c.color.a * barycentric.z;
+            Vector2 uv = (Vector2)a.uv0 * barycentric.x + (Vector2)b.uv0 * barycentric.y + (Vector2)c.uv0 * barycentric.z;
+            if (alpha * RayAlpha(uv) < .255f) continue;
+            Vector3 point = localOrigin + localDirection * distance;
+            hit = new MenuDepthRayHit(_image, origin + direction * distance,
+                matrix.MultiplyPoint3x4(new Vector3(point.x, point.y, 0f)), distance);
+            maxDistance = distance; any = true;
+        }
+        return any;
+    }
+
+    internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)
+        => ConfigureMapped(image, field, depthRatio, new Vector4(1f, 1f, 0f, 0f));
+
+    internal void ConfigureMapped(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
+    {
+        _planeOnly = false; ConfigureCore(image, field, depthRatio, depthUv);
+    }
+
+    internal void ConfigurePlaneOcclusion(Image image, MenuDepthCardPlane owner)
+    {
+        if (!_planeOwners.Contains(owner)) _planeOwners.Add(owner);
+        if (!_configured || _planeOnly)
+        {
+            _planeOnly = true;
+            ConfigureCore(image, null, 0f, new Vector4(1f,1f,0f,0f));
+        }
+        if (MenuDepthHeadRaster.Active) { image.SetMaterialDirty(); image.SetVerticesDirty(); }
+    }
+
+    internal void ReleasePlaneOcclusion(MenuDepthCardPlane owner)
+    {
+        _planeOwners.Remove(owner);
+        if (graphic != null) graphic.SetMaterialDirty();
+        if (_planeOnly && _planeOwners.Count == 0)
+        {
+            MenuDepthSources.Unregister(this); _planeRegistrationReleased = true; ReleaseMaterial();
+        }
+    }
+
+    internal void EndPlaneCapture()
+    {
+        if (graphic == null) return;
+        graphic.SetMaterialDirty();
+        if (_headBackingMesh) { _headBackingMesh = false; graphic.SetVerticesDirty(); }
+    }
+
+    private float HeadBackingBias()
+    {
+        if (!MenuDepthHeadRaster.Active || _image == null) return 0f;
+        for (int i = 0; i < _planeOwners.Count; i++)
+        {
+            MenuDepthCardPlane owner = _planeOwners[i];
+            if (owner == null || !owner.OwnsDepthGraphic(graphic) || !owner.HasHeadLease) continue;
+            Vector3 eye = transform.InverseTransformPoint(owner.HeadWorldEye);
+            float xScale = transform.TransformVector(Vector3.right).magnitude;
+            float zScale = transform.TransformVector(Vector3.forward).magnitude;
+            if (!MenuDepthProjection.Finite(eye) || !MenuDepthProjection.Finite(new Vector3(xScale, zScale, 0f))
+                || xScale <= 1e-8f || zScale <= 1e-8f) return 0f;
+            // Build734's head-only ZWrite backgrounds fought the original TMP
+            // and button content on their exact same plane. Their independent
+            // vertex programs need a real, shallow depth separation. Move only
+            // this backing mesh away from the actual eye by 1/4096 of its
+            // physical width, including native XY-only fits and rear viewing.
+            // Original card/text TRS, callbacks and colour materials stay native.
+            return (eye.z < 0f ? 1f : -1f) * Mathf.Abs(_image.rectTransform.rect.width)
+                * CardBackingWidthRatio * xScale / zScale;
+        }
+        return 0f;
+    }
+
+    private bool HasPlaneOwner(bool borrowed)
+    {
+        for (int i = 0; i < _planeOwners.Count; i++)
+        {
+            MenuDepthCardPlane owner = _planeOwners[i];
+            if (owner != null && owner.OwnsDepthGraphic(graphic)
+                && (borrowed ? owner.HasHeadLease : owner.IsReady || owner.HasHeadLease)) return true;
+        }
+        return false;
+    }
+
+    private void ConfigureCore(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
+    {
+        Sprite current = image.overrideSprite;
+        bool unchanged = _configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
+            && _depthRatio == depthRatio && _depthUv == depthUv;
+        // Retained decorative owners bind every Tick. Keep their unchanged path
+        // free of the registry's linear membership search. Only a last-card-owner
+        // release needs same-state renewal without another component enable.
+        if (unchanged && !_planeRegistrationReleased) return;
+        // Never-active native pools may receive no destruction callbacks. Their
+        // first OnEnable owns admission; active replacements/reacquires admit now.
+        if (IsActive()) MenuDepthSources.Register(this);
+        _planeRegistrationReleased = false;
+        if (unchanged) return;
+        _image = image; _sprite = current; _field = field; _depthRatio = depthRatio; _depthUv = depthUv;
+        BindRayAlpha(current);
+        _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
+        _input.Clear(); _grid.Clear(); _triangles.Clear();
+        image.SetVerticesDirty(); image.SetMaterialDirty();
+    }
+
+    private void BindRayAlpha(Sprite? presentation)
+    {
+        _rayAlpha = null; _rayAlphaTexture = null; _rayAlphaUv = Matrix4x4.identity;
+        if (presentation == null) return;
+        Sprite original = GloomhavenVR.Cards.CardFaceMipBake.OriginalFor(presentation);
+        _rayAlphaTexture = original.texture;
+        if (original != presentation) _rayAlphaUv = SpriteUv(original) * SpriteUv(presentation).inverse;
+        GloomhavenVR.Cards.CardFaceMipBake.TryGetCachedAtlasPixels(_rayAlphaTexture, out _rayAlpha);
+    }
+
+    private static Matrix4x4 SpriteUv(Sprite sprite)
+    {
+        Vector2[] vertices = sprite.vertices, uv = sprite.uv;
+        for (int b = 1; b < vertices.Length; b++) for (int c = b + 1; c < vertices.Length; c++)
+        {
+            Vector2 a = (vertices[0] * sprite.pixelsPerUnit + sprite.pivot) / sprite.rect.size;
+            Vector2 p = (vertices[b] * sprite.pixelsPerUnit + sprite.pivot) / sprite.rect.size;
+            Vector2 q = (vertices[c] * sprite.pixelsPerUnit + sprite.pivot) / sprite.rect.size;
+            if (Mathf.Abs((p.x-a.x)*(q.y-a.y)-(p.y-a.y)*(q.x-a.x)) < 1e-8f) continue;
+            Matrix4x4 local = Matrix4x4.identity, texture = Matrix4x4.identity;
+            local.SetColumn(0, new Vector4(p.x-a.x,p.y-a.y,0f,0f));
+            local.SetColumn(1, new Vector4(q.x-a.x,q.y-a.y,0f,0f)); local.SetColumn(3, new Vector4(a.x,a.y,0f,1f));
+            texture.SetColumn(0, new Vector4(uv[b].x-uv[0].x,uv[b].y-uv[0].y,0f,0f));
+            texture.SetColumn(1, new Vector4(uv[c].x-uv[0].x,uv[c].y-uv[0].y,0f,0f));
+            texture.SetColumn(3, new Vector4(uv[0].x,uv[0].y,0f,1f));
+            return texture * local.inverse;
+        }
+        return Matrix4x4.identity;
+    }
+
+    private float RayAlpha(Vector2 uv)
+    {
+        Texture2D? texture = _rayAlphaTexture;
+        if (texture == null) return 1f;
+        Vector3 mapped = _rayAlphaUv.MultiplyPoint3x4(new Vector3(uv.x, uv.y));
+        if (_rayAlpha == null) return texture.isReadable ? texture.GetPixelBilinear(mapped.x, mapped.y).a : 1f;
+        float x = Mathf.Clamp01(mapped.x) * texture.width - .5f;
+        float y = Mathf.Clamp01(mapped.y) * texture.height - .5f;
+        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+        int x0 = Mathf.Clamp(ix,0,texture.width-1), y0 = Mathf.Clamp(iy,0,texture.height-1);
+        int x1 = Mathf.Clamp(ix+1,0,texture.width-1), y1 = Mathf.Clamp(iy+1,0,texture.height-1);
+        float a = Mathf.Lerp(_rayAlpha[y0*texture.width+x0].a,_rayAlpha[y0*texture.width+x1].a,Mathf.Repeat(x,1f));
+        float b = Mathf.Lerp(_rayAlpha[y1*texture.width+x0].a,_rayAlpha[y1*texture.width+x1].a,Mathf.Repeat(x,1f));
+        return Mathf.Lerp(a,b,Mathf.Repeat(y,1f))/255f;
+    }
+
+    internal bool RayContainsLocal(Vector3 point)
+    {
+        if (!IsReady || _stream.Count == 0) return false;
+        Vector3 origin = new(point.x, point.y, -1f);
+        for (int i = 0; i + 2 < _stream.Count; i += 3)
+        {
+            UIVertex a = _stream[i], b = _stream[i+1], c = _stream[i+2];
+            if (!MenuDepthRayGeometry.Triangle(origin, Vector3.forward, a.position, b.position, c.position,
+                10f, out _, out Vector3 barycentric)) continue;
+            Vector2 uv = (Vector2)a.uv0*barycentric.x+(Vector2)b.uv0*barycentric.y+(Vector2)c.uv0*barycentric.z;
+            if ((a.color.a*barycentric.x+b.color.a*barycentric.y+c.color.a*barycentric.z)*RayAlpha(uv) > .255f) return true;
+        }
+        return false;
+    }
+
+    public void BeforeCapture(MenuDepthEye eye)
+    {
+        SyncNativeEffect();
+        bool project = eye.ProjectToGraphicPlane;
+        Vector3 localEye = transform.InverseTransformPoint(eye.WorldPosition);
+        if (project != _projected || (project && localEye != _eye))
+        {
+            _projected = project; _eye = localEye; graphic.SetVerticesDirty();
+        }
+    }
+    public void AfterCapture()
+    {
+        if (!_projected) return;
+        _projected = false;
+        if (graphic != null) graphic.SetVerticesDirty();
+    }
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        if (_configured) BindRayAlpha(_sprite);
+        if (_configured) { MenuDepthSources.Register(this); _planeRegistrationReleased = false; }
+    }
+    protected override void OnDisable()
+    {
+        MenuDepthSources.Unregister(this); _projected = false;
+        _rayAlpha = null; _rayAlphaTexture = null;
+        ReleaseMaterial(); base.OnDisable();
+        if (graphic != null) graphic.SetMaterialDirty();
+    }
+    protected override void OnDestroy()
+    {
+        _rayAlpha = null; _rayAlphaTexture = null;
+        MenuDepthSources.Unregister(this); ReleaseMaterial(); base.OnDestroy();
+    }
+
+    public Material GetModifiedMaterial(Material original)
+    {
+        bool plane = MenuDepthHeadRaster.Active && HasPlaneOwner(true);
+        if (!IsReady || (_field == null && !plane)) return original;
+        // Only the native colour contracts covered by the existing renderer
+        // can transport a raised plane; other shaders keep their own material.
+        string sourceName = original.shader.name;
+        bool nativeCard = plane && sourceName == "GUI/AbilityCard_Shd";
+        if (_field == null && sourceName != "UI/Default" && sourceName != "UI/Dissolve mask" && !nativeCard) return original;
+        Shader? shader = nativeCard ? MenuDepthDisplay.NativeCardShader : MenuDepthDisplay.DepthShader;
+        if (shader == null) return original;
+        if (_depthMaterial == null || _baseMaterial != original)
+        {
+            ReleaseMaterial();
+            _baseMaterial = original;
+            _depthMaterial = new Material(shader) { name = "GloomhavenVR.MenuDepthGraphic", hideFlags = HideFlags.HideAndDontSave };
+        }
+        if (_depthMaterial.shader != shader) _depthMaterial.shader = shader;
+        _depthMaterial.CopyPropertiesFromMaterial(original);
+        _nativeCardMaterial = nativeCard;
+        if (nativeCard)
+        {
+            // Exact original DXBC and effect properties; only the derived pass's
+            // depth write differs. Its existing alpha-clip variant rejects empty
+            // animated sprite ink instead of writing a rectangular depth blocker.
+            _depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP");
+            return _depthMaterial;
+        }
+        SyncNativeEffect();
+        return _depthMaterial;
+    }
+
+    private void SyncNativeEffect()
+    {
+        if (_depthMaterial == null || _image == null || _nativeCardMaterial) return;
+        Material source = _image.material;
+        Shader shader = source.shader;
+        if (_nativeMaterial != source || _nativeShader != shader)
+        {
+            _nativeMaterial = source; _nativeShader = shader;
+            _nativeDissolve = shader != null && shader.name == "UI/Dissolve mask";
+        }
+        _depthMaterial.SetFloat(DissolveId, _nativeDissolve ? 1f : 0f);
+        _depthMaterial.SetFloat(SourceBlendId, _nativeDissolve ? 5f : 1f); // Native SrcAlpha vs ordinary premultiplied One.
+        if (!_nativeDissolve) return;
+        // Every original story/event image uses this material. Its native tween
+        // writes Image.material._Cutoff without dirtying uGUI's material cache.
+        // Poll the original instance on each eye lease, after copying stencil
+        // properties, rather than freezing the one-second reveal in our clone.
+        _depthMaterial.SetTexture(MaskId, source.GetTexture(MaskId));
+        _depthMaterial.SetTextureScale("_Mask", source.GetTextureScale("_Mask"));
+        _depthMaterial.SetTextureOffset("_Mask", source.GetTextureOffset("_Mask"));
+        _depthMaterial.SetTextureScale("_MainTex", source.GetTextureScale("_MainTex"));
+        _depthMaterial.SetTextureOffset("_MainTex", source.GetTextureOffset("_MainTex"));
+        _depthMaterial.SetFloat(CutoffId, source.GetFloat(CutoffId));
+        _depthMaterial.SetFloat(EdgeWeightId, source.GetFloat(EdgeWeightId));
+    }
+
+    public override void ModifyMesh(VertexHelper vertices)
+    {
+        if (!IsReady || _image == null) return;
+        _stream.Clear(); vertices.GetUIVertexStream(_stream);
+        if (_stream.Count == 0) return;
+        if (_field == null)
+        {
+            float bias = HeadBackingBias(); _headBackingMesh = bias != 0f;
+            float depth = Mathf.Min(_image.rectTransform.rect.width, _image.rectTransform.rect.height) * _depthRatio + bias;
+            vertices.Clear();
+            for (int i = 0; i < _stream.Count; i++)
+            {
+                UIVertex vertex = _stream[i]; vertex.position.z += depth;
+                vertex.position = Project(vertex.position); vertices.AddVert(vertex);
+            }
+            for (int i = 0; i < _stream.Count; i += 3) vertices.AddTriangle(i, i + 1, i + 2);
+            return;
+        }
+        if (!SameInput() && !BuildGrid()) return;
+        vertices.Clear();
+        for (int i = 0; i < _grid.Count; i++)
+        {
+            UIVertex vertex = _grid[i]; vertex.position = Project(vertex.position); vertices.AddVert(vertex);
+        }
+        for (int i = 0; i < _triangles.Count; i += 3)
+            vertices.AddTriangle(_triangles[i], _triangles[i + 1], _triangles[i + 2]);
+    }
+
+    private Vector3 Project(Vector3 point)
+    {
+        if (!_projected || _eye.z >= -1e-5f) return point;
+        return MenuDepthProjection.ProjectToPlane(point, _eye);
+    }
+
+    private bool SameInput()
+    {
+        if (_input.Count != _stream.Count || _grid.Count == 0) return false;
+        for (int i = 0; i < _input.Count; i++)
+        {
+            UIVertex a = _input[i], b = _stream[i];
+            if (a.position != b.position || a.uv0 != b.uv0 || a.uv1 != b.uv1 || a.normal != b.normal
+                || a.tangent != b.tangent || a.color.r != b.color.r || a.color.g != b.color.g
+                || a.color.b != b.color.b || a.color.a != b.color.a) return false;
+        }
+        return true;
+    }
+
+    private bool BuildGrid()
+    {
+        _input.Clear(); _grid.Clear(); _triangles.Clear();
+        if (_field == null || _stream.Count % 6 != 0 || _stream.Count > 96)
+        { Refuse("unsupported native image mesh"); return false; }
+        for (int i = 0; i < _stream.Count; i++)
+            if (float.IsNaN(_stream[i].uv0.x) || float.IsInfinity(_stream[i].uv0.x)
+                || float.IsNaN(_stream[i].uv0.y) || float.IsInfinity(_stream[i].uv0.y))
+            { Refuse("non-finite native image UVs"); return false; }
+        // Card-plane helpers never build a heightfield. Retain the warm buffers
+        // only once an actual image relief needs them.
+        if (_grid.Capacity < 4096) _grid.Capacity = 4096;
+        if (_triangles.Capacity < 16000) _triangles.Capacity = 16000;
+        int columns = Mathf.Clamp(Mathf.CeilToInt(_image!.rectTransform.rect.width / 24f), 8, 64);
+        int rows = Mathf.Clamp(Mathf.CeilToInt(_image.rectTransform.rect.height / 24f), 8, 40);
+        float depth = _image.rectTransform.rect.width * _depthRatio;
+        for (int start = 0; start < _stream.Count; start += 6)
+        {
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            for (int i = 0; i < 6; i++)
+            {
+                Vector3 p = _stream[start + i].position;
+                x0 = Mathf.Min(x0, p.x); y0 = Mathf.Min(y0, p.y); x1 = Mathf.Max(x1, p.x); y1 = Mathf.Max(y1, p.y);
+            }
+            if (x1 - x0 < 1e-5f || y1 - y0 < 1e-5f) { Refuse("degenerate native image mesh"); return false; }
+            UIVertex bottomLeft = Corner(start, x0, y0), topLeft = Corner(start, x0, y1);
+            UIVertex bottomRight = Corner(start, x1, y0), topRight = Corner(start, x1, y1);
+            int first = _grid.Count;
+            for (int y = 0; y <= rows; y++) for (int x = 0; x <= columns; x++)
+            {
+                float u = x / (float)columns, v = y / (float)rows;
+                UIVertex vertex = Lerp(Lerp(bottomLeft, bottomRight, u), Lerp(topLeft, topRight, u), v);
+                float edge = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
+                float t = Mathf.Clamp01(edge / .06f); float feather = t * t * (3f - 2f * t);
+                vertex.position.z += depth * (1f - _field.Sample(vertex.uv0.x * _depthUv.x + _depthUv.z,
+                    vertex.uv0.y * _depthUv.y + _depthUv.w)) * feather;
+                _grid.Add(vertex);
+            }
+            for (int y = 0; y < rows; y++) for (int x = 0; x < columns; x++)
+            {
+                int a = first + y * (columns + 1) + x, b = a + columns + 1;
+                _triangles.Add(a); _triangles.Add(b); _triangles.Add(b + 1);
+                _triangles.Add(b + 1); _triangles.Add(a + 1); _triangles.Add(a);
+            }
+        }
+        if (_grid.Count > 60000) { _grid.Clear(); Refuse("native image mesh exceeds its vertex bound"); return false; }
+        _input.AddRange(_stream);
+        return true;
+    }
+
+    private UIVertex Corner(int start, float x, float y)
+    {
+        int best = start; float distance = float.MaxValue;
+        for (int i = start; i < start + 6; i++)
+        {
+            Vector3 p = _stream[i].position; float next = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+            if (next < distance) { best = i; distance = next; }
+        }
+        return _stream[best];
+    }
+    private static UIVertex Lerp(UIVertex a, UIVertex b, float t)
+    {
+        UIVertex result = a;
+        result.position = Vector3.LerpUnclamped(a.position, b.position, t);
+        result.color = Color32.Lerp(a.color, b.color, t);
+        result.uv0 = Vector4.LerpUnclamped(a.uv0, b.uv0, t);
+        result.uv1 = Vector4.LerpUnclamped(a.uv1, b.uv1, t);
+        result.normal = Vector3.LerpUnclamped(a.normal, b.normal, t);
+        result.tangent = Vector4.LerpUnclamped(a.tangent, b.tangent, t);
+        return result;
+    }
+    private void ReleaseMaterial()
+    {
+        if (_depthMaterial != null) UnityEngine.Object.Destroy(_depthMaterial);
+        _depthMaterial = _baseMaterial = null;
+        _nativeMaterial = null; _nativeShader = null; _nativeDissolve = _nativeCardMaterial = false;
+    }
+    private static void Refuse(string reason)
+    {
+        if (++_refused <= 4) VRLog.Warn("WorldUI", "MENU DEPTH MESH REFUSED: " + reason + "; native image retained.");
+    }
+}

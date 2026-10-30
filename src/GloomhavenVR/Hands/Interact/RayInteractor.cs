@@ -40,8 +40,16 @@ internal sealed class RayInteractor : IPickProvider
     /// change of hit and not per frame (<see cref="WorldUI.WindowMaterialise.ProbePointerHit"/>).</summary>
     private Collider? _lastProbedCollider;
 
-    /// <summary>Layers the pick ray tests. Phase-3a sets the game's selection mask here.</summary>
-    public LayerMask Mask = Physics.DefaultRaycastLayers;
+    /// <summary>Layers the native pick ray tests. Phase-3a sets the game's selection mask here.</summary>
+    // The ready main menu has no native board/map controller to replace this default. Its new
+    // window's generous palm trigger lies about a centimetre in front of the visible rod, so
+    // native Physics.Raycast could hit that box first and RayGrabDriver correctly refused what
+    // looked like a nearer obstacle. After a real physics sync the menu could not be laser-carried.
+    // The dedicated mod layer is render/registry geometry: world UI and narrow rods are picked
+    // directly, while fans/boards retain their explicit solid-distance arbitration. Keep it out
+    // of the default NATIVE pick, as the existing scenario/map selection masks already do; their
+    // actual authored mask overrides remain authoritative and unchanged.
+    public LayerMask Mask = Physics.DefaultRaycastLayers & ~Core.VRLayers.ModLayerMask;
 
     // Test #14 item 2: the former ReticleOverride (Board hex-snap moved the visible
     // dot to the hex center) is GONE — any override that moves the end point off the

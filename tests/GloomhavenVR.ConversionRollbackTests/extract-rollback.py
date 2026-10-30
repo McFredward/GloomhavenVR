@@ -15,6 +15,8 @@ def method(source, signature):
     return source[start:source.index('\n    }', start) + len('\n    }')]
 c = code(method(core, '    internal static ConvertedPanel? Convert('))
 ordered = ['using var transaction = new ConversionTransaction(panel);', 'var hostGo = new GameObject(', 'panel.HostGo = hostGo;', 'var hostRect = hostGo.AddComponent<RectTransform>();', 'panel.HostRect = hostRect;', 'var hostCanvas = hostGo.AddComponent<Canvas>();', 'panel.HostCanvas = hostCanvas;', 'panel.HostRaycaster = raycaster;', 'target.SetParent(hostRect, worldPositionStays: false);', 'AdoptNestedCanvases(panel);', 'SetPanelRenderVisible(panel, visible: false);', 'Active.Add(panel);', 'DiagnoseModal(panel, force: true);', 'transaction.Complete();', 'return panel;']
+menu_handoff = ordered.index('target.SetParent(hostRect, worldPositionStays: false);')
+ordered[menu_handoff:menu_handoff] = ['panel.OriginalNativeMenuCanvasMode = menuCanvas.renderMode;', 'menuCanvas.renderMode = RenderMode.WorldSpace;']
 positions = [c.index(token) for token in ordered]
 assert positions == sorted(positions), 'Conversion transaction ownership must precede native mutation and diagnostics must precede commit'
 assert c.index('HasFailedConversion(target)') < c.index('using var transaction'), 'Pending rollback must block new adoption'
@@ -36,8 +38,13 @@ assert 'var wp = new WindowPanel' not in m and 'wp = new WindowPanel' in m
 start = life.index('    private sealed class ConversionTransaction')
 end = life.index('    /// <summary>Restore the panel into its original', start)
 helpers = life[start:end]
+menu_start = core.index('        Canvas? menuCanvas = capHeightToCanvas ?')
+menu_end = core.index('\n        AdoptNestedCanvases(panel);', menu_start)
+helpers += '\n    internal static void AttachMenuFrameForTest(ConvertedPanel panel) {\nvar target=panel.Target; var hostRect=panel.HostGo!.transform; var size=panel.OriginalSizeDelta; bool capHeightToCanvas=true;\n' + core[menu_start:menu_end] + '\n}\n    internal static int PendingCountForTest => FailedConversions.Count;\n'
 release = method(life, '    internal static void Release(ConvertedPanel? panel)')
 assert code(release).index('RestoreAdoptedCameras("release")') < code(release).index('panel.AdoptedCanvases.Clear();'), 'Failed camera restore must retain original snapshots'
+assert code(release).index('RestoreAdoptedCameras("release")') < code(release).index('panel.NativeMenuCanvas.renderMode = panel.OriginalNativeMenuCanvasMode;'), 'Native menu mode must restore after native camera ownership'
+assert 'if (panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel))' in code(release), 'A refused native home must retain its menu mode receipt'
 tick = code(method(life, '    internal static void Tick()'))
 assert tick.index('ServiceFailedConversions();') < tick.index('ServiceDeferredHosts();'), 'Native home retry must precede deferred host detachment'
 assert 'ServiceFailedConversions();' in code(method(life, '    internal static void ReleaseAll()'))

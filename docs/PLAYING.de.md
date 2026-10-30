@@ -107,8 +107,33 @@ Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieb
 mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
 Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
+Nach einem Laserzug dreht sich ein Fenster beim Loslassen normalerweise zu dir.
+Bei geteilten Fenstern sehen alle dieselbe Drehung zum letzten Spieler, der das
+Fenster losgelassen hat. Unter **VR Optionen ▸ Tafeln ▸ Beim Loslassen zu dir drehen**
+stellst du das Verhalten ein; bei einem geteilten Fenster gilt die Einstellung
+des loslassenden Spielers.
+
+**Weitere Charakterkarten:** Öffne die **Kartenansicht** im Charakterfenster und zeige
+auf **Weitere Karten** oder das Kartensymbol oben rechts. Mit dem Trigger öffnest du
+die Liste freigeschalteter Karten auch außerhalb eines Auflevelns; erneut drücken
+schließt sie. Es gelten weiterhin die normalen Verfügbarkeitsregeln des Spiels.
+
 **Truhenbelohnungen:** im Belohnungsfenster **Weiter** drücken. Im Multiplayer sehen alle
 die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe.
+
+**Räumliche Menüs:** Charaktervorschauen zeigen das lebendige Modell mit einer Perspektive,
+die deiner Blickposition folgt. Story- und Ereignisbilder haben Tiefe innerhalb ihrer Fenster;
+Symbole, Rahmen und Reiter sind leicht räumlich gestaffelt. Kompendium-Abbildungen liegen
+etwas hinter ihrem Rahmen. Fähigkeits-, Gegenstands-, Monster- und Angriffsmodifikatorkarten
+in Menüs ragen ebenfalls leicht aus dem Fenster heraus, auch beim Darüberzeigen. Verschiebe
+ein Fenster oder lehne dich zur Seite, um den Effekt zu sehen; Texte und Bedienelemente
+bleiben scharf.
+Zum Drehen der Figur in der Gruppen- oder Erstellungsvorschau mit dem Laser auf die Figur
+zeigen, den Trigger halten und seitlich bewegen. Beim Loslassen endet die Drehung;
+Figurposition und Fenster bleiben fest.
+Unter **VR Optionen ▸ Tafeln ▸ 2D-Schirm ▸ 3D-Figurenvorschau** wechselst du sofort zwischen
+räumlichen Figuren und ihrem ursprünglichen flachen Livebild. Die Option ist auf allen
+Systemen standardmäßig eingeschaltet; Karten-, Story- und Videotiefe bleiben unverändert.
 
 **3D-Videos:** Intro, Charakterfilme, Umgebungsfilme und Studio-Logo haben Tiefe im
 beweglichen Videofenster. Mit aktivierten Cheats kannst du im Szenario unter **VR Optionen ▸
@@ -121,7 +146,7 @@ aufgezeichnete Kameraperspektive behält.
 
 | Zeichen am Fenster | Wer sieht es? |
 |---|---|
-| <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt am Fensterrand und lässt den Inhalt frei. |
 | **Kein Symbol: lokal** | Nur du. |
 
 ## Die Kampagnenkarte

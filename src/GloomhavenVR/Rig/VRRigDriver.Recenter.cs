@@ -633,8 +633,9 @@ internal sealed partial class VRRigDriver
         if (_rigRoot == null || _camera == null)
             return;
         _rigRoot.transform.rotation = _menuAnchorYaw;
-        // Offset with the NEW yaw applied (rig scale is 1 in the menu).
-        Vector3 headOffsetWorld = _menuAnchorYaw * _camera.transform.localPosition;
+        // World-menu locomotion can now resize the rig too. Retain that deliberate zoom
+        // while placing the eyes at the authored vantage, including its scaled tracking offset.
+        Vector3 headOffsetWorld = _menuAnchorYaw * (_camera.transform.localPosition * _rigRoot.transform.localScale.x);
         _rigRoot.transform.position = _menuAnchorPos - headOffsetWorld;
         RigPoseVersion++;
         VRLog.Info("Rig", $"Menu rig recentered at the menu camera vantage (anchor {_menuAnchorPos}, " +

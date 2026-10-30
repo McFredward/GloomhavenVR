@@ -5,7 +5,12 @@ using UnityEngine;
 // Only tracked device input, game mode/config and notification sinks are fixture
 // ports. Production locomotion, scroll arbitration, Unity Time and transforms run
 // unchanged. No fixture implements a rig movement or chooses a smoothing result.
-namespace GloomhavenVR.Core.Events { }
+namespace GloomhavenVR.Core.Events
+{
+    // This existing clock scope exercises scenario motion; the menu-world scope
+    // executes native menu readiness and its locomotion exception separately.
+    internal static class MenuWorldContext { internal static bool IsReady => false; }
+}
 namespace GloomhavenVR.Core
 {
     internal static class VRLog

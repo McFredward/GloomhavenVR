@@ -11,6 +11,11 @@ static class Program
     static void Near(float actual, float expected, string message) => Check(Math.Abs(actual - expected) < .0001f, message + $": {actual} != {expected}");
     static void Main()
     {
+        Near(Quaternion.Euler(0,-90,0).eulerAngles.y,270,"portable yaw uses normalized Unity degrees");
+        Vector3 turned=Quaternion.Euler(0,90,0)*new Vector3(0,0,1);
+        Near(turned.x,1,"portable quaternion turns native forward to right");
+        Near((Quaternion.Euler(90,0,0)*new Vector3(0,0,1)).y,-1,"portable pitch preserves Unity rotation direction");
+        Near(Quaternion.Euler(11,37,19).eulerAngles.y,37,"portable yaw extraction retains independent pitch and roll");
         Vector3 a = new(-100, -2f, -100), b = new(100, 2f, -100), c = new(0, 0, 100);
         foreach (float x in new[] { -2f, 0f, 2f })
             foreach (float z in new[] { -1f, 0f, 1f })
@@ -26,6 +31,8 @@ static class Program
         MapRoomDriver.Floor = 20f;
         MapRoomDriver.Yaw = 0f;
         MapRoomDriver.Active = true;
+        GuildmasterRoomGeometry.Available = true;
+        GuildmasterRoomGeometry.Floor = 11f;
         foreach (float scale in new[] { 1f, 2f, 4f })
         {
             var room = new Transform { position = new Vector3(0, 3, 0) };
@@ -35,14 +42,21 @@ static class Program
             for (byte service = 1; service <= 3; service++)
             {
                 Check(TownServicePlacement.TryResolve(service, new Vector3(0, 21, 0), scale, out Vector3 p, out _), "valid placement");
-                Near(p.y, 3f + p.x * .02f, "mesh floor, never tracking floor");
+                Near(p.y, 11f, "native furniture plane overrides map seat floor and local terrain");
             }
+            Near(TownServicePlacement.GroundHeight(room,new Vector3(2,21,0)),3.04f,
+                "read-only local terrain helper preserves actual relief");
             floor.mesh!.isReadable = false;
             Check(TownServicePlacement.TryResolve(1, Vector3.zero, scale, out Vector3 fallback, out _), "unreadable floor");
-            Near(fallback.y, 3, "unreadable mesh exact plane fallback");
+            Near(fallback.y, 11, "unreadable local mesh cannot change the common native plane");
+            Near(TownServicePlacement.GroundHeight(room,Vector3.zero),3,"unreadable mesh exact plane fallback");
             SkyAlternative.PlacedRoomRoot = null;
             Check(TownServicePlacement.TryResolve(1, Vector3.zero, scale, out Vector3 mr, out _), "MR/default floor");
-            Near(mr.y, 20, "MR canonical seat");
+            Near(mr.y, 11, "MR retains the same common native furniture floor");
+            GuildmasterRoomGeometry.Available = false;
+            Check(TownServicePlacement.TryResolve(1,Vector3.zero,scale,out var campaign,out _),"map floor fallback");
+            Near(campaign.y,20,"missing native furniture uses the common map seat floor");
+            GuildmasterRoomGeometry.Available = true;
         }
         // Actual scene collision validation is in the real-mesh workspace audit. This
         // portable boundary checks unchanged pose semantics across reading-side changes.
@@ -77,6 +91,7 @@ static class Program
         MapRoomDriver.Yaw = 0;
         MapRoomDriver.Active = false;
         Check(!TownServicePlacement.TryResolve(1, Vector3.zero, 1, out _, out _), "no off-map spawn");
+        Check(!TownServicePlacement.TryCanonicalFloor(out _),"native furniture alone cannot establish an off-map floor");
         Console.WriteLine($"Town setting: {assertions} production geometry assertions passed");
         StationLifecycle.Run();
         GroundingLifecycle.Run();
@@ -95,6 +110,14 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
+    // Premeasured native furniture is an explicit boundary. This fixture executes
+    // production floor selection; real scene measurement belongs to the Unity workspace audit.
+    internal static class GuildmasterRoomGeometry
+    {
+        internal static bool Available;
+        internal static float Floor;
+        internal static bool TryFloor(out float floor) { floor=Floor;return Available; }
+    }
     internal static class MapRoomSeat { internal readonly struct Seat { internal readonly Vector3 FloorPosition; internal readonly float YawDegrees; internal Seat(float floor, float yaw) { FloorPosition = new Vector3(0, floor, 0); YawDegrees = yaw; } } }
     internal static class MapRoomDriver
     {
@@ -130,13 +153,23 @@ namespace UnityEngine
     }
     public struct Quaternion
     {
-        internal float yaw;
-        public static Quaternion identity=>new();
-        public static Quaternion operator *(Quaternion a,Quaternion b)=>new(){yaw=a.yaw+b.yaw};
-        public static Quaternion Inverse(Quaternion q)=>new(){yaw=-q.yaw};
-        public static Quaternion Euler(float x,float y,float z)=>new(){yaw=y*MathF.PI/180};
-        public static Quaternion LookRotation(Vector3 forward,Vector3 up)=>new();
-        public static Vector3 operator *(Quaternion q,Vector3 v)=>new(MathF.Cos(q.yaw)*v.x+MathF.Sin(q.yaw)*v.z,v.y,-MathF.Sin(q.yaw)*v.x+MathF.Cos(q.yaw)*v.z);
+        private System.Numerics.Quaternion _value;
+        private bool _set;
+        private System.Numerics.Quaternion Value=>_set?_value:System.Numerics.Quaternion.Identity;
+        private Quaternion(System.Numerics.Quaternion value){_value=value;_set=true;}
+        public static Quaternion identity=>new(System.Numerics.Quaternion.Identity);
+        public static Quaternion operator *(Quaternion a,Quaternion b)=>new(a.Value*b.Value);
+        public static Quaternion Inverse(Quaternion q)=>new(System.Numerics.Quaternion.Inverse(q.Value));
+        public static Quaternion Euler(float x,float y,float z)=>new(System.Numerics.Quaternion.CreateFromYawPitchRoll(y*MathF.PI/180,x*MathF.PI/180,z*MathF.PI/180));
+        // Only the Unity yaw component is consumed. General Euler decomposition,
+        // singular rotations and a real Unity hierarchy are outside this boundary.
+        public Vector3 eulerAngles=>new(0,(MathF.Atan2(2*(Value.W*Value.Y+Value.X*Value.Z),1-2*(Value.Y*Value.Y+Value.X*Value.X))*180/MathF.PI+360)%360,0);
+        public static Quaternion LookRotation(Vector3 forward,Vector3 up)=>Euler(0,MathF.Atan2(forward.x,forward.z)*180/MathF.PI,0);
+        public static Vector3 operator *(Quaternion q,Vector3 v)
+        {
+            var value=System.Numerics.Vector3.Transform(new System.Numerics.Vector3(v.x,v.y,v.z),q.Value);
+            return new(value.X,value.Y,value.Z);
+        }
     }
     public class Transform
     {
@@ -166,7 +199,7 @@ namespace UnityEngine
         public Vector3 position {get=>parent!=null?parent.TransformPoint(localPosition):localPosition;set=>localPosition=parent!=null?parent.InverseTransformPoint(value):value;}
         public Vector3 lossyScale=>parent!=null?new Vector3(parent.lossyScale.x*localScale.x,parent.lossyScale.y*localScale.y,parent.lossyScale.z*localScale.z):localScale;
         public Quaternion rotation;
-        public Vector3 eulerAngles=>new(0,rotation.yaw*180/MathF.PI,0);
+        public Vector3 eulerAngles=>rotation.eulerAngles;
         public int PoseWrites;
         public bool HasAnchor=true;
         public bool HasActor;
@@ -198,4 +231,4 @@ namespace UnityEngine
 }
 
 namespace UnityEngine { public class MeshRenderer { public Transform transform=new(); } }
-namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Quaternion YawOnly(Quaternion q)=>q; } }
+namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Quaternion YawOnly(Quaternion q)=>Quaternion.Euler(0,q.eulerAngles.y,0); } }

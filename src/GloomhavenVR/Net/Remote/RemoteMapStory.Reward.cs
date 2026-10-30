@@ -25,6 +25,7 @@ internal static partial class RemoteMapStory
     private static readonly Dictionary<int, float> RewardStampAt = new();
     private static readonly Dictionary<int, bool> RewardMoved = new(), RewardUnavailable = new(), RewardReady = new();
     private static readonly List<int> RewardParticipants = new();
+    private static readonly HashSet<int> RewardKnownParticipants = new();
     private static uint _rewardSentKey;
     private static object? _rewardOpening;
     private static bool _rewardSentPose, _rewardMoved, _rewardSentUnavailable, _rewardSentReady, _rewardWasPending;
@@ -55,6 +56,7 @@ internal static partial class RemoteMapStory
     {
         PostQuestRewardSync.Reset();
         _rewardOpening = null;
+        RewardKnownParticipants.Clear();
         RewardHandshake.Reset();
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
         RewardStampAt.Clear(); RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear(); RewardParticipants.Clear();
@@ -66,9 +68,11 @@ internal static partial class RemoteMapStory
         object? opening = PostQuestRewardSync.Opening;
         if (!ReferenceEquals(opening, _rewardOpening))
         {
+            SharedWindowMoves.Close(SharedWindowKind.RewardShowcase);
             // The original window and public reward group can both be reused. A new native
             // Show must not inherit an earlier occurrence's pose, claim or placement handshake.
             _rewardOpening = opening;
+            RewardKnownParticipants.Clear();
             RewardHandshake.RestartOpening(key); RewardLocal.Reset(); RewardHandoff.Reset();
             RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear(); RewardStampAt.Clear();
             RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear();
@@ -77,9 +81,23 @@ internal static partial class RemoteMapStory
         }
         RewardHandshake.SetLocalKey(key);
         if (RewardLocal.Key == key) return;
+        RewardKnownParticipants.Clear();
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
         _rewardWasPending = _rewardSentReady = false;
     }
+    /// <summary>Only the current actual reward publisher can relay an earlier opening. The
+    /// receiver must have positive exact-key decline or observed-departure evidence for its
+    /// known original participant; an arbitrary different origin is never an opening author.</summary>
+    internal static bool MayRelayRewardOpening(int sender, uint key, int originalAuthor)
+    {
+        int local = NetPlayerActors.LocalPlayerId();
+        if (key == 0 || key != RewardKey || sender <= 0 || originalAuthor <= 0
+            || originalAuthor == sender || originalAuthor == local || RewardShowcasePlacement.LocalPlacementFailed
+            || sender != RewardInitialOwner(key, local) || !RewardParticipants.Contains(sender)
+            || !RewardKnownParticipants.Contains(originalAuthor)) return false;
+        return RewardHandshake.PeerDeclined(originalAuthor, key) || !RewardParticipants.Contains(originalAuthor);
+    }
+    internal static int MoveOpeningAuthor(uint key) => RewardInitialOwner(key, NetPlayerActors.LocalPlayerId());
     internal static void SampleReward(ref PresenceState presence, int localPlayerId)
     {
         _rewardPlayerId = localPlayerId;
@@ -144,7 +162,14 @@ internal static partial class RemoteMapStory
         SharedWindowEntry entry = presence.RewardWindow.Window;
         if (RewardPeers.TryGetValue(sender, out PeerEntry previous) && previous.ContentKey != entry.ContentKey)
             ForgetReward(sender);
-        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext, kind: (int)SharedWindowKind.RewardShowcase, referenceScale: presence.WindowScales?.Reference((int)SharedWindowKind.RewardShowcase) ?? 0f);
+        bool accepted = SharedWindowMoves.Accepted(sender, SharedWindowKind.RewardShowcase, entry.ContentKey);
+        var incoming = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext,
+            kind: (int)SharedWindowKind.RewardShowcase, referenceScale: presence.WindowScales?.Reference((int)SharedWindowKind.RewardShowcase) ?? 0f,
+            allowPose: accepted);
+        if (!accepted && RewardPeers.TryGetValue(sender, out PeerEntry previousPose) && previousPose.ContentKey == entry.ContentKey
+            && SharedWindowMoves.PoseStillCurrent(sender, SharedWindowKind.RewardShowcase, entry.ContentKey))
+            incoming = new PeerEntry(in incoming, in previousPose);
+        RewardPeers[sender] = incoming;
         RewardMoved[sender] = presence.RewardWindow.Moved;
         RewardUnavailable[sender] = presence.RewardWindow.Unavailable;
         RewardReady[sender] = presence.RewardWindow.Ready;
@@ -182,6 +207,7 @@ internal static partial class RemoteMapStory
     private static void RefreshRewardHandshake(int localPlayerId)
     {
         NetAvatarDriver.CollectRewardPosePeers(RewardParticipants);
+        foreach (int peer in RewardParticipants) RewardKnownParticipants.Add(peer);
         RewardHandshake.Refresh(localPlayerId, RewardParticipants, Time.unscaledTime, PeerStaleSeconds);
     }
     private static int RewardInitialOwner(uint key, int localPlayerId)

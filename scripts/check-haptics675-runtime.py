@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from town_run_retention import cleanup_completed_run
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -93,17 +94,27 @@ internal static class BoardPick { internal enum PickSource { None, Far, Near } i
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--source-root',type=Path,default=ROOT);parser.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/haptics675-runtime');args=parser.parse_args();root=args.source_root.resolve()
-    bound,hashes=bind(root);args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
+    started=time.monotonic();bound,hashes=bind(root);args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
     print('evidence: '+str(run),flush=True)
     completion=run/'completion.log';completion.write_text('evidence: '+str(run)+'\n');outcome={'exit_code':1,'reaped':True}
     def cleanup():
         receipt=cleanup_completed_run('haptics675-runtime',outcome['exit_code'],completion,root,process_reaped=outcome['reaped']);(run/'cache-cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
+        (run/'result.json').write_text(json.dumps({**outcome,'elapsed_seconds':time.monotonic()-started},indent=2)+'\n')
     atexit.register(cleanup)
     unity=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity'));game=root/'ressources/GH_Data/Managed';fixture=root/'scripts/haptics675-runtime'
     retained=run/'Sources';retained.mkdir();shutil.copytree(fixture,retained/'fixture');shutil.copyfile(Path(__file__),retained/'check-haptics675-runtime.py')
     fixture_hashes={str(file.relative_to(retained)):hashlib.sha256(file.read_bytes()).hexdigest() for file in retained.rglob('*') if file.is_file()}
     fixture=retained/'fixture'
     native_hashes={name:hashlib.sha256((game/name).read_bytes()).hexdigest() for name in ['GH.Runtime.dll','GH.Runtime.FirstPass.dll','UnityEngine.UI.dll']}
+    pin_paths=[unity,Path.home()/'.dotnet/dotnet',*game.glob('*.dll'),*(unity.parent/'Data/Managed/UnityEngine').glob('*.dll'),
+        *Path('/home/claw/.dotnet/sdk').glob('*/Roslyn/bincore/*')]
+    pin_paths += [p for package in ['bepinex.assemblypublicizer.msbuild/0.4.3','bepinex.assemblypublicizer/0.4.3']
+        for p in (Path.home()/'.nuget/packages'/package).rglob('*') if p.is_file()]
+    dependency_pins={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in pin_paths if path.is_file()}
+    (run/'dependency-pins.json').write_text(json.dumps(dependency_pins,indent=2)+'\n')
+    for name in hashes:
+        destination=retained/'input-snapshots'/name;destination.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(root/'src/GloomhavenVR'/name,destination)
     pingpong=bound['HoverHaptics.cs'].replace('    internal bool Enter(', '    private object? _lastRegion;\n    internal bool Enter(',1).replace('        int oldest = 0;', '        bool regionChanged = !ReferenceEquals(_lastRegion, target);\n        _lastRegion = target;\n        int oldest = 0;',1).replace('bool entered = now - entry.SeenAt > ExitGraceSeconds || now < entry.SeenAt;', 'bool entered = regionChanged || now - entry.SeenAt > ExitGraceSeconds || now < entry.SeenAt;',1)
     variants=[('production',None,None,None,''),
         ('per-driver-duplicates','HoverHaptics.cs','bool entered = now - entry.SeenAt > ExitGraceSeconds || now < entry.SeenAt;','bool entered = true;','simultaneous distinct action producers tick each region once without ping-pong'),
@@ -116,6 +127,7 @@ def main():
         ('passive-board-buzz','Board.cs',' || BoardPick.Source != BoardPick.PickSource.Near','', 'passive far board tooltip hover is silent')]
     manifest={'result':str(run/'results.txt'),'cases':[]}
     (run/'source-hashes.json').write_text(json.dumps({'production':hashes,'fixture':fixture_hashes,'publisher':native_hashes,'limits':__doc__},indent=2)+'\n')
+    assemblies=run/'assemblies';assemblies.mkdir()
     for name,file,before,after,expected in variants:
         case=run/name;production=case/'production';production.mkdir(parents=True)
         for filename,source in bound.items():
@@ -124,10 +136,15 @@ def main():
                 source=source.replace(before,after,1)
             (production/filename).write_text(source)
         csproj=case/'Haptics.csproj';shutil.copyfile(fixture/'Haptics.csproj',csproj);assembly='Haptics675_'+name.replace('-','_')
-        build=subprocess.run([str(Path.home()/'.dotnet/dotnet'),'build',str(csproj),'-c','Release','--nologo','-v','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game)],capture_output=True,text=True)
+        build=subprocess.run([str(Path.home()/'.dotnet/dotnet'),'build',str(csproj),'-c','Release','--nologo','-v','quiet',
+            '--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),
+            '-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game)],capture_output=True,text=True)
         (case/'build.log').write_text(build.stdout+build.stderr)
         if build.returncode:raise SystemExit(build.stdout+build.stderr)
-        manifest['cases'].append({'name':name,'dll':str(case/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+        dll=assemblies/(assembly+'.dll');shutil.copyfile(case/'bin/Release/netstandard2.1'/dll.name,dll)
+        shutil.copyfile(case/'obj/project.assets.json',case/'resolved-build-assets.json')
+        manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected})
+    (run/'assembly-pins.json').write_text(json.dumps({str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in assemblies.glob('*.dll')},indent=2)+'\n')
     project=run/'unity'
     for name in ['Assets/Editor','Assets/Plugins','Packages','ProjectSettings']:(project/name).mkdir(parents=True,exist_ok=True)
     shutil.copyfile(game/'UnityEngine.UI.dll',project/'Assets/Plugins/UnityEngine.UI.dll')
@@ -149,6 +166,11 @@ def main():
     receipt=Path(manifest['result'])
     if receipt.is_file():print(receipt.read_text(),end='')
     if returncode or not receipt.is_file():raise SystemExit('FAIL haptics runtime; see '+str(run/'unity.log'))
+    stable=all(Path(path).is_file() and hashlib.sha256(Path(path).read_bytes()).hexdigest()==sha for path,sha in dependency_pins.items())
+    stable=stable and hashes==bind(root)[1] and all(hashlib.sha256((retained/file).read_bytes()).hexdigest()==sha for file,sha in fixture_hashes.items())
+    outcome['source_stable']=stable
+    (run/'source-stability.json').write_text(json.dumps({'unchanged':stable,'dependencies':len(dependency_pins),'production':len(hashes)},indent=2)+'\n')
+    if not stable:raise SystemExit('FAIL haptics inputs changed during run')
     outcome['exit_code']=0
     print('PASS source-bound semantic haptics and '+str(len(variants)-1)+' causal controls; evidence: '+str(run))
 

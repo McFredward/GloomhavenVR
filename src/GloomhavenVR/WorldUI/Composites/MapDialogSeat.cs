@@ -78,6 +78,7 @@ internal static class MapDialogSeat
 
         internal LayoutElement? AddedIgnore;
         internal bool HomeIgnoreLayout;
+        internal bool RestoreFailureReported;
 
         /// <summary>The size captured BEFORE the anchor write — the ModBuild 232 term.</summary>
         internal Vector2 ParkedSize;
@@ -136,6 +137,11 @@ internal static class MapDialogSeat
             Wait(ItemSeat, string.Empty);
             return;
         }
+        if (window != null && ConfirmationOnOwner.IsOwned(window))
+        {
+            Wait(ItemSeat, string.Empty);
+            return; // exact producer member retired this seat before taking its native snapshot
+        }
         if (window == null || !StillShowing(window))
         {
             Release(ItemSeat, "the item confirmation box is closed and has finished fading out");
@@ -168,6 +174,13 @@ internal static class MapDialogSeat
     /// request can precede the first modal tick, and the native box retains no type to recover.
     /// Buy/Sell/General are still read exclusively from the game's unchanged announcement.
     /// </summary>
+    internal static bool ReleaseForConfirmationOwner(UIWindow window)
+    {
+        if (TownServicePresentation.OwnsWindow(window)) return false;
+        if (ItemSeat.Parked == null || !ReferenceEquals(ItemSeat.Parked, window.transform)) return true;
+        return Release(ItemSeat, "the exact native producer takes over its item confirmation");
+    }
+
     internal static void ObserveItemBox(UIItemConfirmationBox? box)
     {
         if (ReferenceEquals(_itemBox, box)) return;
@@ -387,8 +400,8 @@ internal static class MapDialogSeat
 
         // Seated on the WRONG window (the player switched destinations under an open dialog) —
         // hand back first, so the home this park records is the real one and never a previous park's.
-        if (seat.Parked != null)
-            Release(seat, "the raising window changed while the dialog was open");
+        if (seat.Parked != null
+            && !Release(seat, "the raising window changed while the dialog was open")) return;
 
         Vector2 measured = rect.rect.size;
         if (measured.x < MinParkSizePx || measured.y < MinParkSizePx)
@@ -545,20 +558,24 @@ internal static class MapDialogSeat
     }
 
     /// <summary>Hand the dialog back to the game VERBATIM. Idempotent and never throws out.</summary>
-    private static void Release(Seat seat, string why, bool releaseCancellation = true)
+    private static bool Release(Seat seat, string why, bool releaseCancellation = true)
     {
         if (releaseCancellation) DetachHostCancellation(seat);
         if (seat.Parked == null)
         {
             seat.Host = null;
-            return;
+            return true;
         }
         RectTransform rect = seat.Parked;
-        seat.Parked = null;
-        seat.Host = null;
-        seat.ParkedSize = Vector2.zero;
+        bool restored = false;
         try
         {
+            if (seat.Home == null) return false;
+            rect.SetParent(seat.Home, worldPositionStays: false);
+            // Unity can reject reparenting without throwing. Keep the complete
+            // native snapshot until a verified restoration, before another owner
+            // records any home or the same frame's next writer can take the root.
+            if (!ReferenceEquals(rect.parent, seat.Home)) return false;
             if (seat.AddedIgnore != null)
             {
                 Object.Destroy(seat.AddedIgnore);
@@ -566,13 +583,10 @@ internal static class MapDialogSeat
             }
             else
             {
-                var le = rect != null ? rect.GetComponent<LayoutElement>() : null;
+                var le = rect.GetComponent<LayoutElement>();
                 if (le != null)
                     le.ignoreLayout = seat.HomeIgnoreLayout;   // verbatim, not assumed-false
             }
-            if (rect == null || seat.Home == null)
-                return;
-            rect.SetParent(seat.Home, worldPositionStays: false);
             CanvasConversion.TransferSeatedSubtree(rect,
                 seat.HomeWindow != null ? ModalFallback.PanelFor(seat.HomeWindow) : null);
             rect.SetSiblingIndex(Mathf.Clamp(seat.HomeIndex, 0, Mathf.Max(0, seat.Home.childCount - 1)));
@@ -601,21 +615,33 @@ internal static class MapDialogSeat
                               + $"{seat.ParkedFromLayer} this park recorded). NOTHING WAS CLAIMED AND "
                               + "NOTHING WAS HELD BACK, so there is no claim to lapse and no window "
                               + "waiting on this line.");
+            restored = true;
+            return true;
         }
         catch (System.Exception e)
         {
-            VRLog.Alert(Scope, $"MAP DIALOG SEAT: handing {seat.Label} back threw ({e.GetType().Name}) "
+            if (!seat.RestoreFailureReported)
+                VRLog.Alert(Scope, $"MAP DIALOG SEAT: handing {seat.Label} back threw ({e.GetType().Name}) "
                                + "— it may be left under the raising window's root. It is the GAME's "
                                + "own object, the game re-parents nothing, and the next "
                                + "ShowConfirmation re-lays it out.");
+            seat.RestoreFailureReported = true;
+            return false;
         }
         finally
         {
-            seat.Home = null;
-            seat.HomeWindow = null;
-            seat.ParkedLayerCount = 0;
-            seat.ParkedFromLayer = -1;
-            seat.ParkedToLayer = -1;
+            if (restored)
+            {
+                seat.Parked = null;
+                seat.Host = null;
+                seat.ParkedSize = Vector2.zero;
+                seat.RestoreFailureReported = false;
+                seat.Home = null;
+                seat.HomeWindow = null;
+                seat.ParkedLayerCount = 0;
+                seat.ParkedFromLayer = -1;
+                seat.ParkedToLayer = -1;
+            }
         }
     }
 

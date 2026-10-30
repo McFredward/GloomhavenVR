@@ -49,6 +49,16 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // The native decision/No route executes in the real confirmation fixture.
+    // This boundary observes only the admitted user-close intent and its order
+    // against the actual complete modal closer's permission/mutation branches.
+    internal static class ConfirmationOnOwner
+    {
+        internal static int CloseIntents;
+        internal static Action<UIWindow>? OnCloseIntent;
+        internal static void BeforeUserWindowClose(UIWindow window)
+        { CloseIntents++; OnCloseIntent?.Invoke(window); }
+    }
     // Exact native promise identity/eligibility is covered by the onboarding suite.
     // These modal-admission subjects have no pending merchant tutorial snapshot.
     internal static class TownServiceTutorialPatches
@@ -91,6 +101,7 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    public static class MapCityEventReadyUp { public static UIWindow? Window; }
     // The actual native quest identity/admission runs in map-quest-selection-runtime.
     // This boundary verifies that the complete modal closer honors its semantic result.
     public static class MapLocationInteractor

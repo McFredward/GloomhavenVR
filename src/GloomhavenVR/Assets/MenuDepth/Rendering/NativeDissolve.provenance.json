@@ -1,0 +1,38 @@
+{
+  "native_shader": "UI/Dissolve mask",
+  "source_asset": "GH_Data/sharedassets2.assets",
+  "source_asset_sha256": "f5ec23ce0aa818b10910ba040f92523654b7e04074b4497ba58c8c4dfb64da0d",
+  "shader_path_id": 136,
+  "raw_shader_sha256": "6ffe299b69a809eafbdd147702c511f48b7e6f7d5a6d401f55ea5e9587ae2fbe",
+  "native_platform": "D3D11 (Unity platform4), all three hardware tiers, no shader keywords",
+  "vertex_dxbc_sha256": "076c53f158c731b2703f8baa965b0b668ddd6df4f2f07875ca6e081db5592fbe",
+  "fragment_dxbc_sha256": "6759a3905d6da9e7464b1c344227dd6e2ab902265e3c08d7b16af1b5a7fee65e",
+  "evidence": "Direct native DXBC SHDR disassembly and independently translated SPIR-V/HLSL; retained in main .planning/debug/menu-depth723/material-audit/run-ohye58v4/native-programs.json and native-{vertex,fragment}.dxbc.asm",
+  "native_vertex": "World and view-projection matrix transform; COLOR0 unchanged; uv*_MainTex_ST.xy+_MainTex_ST.zw and uv*_Mask_ST.xy+_Mask_ST.zw independently.",
+  "native_fragment": "m=Mask.r; discard iff m<Cutoff; c=MainTex*vertexColor; output.rgb=c.rgb; output.a=(((m-Cutoff)*c.a)/m)*EdgeWeight. No saturation, premultiplication, texture sample add, _Color or alpha rounding.",
+  "native_blend": "Add, SrcAlpha/OneMinusSrcAlpha for both RGB and alpha; cull off; unity_GUIZTestMode; native stencil and ColorMask properties.",
+  "depth_extension": "ZWrite enabled; reject exactly nonpositive opacity before writing depth; preserve existing VR RectMask2D aperture projection and softness.",
+  "material_contract": {
+    "ordinary_ui": { "_GvrMenuDepthDissolve": 0, "_GvrMenuDepthSrcBlend": 1 },
+    "native_dissolve": { "_GvrMenuDepthDissolve": 1, "_GvrMenuDepthSrcBlend": 5 },
+    "live_original_properties": ["_Mask", "_Mask_ST", "_MainTex_ST", "_Cutoff", "_EdgeWeight"]
+  },
+  "native_mask": {
+    "asset": "GH_Data/resources.assets",
+    "path_id": 343,
+    "name": "Noise1",
+    "dimensions": [256, 256],
+    "format": "DXT1 / BC1",
+    "mip_count": 9,
+    "bc1_mip_bytes": 43704,
+    "bc1_mip_sha256": "b1ee5261a7bbcbe5098044d8dd152ded213b3df691657836385b9628673a9ceb",
+    "filter": "Bilinear",
+    "wrap": "Repeat",
+    "color_space": "Native m_ColorSpace1 (sRGB); game active color space0 (Gamma)"
+  },
+  "native_materials": {
+    "narrative": { "asset": "sharedassets2.assets", "path_id": 6, "edge_weight": 2.4900000095 },
+    "event": { "asset": "sharedassets4.assets", "path_id": 6, "edge_weight": 1.0 }
+  },
+  "validation_boundary": "Native shader is D3D11-only. OpenGL comparison uses an independent reference transcribed from the pinned DXBC, actual native BC1 mask data and an independent CPU scalar/blend oracle; it is not a native D3D11 or headset execution claim."
+}

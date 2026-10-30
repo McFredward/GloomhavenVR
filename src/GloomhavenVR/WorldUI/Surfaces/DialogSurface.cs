@@ -42,6 +42,14 @@ internal sealed class DialogSurface
         if (_panel != null && !_panel.IsAlive)
             _panel = null;
 
+        // A generic confirmation raised by a native screen belongs to that screen.
+        // This also maintains MainMenuInstance confirmations handled by the fallback
+        // converter rather than this dedicated surface. Both original managers retain
+        // their own callbacks and lifetimes.
+        ConfirmationOnOwner.Tick();
+        if (_panel != null && !_panel.IsAlive)
+            _panel = null;
+
         // (Re-)attach to the live scenario manager instance.
         UIConfirmationBoxManager? manager =
             Singleton<UIConfirmationBoxManager>.IsInitialized ? Singleton<UIConfirmationBoxManager>.Instance : null;
@@ -60,6 +68,15 @@ internal sealed class DialogSurface
         if (box == null || !box.IsOpen)
         {
             OnHidden();
+            return;
+        }
+
+        if (ConfirmationOnOwner.TrySeat(box))
+        {
+            _panel = null; // ReleaseForComposite already retired that exact conversion
+            _pendingShow = false;
+            FallbackWindow = null;
+            _conversionFailure = null;
             return;
         }
 
@@ -129,8 +146,16 @@ internal sealed class DialogSurface
             return;
 
         // P5 (A.10): small close-range dialog — tighter hover halo / shallower press.
+        // Build738: the original generic box carries a full-frame GrabPass blur.
+        // The default native layer left it directly in both eye passes, outside
+        // ordinary isolated capture/filtering and its existing scoped blur remedy.
+        // Build739: capture can be refused when the shared target budget is full.
+        // Strip the native full-screen backdrop/GrabPass graphic before reveal too,
+        // using the converter's reversible foreground-only treatment. This must not
+        // depend on capture admission: only the original small dialog should draw.
         _panel = CanvasConversion.Convert(box.transform as RectTransform, Name,
-            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog);
+            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, useModLayer: true,
+            transparentBackground: true);
         if (_panel == null)
             return;
 
@@ -159,6 +184,8 @@ internal sealed class DialogSurface
 
     private void OnHidden()
     {
+        if (_attached != null && _attached.CurrentBox != null)
+            ConfirmationOnOwner.Release(_attached.CurrentBox);
         _pendingShow = false;
         FallbackWindow = null;
         ReleasePanel();
@@ -199,5 +226,9 @@ internal sealed class DialogSurface
         OnHidden();
     }
 
-    public void Shutdown() => Detach();
+    public void Shutdown()
+    {
+        ConfirmationOnOwner.Reset();
+        Detach();
+    }
 }

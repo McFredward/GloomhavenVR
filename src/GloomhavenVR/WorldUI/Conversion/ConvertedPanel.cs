@@ -254,6 +254,12 @@ internal sealed class ConvertedPanel
     /// </summary>
     public readonly List<NestedCanvasRecord> AdoptedCanvases = new(2);
 
+    // A native root menu Canvas retains its camera-mode adapter while disabled,
+    // even after nesting under the world host. Own that mode for this conversion
+    // and restore it only after both the native parent and camera are home again.
+    public Canvas? NativeMenuCanvas;
+    public RenderMode OriginalNativeMenuCanvasMode;
+
     /// <summary>
     /// THE CANVASES OF THIS WINDOW AS THE GAME LEFT THEM, captured by
     /// <c>CanvasConversion.PreCaptureGameCameras</c> in the last moment before <c>Convert</c>
@@ -638,6 +644,9 @@ internal sealed class ConvertedPanel
     /// Reversible: the disabled graphics are recorded here and re-enabled on Release.
     /// </summary>
     public bool HideBackground;
+
+    /// <summary>Optional native-role selector; null retains the ordinary full-frame policy.</summary>
+    public System.Func<Graphic, bool>? BackgroundFilter;
 
     /// <summary>Full-screen background graphics we disabled while floated (re-enabled on Release).</summary>
     public readonly List<Graphic> HiddenBackgrounds = new(4);

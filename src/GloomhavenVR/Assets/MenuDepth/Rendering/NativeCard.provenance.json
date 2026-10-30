@@ -1,0 +1,38 @@
+{
+  "schema": "menu-depth-native-card-v1",
+  "source_bundle_sha256": "15b6ac4f91858306e3c6136efbdcf89c6118486dd2191eb27c3c1e9b92018102",
+  "source_shader_path_id": 7314317428712670795,
+  "source_shader_sha256": "fbd49fffa5bb88c6a448a659d87f41b6d2507f37ddd5def25afde34c00f9bb49",
+  "compiled_blob_sha256": "c516fa367bcb4e9a9190c490386e31cf380bff6a3c793bfe60896ea9b3c2d4ef",
+  "compiled_blob_bytes": 2629,
+  "programs_properties_keywords_dependencies_and_other_states_equal": true,
+  "state_change": {
+    "pass": "Default",
+    "zWrite": [
+      0,
+      1
+    ]
+  },
+  "identity_change": {
+    "shader": [
+      "GUI/AbilityCard_Shd",
+      "GloomhavenVR/MenuDepthNativeCard"
+    ],
+    "cab": "CAB-54291f0bd4796d412e9e0c931bcfe97c"
+  },
+  "asset": "assets/menudepth/menudepthnativecard.shader",
+  "native_platforms": [
+    "Direct3D11"
+  ],
+  "alpha_clip": {
+    "existing_keyword": "UNITY_UI_ALPHACLIP",
+    "discard_below": 0.001,
+    "fragment_without_rect_sha256": "f5dc6f7117ea343cae14bc91ba0d071ded4ab4ada8ca87223849429fbf7bbe6d",
+    "fragment_with_rect_sha256": "21d65e110d37abb6f15e76a0c89dec8a2394dcfa1fa8776ffd50b5fac64c717a"
+  },
+  "input_mod_bundle_sha256": "3d144f1f77486e0478c05335fdfcd7c68b6f1cba8dad2c86e13bb95f25dfa7e5",
+  "bundle_sha256": "9698e2dd0bac9d6966265861c44b5c8e2c008732877e898612ee52fa25ead3d1",
+  "bundle_bytes": 87819,
+  "native_d3d11_pixels_verified": false,
+  "source_immutable": true
+}

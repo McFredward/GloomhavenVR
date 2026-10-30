@@ -5,8 +5,42 @@ export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.RewardPoseTests/GloomhavenVR.RewardPoseTests.csproj"
 handshake="$repo_root/src/GloomhavenVR/Net/RewardPoseHandshake.cs"
 reward="$repo_root/src/GloomhavenVR/Net/Remote/RemoteMapStory.Reward.cs"
-mutation_dir="$(mktemp -d)"
-trap 'rm -rf "$mutation_dir"' EXIT
+export DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false
+mutation_dir=$(python3 - "$repo_root" <<'PYRUN'
+from pathlib import Path
+import sys,tempfile
+output=Path(sys.argv[1])/'.planning/debug/reward-pose-runtime';output.mkdir(parents=True,exist_ok=True)
+print(tempfile.mkdtemp(prefix='run-',dir=output))
+PYRUN
+)
+printf 'Evidence: %s\n' "$mutation_dir" | tee "$mutation_dir/completion.log"
+cleanup_run() {
+    run_status=$?
+    trap - EXIT
+    python3 - "$repo_root" "$mutation_dir" "$run_status" <<'PYCLEAN'
+from pathlib import Path
+import sys,json
+root,run=map(Path,sys.argv[1:3]);sys.path.insert(0,str(root/'scripts'))
+from town_run_retention import cleanup_completed_run
+receipt=cleanup_completed_run('reward-pose',int(sys.argv[3]),run/'completion.log',root,process_reaped=True)
+(run/'cache-cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
+PYCLEAN
+    exit "$run_status"
+}
+trap cleanup_run EXIT
+python3 - "$repo_root" "$mutation_dir" <<'PYPINS'
+from pathlib import Path
+import sys,json,hashlib
+root,run=map(Path,sys.argv[1:]);paths=list((root/'tests/GloomhavenVR.RewardPoseTests').glob('*'))
+paths += [root/'scripts/reward-pose-tests.sh',root/'src/GloomhavenVR/Net/RewardPoseHandshake.cs',root/'src/GloomhavenVR/Net/Remote/RemoteMapStory.Reward.cs',root/'src/GloomhavenVR/Net/MapStoryOpeningLedger.cs',root/'src/GloomhavenVR/Net/MapStoryLifecycleState.cs',root/'src/GloomhavenVR/WorldUI/Modal/PostQuestRewardSync.cs']
+(run/'source-pins.json').write_text(json.dumps({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()},indent=2)+'\n')
+PYPINS
+prepare_case() {
+    case_dir="$mutation_dir/$1"
+    mkdir -p "$case_dir"
+    cp "$repo_root/tests/GloomhavenVR.RewardPoseTests/"*.cs "$case_dir/"
+    cp "$project" "$case_dir/GloomhavenVR.RewardPoseTests.csproj"
+}
 python3 - "$repo_root/src/GloomhavenVR/WorldUI/Modal/PostQuestRewardSync.cs" "$mutation_dir/Identity.cs" <<'PYIDENTITY'
 from pathlib import Path
 import sys
@@ -15,7 +49,8 @@ a=source.index('    internal static bool MatchesPose(')
 b=source.index('    private static IReadOnlyList<int> Participants()',a)
 Path(sys.argv[2]).write_text('using GloomhavenVR.Net;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PostQuestRewardSync {\n'+source[a:b]+'}\n')
 PYIDENTITY
-dotnet run --project "$project" --configuration Release --property:PostQuestIdentitySource="$mutation_dir/Identity.cs"
+prepare_case production
+dotnet run --project "$case_dir/GloomhavenVR.RewardPoseTests.csproj" --configuration Release --property:RepoRoot="$repo_root/" --property:PostQuestIdentitySource="$mutation_dir/Identity.cs" 2>&1 | tee "$case_dir/output.log"
 for mutation in late-opening stale-response missing-reply routing empty-reorder survivor old-map-pose map-pose-cache; do
     python3 - "$handshake" "$reward" "$mutation_dir" "$mutation" <<'PY'
 from pathlib import Path
@@ -37,7 +72,8 @@ source=source.replace(old,new)
 (out/'Handshake.cs').write_text(source if target=='a' else a)
 (out/'Reward.cs').write_text(source if target=='b' else b)
 PY
-    if dotnet run --project "$project" --configuration Release --property:PostQuestIdentitySource="$mutation_dir/Identity.cs" --property:HandshakeSource="$mutation_dir/Handshake.cs" --property:RewardSource="$mutation_dir/Reward.cs" >"$mutation_dir/output" 2>&1; then
+    prepare_case "$mutation"
+    if dotnet run --project "$case_dir/GloomhavenVR.RewardPoseTests.csproj" --configuration Release --property:RepoRoot="$repo_root/" --property:PostQuestIdentitySource="$mutation_dir/Identity.cs" --property:HandshakeSource="$mutation_dir/Handshake.cs" --property:RewardSource="$mutation_dir/Reward.cs" >"$case_dir/output.log" 2>&1; then
         echo "ERROR: reward pose mutation survived: $mutation" >&2; exit 1
     fi
     case "$mutation" in
@@ -49,8 +85,8 @@ PY
         empty-reorder) expected='late empty extras cannot revoke follower role while originating avatar remains live' ;;
         survivor) expected='last surviving native copy becomes a real pose publisher after source departure' ;;
     esac
-    if ! rg -qF "Unhandled exception. System.Exception: $expected" "$mutation_dir/output"; then
-        cat "$mutation_dir/output"; exit 1
+    if ! rg -qF "Unhandled exception. System.Exception: $expected" "$case_dir/output.log"; then
+        cat "$case_dir/output.log"; exit 1
     fi
     echo "Reward pose negative control rejected: $mutation"
 done

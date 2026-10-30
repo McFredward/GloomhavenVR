@@ -13,8 +13,9 @@ the native full-game visual callbacks do not belong to this input-feedback proof
 The clock, device impulse delivery and candidate ownership are explicit fixture
 boundaries. Assertions count requested presets; there is no physical controller,
 HMD, rendered-game or subjective vibration-strength claim. Production and fixture
-hashes, native assembly hashes, each compiled causal mutation, build logs, Unity
-logs and the result remain under `.planning/debug/haptics675-runtime/`. The shared
+hashes, complete native/toolchain pins, retained compiled assemblies and resolved
+build inputs, each causal mutation, build logs, Unity logs and the result remain
+under `.planning/debug/haptics675-runtime/`. Input stability is checked at completion. The shared
 `cleanup_completed_run` API removes generated project caches after each run.
 
 Cases cover delayed fingertip/palm/poke drivers on a card, fast changes between

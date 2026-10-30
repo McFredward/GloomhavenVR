@@ -7,7 +7,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 python3 "$repo_root/tests/GloomhavenVR.ConversionRollbackTests/extract-rollback.py" "$repo_root" "$mutation_dir/Rollback.fixture"
 dotnet run --project "$project" --configuration Release --property:RollbackSource="$mutation_dir/Rollback.fixture"
-for mutation in lost-transaction lost-modal-cleanup lost-enrollment lost-retry stale-native-retry silent-refusal unsafe-host-destroy lost-camera-snapshot lost-layer-duplicate-guard; do
+for mutation in lost-transaction lost-modal-cleanup lost-enrollment lost-retry stale-native-retry silent-refusal unsafe-host-destroy lost-camera-snapshot lost-layer-duplicate-guard lost-menu-camera-mode lost-menu-normal-retry; do
     python3 - "$mutation_dir/Rollback.fixture" "$mutation_dir/Rollback.mutant" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -22,6 +22,8 @@ changes={
     'unsafe-host-destroy': ('if (!HostHoldsGameContent(host, out string blocker))', 'if (!HostHoldsGameContent(host, out string blocker) || bool.Parse("true"))'),
     'lost-camera-snapshot': ('bool cameraWasWrong = RestoreAdoptedCameras("release");', 'panel.AdoptedCanvases.Clear();\n        bool cameraWasWrong = RestoreAdoptedCameras("release");'),
     'lost-layer-duplicate-guard': ('if (initial || !IsRelayered(panel, t))', 'if (true)'),
+    'lost-menu-camera-mode': ('panel.NativeMenuCanvas.renderMode = panel.OriginalNativeMenuCanvasMode;', '/* injected: original menu camera mode is lost */'),
+    'lost-menu-normal-retry': ('        RetainNativeMenuHome(panel);', '        /* injected: normal release loses unresolved menu receipt */'),
 }
 before,after=changes[sys.argv[3]]
 assert source.count(before)==1, 'Rollback mutation seam changed: '+sys.argv[3]
@@ -37,6 +39,8 @@ PY
         unsafe-host-destroy) expected='Refused detach must defer host destruction without deleting native content' ;;
         lost-camera-snapshot) expected='Failed camera restoration retains original camera snapshots' ;;
         lost-layer-duplicate-guard) expected='Recurring sweep preserves the first original layer' ;;
+        lost-menu-camera-mode) expected='Rollback restores original menu camera mode after native ownership' ;;
+        lost-menu-normal-retry) expected='Normal menu release retains refused native home and mode receipt' ;;
     esac
     if dotnet run --project "$project" --configuration Release --property:RollbackSource="$mutation_dir/Rollback.mutant" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"

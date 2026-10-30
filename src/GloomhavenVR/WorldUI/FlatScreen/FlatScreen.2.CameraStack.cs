@@ -76,6 +76,8 @@ internal sealed partial class FlatScreen
         if (_rt == null)
             return;
 
+        TickMenuDepthScreen();
+
         SetCaptureRenderGuard(true);
 
         TickSplitLifecycle();

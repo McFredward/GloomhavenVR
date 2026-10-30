@@ -3,7 +3,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>GloomhavenVR</AssemblyName>
     <RootNamespace>GloomhavenVR</RootNamespace>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <Description>Demeo-style room-scale VR mod for Gloomhaven (digital).</Description>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Consumed by BepInEx.PluginInfoProps -> MyPluginInfo -->
@@ -17,6 +17,14 @@
   </Target>
 
   <ItemGroup>
+    <!-- Keep original artwork native: only compact relief fields and their source bindings
+         accompany the DLL. The finite delivery roster is validated by both packagers. -->
+    <Content Include="Assets\MenuDepth\Story\*.gmd"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\%(Filename)%(Extension)" />
+    <Content Include="Assets\MenuDepth\Story\manifest.json"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\manifest.json" />
+    <EmbeddedResource Include="Assets\MenuDepth\Rendering\menu-depth.bundle"
+                      LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle" />
     <!-- Movies remain separate Content, never DLL resources. Source-only builds can
          exercise the explicit mono fallbacks without offline conversions; both packagers
          require every path in packaging/movie-files.txt before touching an installation. -->
@@ -69,6 +77,9 @@
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
     <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
                       LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
+    <!-- Original render-only sky for VR contexts without a native scenario sky. -->
+    <EmbeddedResource Include="Assets\DefaultSky\native-default-sky.bundle"
+                      LogicalName="GloomhavenVR.DefaultSky.bundle" />
     <!-- Isolated public OpenVR identity reader: never initialize another VR client in the game. -->
     <EmbeddedResource Include="Assets\SteamLink\connection-reader.exe"
                       LogicalName="GloomhavenVR.SteamLink.connection-reader.exe" />

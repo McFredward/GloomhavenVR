@@ -1,0 +1,165 @@
+{
+  "schema": "native-default-sky-v1",
+  "unity": "2021.3.5f1",
+  "sources": {
+    "sharedassets8.assets": "a106023a2b9fe28b169e9c9dee717f33defd8ff2b85df469aeb0bce03c471619",
+    "level8": "f49a9b2a522cad4b13efe17dc816fc9d7da1d9a2b03eff85180855fedb388cdb",
+    "Resources/unity_builtin_extra": "2008bf48f31b2933d923cbc6e0c5b354b291710c6e1d825edd23400847f8819b",
+    "StreamingAssets/aa/StandaloneWindows64/itemconfigs_backgrounds_assets_poisondagger.bundle": "a517aaf2a82cab1151bef6185a62df5a45289f4db4171b8d9eb3da612ad6f213",
+    "sharedassets8.assets.resS": "dad4d354fad6d1be1cdd3ad433a1032cd5ee4f4a65b3522d8f1e266eff217b0f"
+  },
+  "authored_placement": {
+    "scene": "level8",
+    "transforms": {
+      "16": {
+        "m_GameObject": {
+          "m_FileID": 0,
+          "m_PathID": 6
+        },
+        "m_LocalRotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        },
+        "m_LocalPosition": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "m_LocalScale": {
+          "x": 1.0629240274429321,
+          "y": 1.0629240274429321,
+          "z": 1.0629240274429321
+        },
+        "m_Children": [
+          {
+            "m_FileID": 0,
+            "m_PathID": 18
+          }
+        ],
+        "m_Father": {
+          "m_FileID": 0,
+          "m_PathID": 0
+        }
+      },
+      "18": {
+        "m_GameObject": {
+          "m_FileID": 0,
+          "m_PathID": 8
+        },
+        "m_LocalRotation": {
+          "x": -0.0,
+          "y": 0.22705163061618805,
+          "z": -0.0,
+          "w": 0.9738827347755432
+        },
+        "m_LocalPosition": {
+          "x": 0.0,
+          "y": 14.749992370605469,
+          "z": 0.0
+        },
+        "m_LocalScale": {
+          "x": 0.15803000330924988,
+          "y": 0.06696362793445587,
+          "z": 0.15803000330924988
+        },
+        "m_Children": [],
+        "m_Father": {
+          "m_FileID": 0,
+          "m_PathID": 16
+        }
+      }
+    },
+    "observer_origin": "Original GH_SkySphere_PR prefab origin; no mesh-bounds recentering."
+  },
+  "assets": [
+    {
+      "source": "sharedassets8.assets",
+      "path_id": 4,
+      "bank_path_id": 4,
+      "type": "Material",
+      "original_object_sha256": "baa63211fb71551871488b67ecaed982d1d2e2470b5c8396392c913e06565ee0"
+    },
+    {
+      "source": "sharedassets8.assets",
+      "path_id": 6,
+      "bank_path_id": 6,
+      "type": "Texture2D",
+      "original_object_sha256": "a44fdfb9316aba25cb63acce0d1c55d168e36a065cf5bfa728c80ee6c89bfe43",
+      "encoded_stream_sha256": "c5abdf31e4e4728f9cf39dd84c8acb03346494316071a36257d720559431f1c4",
+      "encoded_stream_bytes": 174776
+    },
+    {
+      "source": "sharedassets8.assets",
+      "path_id": 8,
+      "bank_path_id": 8,
+      "type": "Texture2D",
+      "original_object_sha256": "63f6af873f7c8a68ecd0333f6f3cab6a53b0762dbd1731f81e03d293bcfa2e89",
+      "encoded_stream_sha256": "45d123d7206422f9587af64d59d3cd7003b5a8cdd0170c1631252ab5cc687ab9",
+      "encoded_stream_bytes": 5592424
+    },
+    {
+      "source": "sharedassets8.assets",
+      "path_id": 12,
+      "bank_path_id": 12,
+      "type": "Mesh",
+      "original_object_sha256": "b1084a9747a31320b1ef2fc023a9bb6eaae93fe7375c045962221b7022006930",
+      "encoded_stream_sha256": "44117ffd2d397d50368f269dee012786f17289e285b0b913f58f5ac7e0c9a6aa",
+      "encoded_stream_bytes": 73876
+    },
+    {
+      "source": "sharedassets8.assets",
+      "path_id": 18,
+      "bank_path_id": 18,
+      "type": "Shader",
+      "original_object_sha256": "829cc6ba7b057c03de74cce13d5fe0b3e10ad1af8249e45fd702a5cafdf5a37b",
+      "compiled_blob_sha256": "b9b51223d2200d004dfe8905e3a0d2f2da0ba6ca9ec450071af4d74341d70b04",
+      "platforms": [
+        4
+      ]
+    },
+    {
+      "source": "Resources/unity_builtin_extra",
+      "path_id": 6,
+      "bank_path_id": 1006,
+      "type": "Shader",
+      "name": "Legacy Shaders/VertexLit",
+      "original_object_sha256": "0d0aa1a0490ea849e006ae8054d416724741b5dc804fb1c7529bf8d91a91887a",
+      "compiled_blob_sha256": "e5b4213ef90dc19879464967187eb338bf11f0b09032f0d206aa3d2c6271faed",
+      "platforms": [
+        4
+      ]
+    },
+    {
+      "source": "Resources/unity_builtin_extra",
+      "path_id": 7,
+      "bank_path_id": 1007,
+      "type": "Shader",
+      "name": "Legacy Shaders/Diffuse",
+      "original_object_sha256": "fcf6d48369fb03c06ec71adb4ac4404d25bf6230904ffbdedfde1f5853ea04ca",
+      "compiled_blob_sha256": "7c40ab2448b73ecbfd27397dc7e1efd349f566b1784ab5c80c7f6dccd6fcf627",
+      "platforms": [
+        4
+      ]
+    }
+  ],
+  "bundle_sha256": "9c4c57eb8777fb02b9ba3d53b0a55e768be9aa9b6600151618f743b4e2fd0c16",
+  "bundle_bytes": 2219921,
+  "stream_bytes": 5841076,
+  "native_platforms": [
+    "Direct3D11"
+  ],
+  "changes": [
+    "Isolated container/CAB identity",
+    "Local dependency pointer IDs",
+    "Stream offsets and archive addresses"
+  ],
+  "preserved": [
+    "All compiled shader programs/properties/states",
+    "All material values",
+    "Original encoded texture mips",
+    "Original encoded mesh vertex/index data"
+  ],
+  "limits": "Original Windows shader pixels are not verified by serialization audit or a GL asset-loader test."
+}

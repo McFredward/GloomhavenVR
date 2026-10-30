@@ -182,6 +182,9 @@ internal enum SharedWindowKind : byte
     /// <c>Singleton&lt;MapStoryController&gt;</c>, and the record's whole addressing is the kind
     /// byte. A pose published under kind 1 would be applied to the map story box.</para>
     /// </summary>
+    // Build733 also lends this kind to the exact native city-event preflight.
+    // Its proposal action occurrence supplies a distinct key; native retirement
+    // hands the identity to UIEventPanel before the actual event card appears.
     Encounter = 4,
 
     /// <summary>Native fullscreen movies, presented through their own VR window and record72.</summary>
@@ -262,6 +265,9 @@ internal static class SharedWindows
                 return SharedWindowKind.MapStory;
         }
 
+        // City-event readiness is the public preflight of this same encounter. Only the
+        // exact native proposal may lend it the encounter identity; the helper retires that
+        // identity before the actual event card opens. The native votes remain individual.
         // THE ENCOUNTER IS AN INSTANCE COMPARE against its own singleton, exactly like the two
         // story boxes above and for the same two reasons. (1) IDENTITY: UIEventPanel is a
         // Singleton<UIEventPanel> carrying [RequireComponent(typeof(UIWindow))] (decompiled
@@ -271,12 +277,8 @@ internal static class SharedWindows
         // scene-serialized id has burned this project before). (2) COST: this predicate is asked per
         // floated window per frame by the bar tint, and a reference compare against a singleton is
         // cheaper than a GetComponent on every window that is not the encounter.
-        if (Singleton<UIEventPanel>.IsInitialized)
-        {
-            UIEventPanel ep = Singleton<UIEventPanel>.Instance;
-            if (ep != null && ReferenceEquals(ep.gameObject, window.gameObject))
-                return SharedWindowKind.Encounter;
-        }
+        if (ReferenceEquals(WindowOf(SharedWindowKind.Encounter), window))
+            return SharedWindowKind.Encounter;
 
         return MapRoom.NativeMapQuestSelection.IsConfirmationWindow(window)
             ? SharedWindowKind.QuestConfirm : SharedWindowKind.None;
@@ -479,6 +481,17 @@ internal static class SharedWindows
         && grab != null
         && grab.IsGrabbed;
 
+    internal static bool AnyReleaseTurningHere()
+    {
+        for (int value = 1; value <= 6; value++)
+        {
+            var kind = (SharedWindowKind)value;
+            if (ParticipatesHere(kind) && TryGetGrab(kind, out GrabbableModal? grab)
+                && grab != null && grab.IsReleaseTurning) return true;
+        }
+        return false;
+    }
+
     /// <summary>The game window behind a kind, or null when that controller is not up.</summary>
     internal static UIWindow? WindowOf(SharedWindowKind kind)
     {
@@ -508,6 +521,9 @@ internal static class SharedWindows
                 return mc != null ? mc.window : null;
 
             case SharedWindowKind.Encounter:
+                UIWindow? cityReady = MapCityEventReadyUp.Window;
+                if (cityReady != null)
+                    return cityReady;
                 // THE ENCOUNTER HAS A SINGLETON TOO, so it is resolved the same way the two story
                 // boxes are and never by id: UIEventPanel is a Singleton<UIEventPanel> carrying
                 // [RequireComponent(typeof(UIWindow))] (decompiled UIEventPanel.cs:26-27), so the

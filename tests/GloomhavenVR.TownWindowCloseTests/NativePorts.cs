@@ -46,6 +46,12 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    // Public city readiness is absent from these native service-close cases.
+    // Its actual voting/window lifetime is exercised by the city-ready suites.
+    internal static class MapCityEventReadyUp
+    {
+        internal static UIWindow? Window => null;
+    }
     // These native service windows are not quest-confirmation windows. The dedicated
     // map-quest-selection runtime suite executes the actual shared-quest close handler.
     internal static class MapLocationInteractor
@@ -66,6 +72,13 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // These service-close cases contain no page-owned decision. The real native
+    // decline route is covered by the confirmation fixture; modal-close verifies
+    // the caller's exact intent ordering after its permission guards.
+    internal static class ConfirmationOnOwner
+    {
+        internal static void BeforeUserWindowClose(UIWindow window) { }
+    }
     // The separate onboarding suite executes actual promise eligibility and dedup.
     // This port observes only the opaque capture/completion call order and inputs.
     internal static class TownServiceTutorialPatches

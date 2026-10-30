@@ -67,6 +67,8 @@ Drop it and it settles back onto a hex.
   board with both hands to drag, turn and zoom it.
 - A 3D campaign map. The map lies on a table in the cellar; the quest list floats above the
   table's right edge.
+- Spatial menus with live 3D character previews, story illustrations in relief and subtle
+  depth for icons and window decoration.
 - Full VR multiplayer. Masks, hands, boards and pointing fingers are visible to everyone, and people
   without a headset can play in the same game on a flat screen.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
@@ -136,7 +138,9 @@ something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and mixed reality. Choose **Mixed Reality** under **VR Options → World → Scenery** to put the
+and mixed reality. Your selection applies in the main menu, on the 3D map and in scenarios,
+including the game's original Default sky. Surroundings appear with the main menu, after the intro.
+Choose **Mixed Reality** under **VR Options → World → Scenery** to put the
 table in your room.
 
 - **Steam Frame standalone:** native passthrough is built in and needs no additional patch.
@@ -205,6 +209,9 @@ styles. Changes apply immediately and are visible to other players.
 Every window and every board hangs off a turned rod, and you move it by taking hold of the rod,
 either with your hand or with the pointer from further away. Someone else's board keeps their rod,
 not yours.
+
+The main menu is also a window in the world. Move it using its rod, resize it with both hands,
+and use your usual movement controls to explore around it. It stays where you put it.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

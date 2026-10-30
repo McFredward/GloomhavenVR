@@ -17,6 +17,7 @@ internal sealed class WindowReFaceTween
     private Vector3 _fromPosition;
     private Quaternion _fromRotation;
     private Quaternion _toRotation;
+    internal bool Active => _active;
 
     internal void Cancel() => _active = false;
 

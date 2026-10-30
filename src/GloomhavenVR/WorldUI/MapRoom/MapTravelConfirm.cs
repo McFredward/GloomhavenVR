@@ -1227,6 +1227,20 @@ internal static class MapTravelConfirm
             return false;
         }
 
+        // A city-event readiness button can already be a standalone modal when this SAME
+        // pooled native toggle starts serving Quests. Hand over the old conversion before
+        // recording its home or moving it. Otherwise the modal's later refusal/release restores
+        // the toggle OUT of this quest, and ReconcileCore mistakes that competing mod writer
+        // for a native reparent and disables travel parking for the entire map visit (#18).
+        // This also cancels an in-flight dissolve callback for the exact native target. No
+        // native Hide, readiness answer, assignment or gameplay callback is invoked here.
+        if (readyToggle)
+        {
+            UIWindow? nativeWindow = options.GetComponent<UIWindow>();
+            if (nativeWindow == null || !ModalFallback.ReleaseForComposite(nativeWindow))
+                return false;
+        }
+
         // ModBuild 226 — THE RECORD IS PER OBJECT. The latch used to be a bare bool because there was
         // only ever one container to record; with two (offline travel options / online ready toggle)
         // a single latch would apply the FIRST object's home to the SECOND on unpark, which is a
@@ -2089,6 +2103,12 @@ internal static class MapTravelConfirm
     internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot,
                                       out Rect ink, out int counted) =>
         TryContentBounds(frame, sweepRoot, excludeRoot: null, out ink, out counted, out _, out _);
+
+    /// <summary>Measure a host's own confirm ink while excluding a row adopted beneath that same
+    /// native root. City readiness uses this to avoid counting the row as the button it follows.</summary>
+    internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot, Transform? excludeRoot,
+                                      out Rect ink, out int counted) =>
+        TryContentBounds(frame, sweepRoot, excludeRoot, out ink, out counted, out _, out _);
 
     /// <summary>
     /// THE SAME INFORMATION UNION <see cref="MaybeRefreshAnchor"/> SOLVES THE CONFIRM FROM, ASKED BY

@@ -31,7 +31,6 @@ internal sealed class TownServiceWorkspace : IDisposable
     private readonly TownServiceGrounding _grounding;
     private Vector3 _target, _center, _stationPosition;
     private Quaternion _targetRotation, _stationRotation;
-    private Transform? _room;
     private float _scale, _yaw, _fadeFrom;
     private int _slot = -1;
     private bool _pending, _relocating, _switched, _shownPrimary;
@@ -105,20 +104,19 @@ internal sealed class TownServiceWorkspace : IDisposable
     {
         if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale)
             || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
-        Transform? room = SkyAlternative.PlacedRoomRoot;
-        Quaternion frame = TownServiceLayout.Frame(room, MapRoomDriver.ParchmentRenderer?.transform);
+        Quaternion frame = TownServiceLayout.Frame(null, MapRoomDriver.ParchmentRenderer?.transform);
         float layoutYaw = frame.eulerAngles.y;
-        if (!force && slot == _slot && room == _room && center == _center && scale == _scale
+        if (!force && slot == _slot && center == _center && scale == _scale
             && layoutYaw == _yaw && _station.position == _stationPosition && _station.rotation == _stationRotation) return true;
-        _slot = slot; _room = room; _center = center; _scale = scale; _yaw = layoutYaw;
+        _slot = slot; _center = center; _scale = scale; _yaw = layoutYaw;
         _stationPosition = _station.position; _stationRotation = _station.rotation;
         if (slot == 0) { _target = _station.position; _targetRotation = _station.rotation; }
         else
         {
-            TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), 0, slot,
+            TownServiceLayout.Resolve(TownServiceLayout.Environment.Open, 0, slot,
                 out Vector3 offset, out float heading);
             _target = center + frame * offset * scale;
-            _target.y = room != null ? TownServicePlacement.GroundHeight(room, _target) : seat.FloorPosition.y;
+            _target.y = TownServicePlacement.TryCanonicalFloor(out float floor) ? floor : seat.FloorPosition.y;
             _targetRotation = frame * Quaternion.Euler(0f, heading, 0f);
         }
         _pending = true;

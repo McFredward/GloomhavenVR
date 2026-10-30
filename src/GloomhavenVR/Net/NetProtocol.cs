@@ -193,6 +193,9 @@ internal static class NetProtocol
     /// <summary>Exact physical dismissal departure origins, attached atomically to the
     /// unchanged recent-flight and durable native-burn records.</summary>
     public const byte ExtIdCardFlightOrigins = 122;
+    /// <summary>Atomic opening identity, manual claim order and pose-sample sequence for
+    /// the unchanged shared window poses. Six bounded30-byte rows plus a count; automatic rows also bind the observed release.</summary>
+    public const byte ExtIdSharedWindowMoveOrder = 123;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -629,7 +632,394 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 721;
+    public const ushort ModBuild = 751;
+
+    // ModBuild751 — stable town contacts and restored scenario laser input.
+    // Paired750/569728838 logs retain a destroyed card-plane interface. Its
+    // native readiness read throws before the story pointer and laser grab bar
+    // tick; reject Unity-destroyed wrappers before querying Behaviour state.
+    // Fixed resident poses stand over the forest's shallow local relief. Bed
+    // only their local ground contacts on the common floor before first reveal;
+    // retain the cellar, room scale, shared actor/furniture poses and authority.
+    // The owned mesh restores/releases with its room. Keep original pointer
+    // callbacks, shared placement/gestures, capture quality and wire grammar.
+
+    // ModBuild750 — native browsing feedback and page-scoped decisions.
+    // Hardware749/374 accepts More Cards hover, but its deliberately unselectable
+    // preview rows were rejected by the ordinary hover-haptic action filter.
+    // Recognize only the exact original preview row as one semantic encounter;
+    // preserve native selection permission, authored highlight and UI audio.
+    // An open Perks decision survives native page/character navigation. Retire
+    // the exact originating request through its original decline before the
+    // accepted source context changes, including pooled and rescued prompts.
+    // Preserve original completion/authority and teardown, same-page browsing,
+    // unrelated windows, mandatory continuation and foreign immersive ownership.
+    // Keep capture quality/cadence, native actor state and wire grammar intact.
+
+    // ModBuild749 — original More Cards hover receiver on raised rows.
+    // Hardware748/8fa accepts physical depth picking but the preview opens only
+    // at the row edge. Native CardHolder blocks inner-card raycasts; the row's
+    // own ExtendedButton owns MouseEnter/MouseExit and permits locked browsing.
+    // Bind only that exact native selectable as the raised row's input owner,
+    // including its original registered Canvas after nested-card adoption.
+    // Keep the physical hit, native permission/press/drag, ordinary card input,
+    // detached previews, actor state, capture quality and wire grammar intact.
+
+    // ModBuild748 — native menu depth picking and complete story transitions.
+    // Hardware747/c0 accepts complete Further Ability Cards but its native offset
+    // covers the hovered row. Use the free gap left of the measured inventory,
+    // preserving the full card, native row and original pool/fade lifetime.
+    // An open browse-only list survived its character owner's story retirement
+    // and CatchAll floated it independently. Retire that proved browser through
+    // its native reset-window close path before returning its original subtree;
+    // preserve mandatory active level-up selection and native authority.
+    // Laser points must intersect the rendered raised menu surfaces and map back
+    // to their original native graphics, retaining host input locks, occlusion
+    // and original pointer/press/rotation behavior. Capture quality stays fixed.
+    // The loadout dimmer is already visible during pre-reveal fit, before the
+    // composed illustration is ready. Bind its exact native visual role during
+    // conversion admission so first fit/reveal/capture never paints the backing;
+    // preserve original artwork, input and source-owned hand-back in SP and MP.
+    // No wire grammar, actor state, capture cadence, target budget or scale change.
+
+    // ModBuild747 — complete More Cards previews and the composed story foreground.
+    // Singleplayer746/8e8a6c50d reports clipped further-card previews and a
+    // remaining translucent backing behind the composed quest illustration/text.
+    // Further-ability browsing skips the ordinary card-position seam, then
+    // rewrites its preview pose after ToggleFullCardPreview. Its transient Canvas
+    // escapes the inventory mask only until native Canvas adoption. Settle the
+    // original preview after the row's last writer through the existing tooltip
+    // raise/restore path; retain native eligibility, pool, fade and pointer input.
+    // The native loadout quest-info host owns another full-screen Black_Backdrop
+    // outside StoryDock. Lease that exact visual role only while composing story,
+    // preserving Paper, illustration, dialog, buttons and original hand-back.
+    // Apply the same presentation policy in singleplayer and multiplayer. Keep
+    // capture quality/cadence/budgets, native progression and wire grammar intact.
+
+    // ModBuild746 — isolate environments and converge shared window gestures.
+    // Paired745 hardware uses the same c3bb18117 build on both participants.
+    // Local scenery supplied the published resident floor, layout and grounding;
+    // use the common native map/furniture frame instead. Environment changes
+    // refresh only that viewer's lighting. Keep original practical effects shared;
+    // neutralize only the owned town shaders' eleven environment uniforms and
+    // the required legacy light prefix, preserving native materials and Foley.
+    // Shared poses previously elected by each receiver's arrival time and ignored
+    // foreign movement while locally held. Add opening-scoped TLV123 claim/sample
+    // order alongside unchanged poses: deterministic concurrent winner, safe loser
+    // cancellation, and causal automatic room making after an observed release.
+    // Follow-up causal tests cover each actual window producer/receiver. Reward
+    // publisher handover retains its original opening only with exact native-role
+    // evidence; changing the eligible room-making author retires old automatic
+    // writes while preserving accepted manual placement and native authority.
+    // A valid Initial's existing sequence carries the publisher's observed claim
+    // clock, so a late viewer's real grab can succeed prior placements. Preserve
+    // zero initialization and serial wrap without adding a wire field or gesture.
+    // The accepted releaser's existing facing setting authors the common upright
+    // release turn; observers follow the same pose without private corrections.
+    // Remove only proven story/event full-frame dimmer Images and their Blur,
+    // including parked composite members; preserve original art, masks and input.
+    // Compact city-event readiness captures all measured original voting ink and
+    // places the shared badge beyond it without moving the game's own controls.
+    // Passive map stalls are confirmed, but their cause is NOT established:
+    // add Debug-only head-capture intervals and completed-frame seams, correctly
+    // retaining nested camera passes. Small named-scope cost cannot exclude the
+    // mod. No capture rate/resolution reduction, hardware pacing or lag-fix claim.
+    // Version3 and earlier wire grammars remain; TLV123 adds at most183 bytes,
+    // taking the documented worst presence to12698 inside the unchanged12800 cap.
+
+    // ModBuild745 — correct won-card reveal, sharp confirmations and visible card-list access.
+    // Local744 hardware accepts character-window AA but reports rough confirmation
+    // buttons and first-frame won-card rotation. The existing pooled-card postfix
+    // excluded !immediately even though both native paths spawn synchronously;
+    // align the reveal before its original alpha tween's first visible frame too.
+    // A producer-owned DDOL confirmation requested a second mono capture and was
+    // refused at the session budget. Explicitly bind its original graphics to
+    // that exact producer's admitted private layer and fixed2x head capture. Keep
+    // actual member bounds, native home/input and depth order; recheck lifetime,
+    // permissions and pooled target identity. No allocator/cap/resolve/shader change.
+    // The native closed-list arrow lived in the still-closed offscreen inventory;
+    // waiting for that inventory to open stranded its only opener outside VR.
+    // Lease the original toggle into the character Cards view with a localized
+    // More Cards caption; retain original value/listeners/permissions and home.
+    // Preserve accepted hover, fade/continuation, character depth and menu controls.
+
+    // ModBuild744 — normal menu laser carry, finite Default and stable pause opening.
+    // Local742 hardware confirms the world menu's palm grip but refuses its laser
+    // carry. After real physics synchronization the native ray hits the same
+    // handle's broad palm trigger before its narrow visible rod. Exclude the
+    // render/registry-only mod layer from the default native pick and missing-hand
+    // map restoration; keep authored map/scenario masks and explicit UI/solid gates.
+    // Default's private menu/map shell now keeps one world pose and a common
+    // fallback-derived physical metric instead of following the head/far plane.
+    // Existing clip policy consumes its actual finite bounds, including acquisition
+    // before the first draw. Native scenario geometry remains authoritative.
+    // The X pause opening retained a disabled native root camera Canvas. Assigning
+    // the head re-drove it onto a square frame before reveal. Pin only the existing
+    // menu conversion opt-in to WorldSpace before nesting; restore its original
+    // mode after native home/camera restoration, retaining refused-home receipts.
+    // Keep accepted character AA/depth, original widgets, shaders and frame order.
+    // Build743 is reserved for the separate Quest standalone development lane.
+
+    // ModBuild742 — confirmations remain on their producer; a real world main menu.
+    // Local740 hardware accepts the small level-up prompt but exposes the Perks
+    // cross-scene type exclusion. Use the same persistent, shallow foreground
+    // member for proved producers, retaining original buttons/home/callbacks.
+    // Restore fixed2x absolute-head sampling on the character-window carrier,
+    // retaining its1x final grid and all existing3D presentation. Shared occupied-
+    // region storage and integrated color/nearest depth avoid moving sample phases;
+    // bucket capacities reduce approach allocations without reducing quality/rate.
+    // A dedicated resolve adds no native content render; the original four shaders
+    // remain byte-identical. Retire first-failure/idle/deferred filter ownership.
+    // Keep the storage crop in an explicit raster projection, not the native view:
+    // storage growth must preserve model normals, near/far and UI pixel density.
+    // Normalize only the native UI head view's common unit scale as well: original
+    // TMP UV2/SDF metrics must match its unchanged Canvas and glyph geometry.
+    // Apply the original glass/annotation permission before averaging each source
+    // sample, so foreground depth cannot admit an unrelated UI neighbor's color.
+    // The startup rig predates tracking and the actual main menu. Admit selected
+    // surroundings only after the original menu appears and tracked recenter
+    // completes; centre a closed room on its real Floor/Ceiling clearance once.
+    // The main menu keeps its original desktop capture and widgets on a standard
+    // movable/scalable window grip. Walking/turning/world zoom never re-place it.
+    // Fixed opposing backings retain original world UVs and keep native glass ink
+    // visible from both sides; depth-tested image color follows sky/reset draws.
+    // A presentation-only readiness latch admits menu locomotion and near grips;
+    // do not pretend a scenario table exists or grant native gameplay authority.
+    // Window carries use the unscaled tracking clock through native pause.
+    // Keep map/scenario placement, video playback, MR precedence and wire intact.
+    // Build741 is reserved for the coordinated Quest standalone development lane.
+
+    // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
+    // The maintainer extends the environment choice to every VR context, including
+    // the game's Default animated sky. This supersedes the old menu exclusion.
+    // Keep custom rooms world-fixed; a menu uses a fixed tracking-floor footprint,
+    // while map/scenario placement retains its native subject arithmetic. Retire
+    // rooms on actual rig replacement, never on ordinary motion or same-rig recenter.
+    // Default uses the original native scene renderer whenever available. Outside
+    // scenarios, load only its seven original render assets from an isolated bank:
+    // unchanged AMP_SkyShader/material/mesh/texture payloads and fallback dependencies.
+    // The private presentation uses the existing mod layer and non-occluding sky
+    // path, fits the existing far plane, and yields to native arrival, styles and MR.
+    // Keep native actor/session authority, enum keys, defaults and wire unchanged;
+    // product help now describes the same scope in English and German.
+
+    // ModBuild739 — show only the original small confirmation dialog.
+    // The maintainer accepts738 hover orientation, but reports a large black veil
+    // and front-only flicker of the card-choice prompt; its rear remains stable.
+    // Fresh738 logs prove that its requested filtered capture was refused at the
+    // occupied session budget, so the native full-frame Black_Backdrop and
+    // CullBack/GrabPass depth-writing blur still drew directly into the eyes.
+    // Opt both local confirmation consumers into the converter's existing reversible
+    // full-cover background removal, before reveal and independent of admission.
+    // Keep the native small Box, text/buttons, callbacks, persistent lifetime and
+    // accepted hover correction. Seed the persistent member one tier above its
+    // owner inside the existing depth tie;738 logs placed it behind that owner.
+    // No shared capture, allocator, shader or wire change.
+
+    // ModBuild738 — correct level-up hover pose before first draw and stable confirmations.
+    // The maintainer confirms737 resolves preview shadows, card relief and the
+    // missing candidate list. Native immediate hover pooling preserves world
+    // rotation while reparenting into a yawed VR window; a later budgeted flatten
+    // pass caused the visible snap. Align only the exact immediate hover root at
+    // UILevelUpCardHolder.PlaceNewCard completion inside its live converted owner.
+    // Preserve native delayed reveal animation, pooling, position/scale and input.
+    // Both original standalone and persistent level-up confirmations omitted the
+    // mod capture-layer option. Their full-stretch native GrabPass blur then bypassed
+    // the existing filtered capture/neutralization and wrote depth beside coplanar
+    // text/buttons. Enroll those two consumers in the same existing path as normal
+    // windows; retain original confirmation widgets, modal permissions and callbacks.
+    // A released ConvertedPanel keeps its native Target alive. Retire an owned
+    // confirmation by its active presentation lease, retaining refused native-home
+    // restores, instead of releasing the same closed box on every later frame.
+    // No shared allocator/compositor, native shader-bank, actor or wire change.
+
+    // ModBuild737 — shadowless window figures, stronger cards and native level-up lists.
+    // The maintainer confirms Build736 resolves pitched-window disappearance,
+    // card-label flicker and menu hand trailing. Remove only dynamic shadows
+    // during private character-preview draws; retain original lights/materials
+    // and finally restore native shadow state for normal gameplay rendering.
+    // Raise original ability/item card subtrees by 60% more physical-width depth,
+    // keeping authored layout, pointer behavior and scoped backing/text separation.
+    // Native TMP returns inverted +/-2^31 ink bounds for active glyphless labels.
+    // Feeding those bounds into the retained level-up preview envelope sent both
+    // original lists billions of pixels outside the window. Include only finite,
+    // positive visible ink while retaining the original text/card rectangles and
+    // real overflowing glyphs. Preserve the native outside-level-up browse toggle
+    // and original locked/reset/selection permissions; no progression is invented.
+
+    // ModBuild736 — retain character windows under head pitch and stable native text.
+    // Build734 hardware on D3D11 reveals a sampled-depth reconstruction Y mismatch:
+    // normalize only the render-target projection Y before inversion, preserving
+    // the graphics API's actual depth convention. Original card backgrounds need
+    // shallow head-only separation from their authored coplanar TMP/button ink;
+    // preserve native text/card transforms, materials and real foreground depth.
+    // Validate the complete original UI stack before admitting spatial eye targets
+    // so an unmapped retained camera cannot create/destroy both large eyes every
+    // frame. Keep original mono/input fallback and immediate mapping recovery.
+    // Retire destroyed preview surfaces without leaking scene targets/calibration.
+    // Preserve HDR/MSAA and hand tracking: the candidate menu HDR change altered
+    // antialiasing and was rejected. Actual headset hand pacing remains a hardware
+    // acceptance item; no lower-quality or capture-rate fallback is introduced.
+    // Build735 is already used by the separate Quest standalone branch.
+
+    // ModBuild734 — complete menu-quality delivery after shared city readiness733.
+    // Finish the unpublished732 menu checkpoint on the current integration branch.
+    // Fixed actual-head rasters preserve complete native UI/character detail during
+    // movement, with persistent private-photo retirement and both-eye preparation.
+    // Preserve the original window frame while exact native character hints occupy
+    // their approved right-hand lane, independently of character-depth readiness.
+    // Raised card backgrounds carry real sprite alpha/depth; native GUI effects
+    // retain original programs with scoped depth state and the original alpha clip.
+    // Laser dragging turns only preview presentation around its fixed ground axis.
+    // Keep published733 city/quest authority, source-only delivery and exact cleanup.
+
+    // ModBuild733 — shared city-event readiness across quest and loadout transitions.
+    // The native desktop city proposal never reveals its client ready toggle. Expose
+    // that exact original after SelectCityEvent, without invoking its auto-ready
+    // continuation. Its native action occurrence shares the existing encounter pose
+    // lane until the actual event card takes over; pages and votes remain game-owned.
+    // Keep unassigned observers disabled, reject private X dismissal and adopt the
+    // original readiness markers before conversion. Phase-bound groups, parkers and
+    // leases cannot steal a pooled toggle after quest/city/loadout role changes.
+    // Enable the original city departure quorum/ACK validation so an unready peer
+    // leaving cannot strand the remaining ready party. No synthetic votes, new
+    // gameplay messages, configuration or wire layout; preserve the menu732 lane.
+    // City role authority survives incidental quest-focus refreshes and ACK waits;
+    // original 2D confirmation retains its occurrence without repeating a vote.
+    // Public city/event decisions fence competing questlog/table browsing and its
+    // cached/pending cosmetic openings. Preserve accepted native quest proposals,
+    // pure scripted selection and native ready/cancel/event continuations.
+
+    // ModBuild732 — unpublished menu checkpoint for stable detail, hints and rotation.
+    // The729 hardware report confirms no flat fallback, but head/player motion
+    // repeatedly reallocates the outer New Party capture and drops its authored
+    // sampling rate from1.5 to0.25. Capture the complete original UI and model on
+    // fixed actual-head pixel grids, with finite eight-window/four-scratch ledgers
+    // independent of the mono photograph budget. Preserve native layout/framing,
+    // masks/effects and surface depth. Suppress the private cached flat photograph
+    // for the spatial presentation's lifetime; head-draw-only leases can leave
+    // duplicate Canvas ink. Exercise final text/model pixels and both eye draws
+    // through the real coordinator, including native-flat and depth-off hints.
+    // Seat the exact skin/personal-quest and colliding creation hints to the right
+    // of the existing window without increasing its input/shared layout frame.
+    // Laser press-and-horizontal-drag turns the private character preview around
+    // its fixed native ground axis; native gameplay actors and window pose remain
+    // authoritative. Preserve off/default-on preference, native styles/callbacks
+    // and movies/story assets. Delivery is dev source; Windows builds its archive.
+    // The menu lane reserved730/732; its final delivery follows published733 as734.
+
+    // ModBuild731 — city-event readiness handoff and stable initiative ownership (#18/#24).
+    // Retire the exact previous modal before adopting the reused native ready toggle
+    // into a quest, and let native Hide end readiness offers without map stickiness.
+    // Bind the initiative dock, picker and cleanup to one exact native source/host
+    // lease; replace expired leases without replaying a completed home restoration.
+    // Unit-edge portrait normals retain ray picks at small board zoom in actual Unity.
+    // Preserve native assignment/votes/actions, board geometry and wire version3.
+    // Scoped production-coordinator tests and causal controls reproduce the source
+    // defects; issue media supplies context, not an unlogged four-headset validation.
+    // Build730 is reserved by the parallel menu-quality lane, which is not modified here.
+
+    // ModBuild729 — stable moving character cabinets and stronger menu-card previews.
+    // The maintainer accepts the stationary728 appearance, but moving eyes can
+    // exhaust the character crop reservation and repeatedly flatten the entire
+    // window. Bound sampling to the actual eye view and retain a stable paired
+    // allocation without changing the accepted model framing or memory ceiling.
+    // Give native item/full cards more physical depth and verify the original pooled
+    // character-card hover preview at its first visible lifecycle boundary.
+    // Keep native actions, shared window geometry and the default-on character
+    // depth preference. Retain proof while cleaning completed test caches and
+    // retiring this round's clean worktrees; the Windows installer builds the ZIP.
+
+    // ModBuild728 — native menu depth composition, level-up presentation and raised cards.
+    // The maintainer accepts727 character size, but side views let later flat UI
+    // cover character surfaces that should be physically in front. Preserve true
+    // depth through composition, native colour/effects/masks and both window paths.
+    // Restore the level-up Continue widget's game-authored presentation, retain
+    // native permission/callbacks, and fit the complete middle preview/text beside
+    // both original side panes. Embed its persistent original confirmation safely
+    // into the same owner instead of opening an independent physical window.
+    // Original ability/item cards shown on flat menus, including hover previews,
+    // receive slight depth as complete original widgets with native text/effects.
+    // Keep727 default-on local character preference, shared absolute geometry,
+    // native actor authority and accepted story/video media. Delivery is dev source;
+    // the maintainer's Windows installation script builds the archive.
+
+    // ModBuild727 — optional live character depth, enabled by default on every system.
+    // The maintainer requests a persisted switch for the cabinet character previews.
+    // [WorldUI] CharacterPreviewDepth defaults true without a hardware/profile override;
+    // both existing screen/depth option doors expose its localized caption and help.
+    // Switching off retires only the character sources and owned eye resources before
+    // the next capture, restoring the original flat live image. Switching on discovers
+    // already open previews without native Display/gameplay calls or window reopening.
+    // Story/video depth, shared absolute window geometry and native animation stay intact.
+    // Delivery is committed/pushed dev source: the user's Windows installer builds the ZIP.
+
+    // ModBuild726 — common character units, rear cabinet views and encounter travel audio.
+    // The725 hardware review asks for one shared model scale/ground axis, preserving
+    // intrinsic short/tall bodies instead of fitting each equipment/companion envelope.
+    // Use the completed native main actor's authored origin and a common scene metric;
+    // preserve native transforms/animation, tracked perspective and bounded sampling.
+    // Rear window eyes receive the model's actual back through a finally-restored
+    // reflected view, including native-screen UI mapping. Keep725 discovery/capture
+    // ownership and accepted story/video resources intact.
+    // Native travel starts a scheduled moving loop before a road encounter and starts
+    // it again on continuation without retiring the first request. Replace only that
+    // flow's concrete owned audio objects before the next native producer; keep native
+    // callbacks, multichannel groups, unrelated audio and flat behavior authoritative.
+    // Source/native-fixture evidence and new headset outcomes remain separate; see
+    // .planning/MENU726-COMMON-CHARACTERS-AND-TRAVEL.md.
+
+    // ModBuild725 — address the Build724 character framing and pulsed-flight report.
+    // Replace quarter-second UI hierarchy/global preview sweeps with pooled cold
+    // discovery and coalesced native lifecycle observations. Keep first-visible
+    // native arrivals without periodic polling of the entire scene. Supersampled
+    // stereo owns its explicit eye captures; hidden displays and redundant mono
+    // draws no longer repeat that work. Native movement integration is unchanged.
+    // Fit completed original character/companion envelopes around the glass with
+    // shallow depth and slight protrusion; retain fixed native scene transforms.
+    // Size eye targets from bounded physical pixel demand with a shared memory
+    // budget, hysteresis and idle release. Accepted story data remains unchanged.
+    // Source/CPU/GPU proofs are distinct from pending headset frame-pacing and
+    // appearance acceptance; see .planning/MENU725-PERFORMANCE-AND-PREVIEWS.md.
+
+    // ModBuild724 — repair the spatial UI paths rejected in the Build723 headset test.
+    // The native character holder and its lights are children of the GUI3D Camera:
+    // moving that Transform for an eye also moved the displayed scene with the head.
+    // Keep every native scene Transform fixed and borrow only the eye view/projection.
+    // Story/event depth now resolves the actual mip baker's original-sprite provenance,
+    // including async old/new artwork and native default slots. Reconstructed region
+    // sprites map their displayed UVs back to the original full-texture depth field;
+    // the native colour, dissolve clock and layout remain original. Direct eye capture
+    // accepts only visible world canvases and follows private-layer ownership changes,
+    // avoiding a second, unmapped capture of native screen-space or supersampled UI.
+    // Bounded failure reports now identify their phase/source/message; detail stays Debug.
+    // No media, wire, config, native input authority or shared window metric changes.
+
+    // ModBuild723 — spatial native menus and prepared narrative illustration relief.
+    // User approved all reviewed menu-depth families on 2026-10-26. Render the original
+    // character scene separately for each actual window/eye, keeping native animations,
+    // skins, camera effects and presentation authority. Story/city/road artwork receives
+    // source-bound offline depth fields; compendium screenshots remain recessed planes.
+    // Reward/quest/class icons, glows, selected frames, tabs and window decoration gain
+    // shallow mesh depth. Native text, layout, hit rectangles and callbacks stay original.
+    // Preserve orthographic UI sampling; analytically project only the depth content from
+    // each tracked eye through its movable window. Cover converted panels and the native
+    // main-menu screen stack, with mono fallback and exception-safe restoration/teardown.
+    // Shared geometry uses original window units, independently of viewer zoom. No wire
+    // grammar/default change; version3, next-free123. The normal installer/archive carries
+    // 515 external GMD1 fields plus their exact native-source manifest beside the DLL;
+    // the small Unity2021.3.5 rendering bundle is embedded. See MENU723-SPATIAL-UI.md.
+
+    // ModBuild722 — level-up and confirmation containment. The native sibling card
+    // inventory now belongs to the original level-up/character window, not a sticky
+    // standalone float. Owned comparison cards and upgrade choices share one layout
+    // around the full native preview; native slide/reveal/selection callbacks remain.
+    // All fixed-fit populations include the exact level-up roots so they do not
+    // enlarge the character column. Closed/replaced views return their original homes.
+    // Generic confirmations follow exact native producer scopes (level-up/reset,
+    // perks, equipment warnings, roster and menu actions) into a live containing
+    // window. Original callbacks/readiness/actor authority and standalone fallback
+    // for unowned global prompts remain. No wire grammar, defaults or asset change.
 
     // ModBuild721 — release1.2.1 identity for the reviewed Build720 development frontier.
     // Ships physical active-card/summon dismissal and original local/remote pile flights,

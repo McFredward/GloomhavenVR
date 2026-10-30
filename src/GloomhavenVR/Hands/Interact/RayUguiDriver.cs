@@ -140,6 +140,8 @@ internal sealed class RayUguiDriver
         Canvas? best = null;
         float bestDist = MaxDistanceMeters * scale;
         Vector3 bestPoint = default;
+        Vector3 bestInputPoint = default;
+        WorldUI.MenuDepth.MenuDepthRayHit bestDepth = default;
         bool sawDead = false;
 
         // Settings-surface exemption (user ruling 2026-08-02, see TrySettingsFallThrough):
@@ -149,6 +151,8 @@ internal sealed class RayUguiDriver
         Canvas? settings = null;
         float settingsDist = MaxDistanceMeters * scale;
         Vector3 settingsPoint = default;
+        Vector3 settingsInputPoint = default;
+        WorldUI.MenuDepth.MenuDepthRayHit settingsDepth = default;
 
         var surfaces = UguiPokeSurfaces.Surfaces;
         for (int i = 0; i < surfaces.Count; i++)
@@ -172,19 +176,25 @@ internal sealed class RayUguiDriver
             if (WorldUI.WindowMaterialise.IsPointerBlind(canvas))
                 continue;
             LogCanvasOnce(canvas);
-            if (TryIntersect(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point))
+            if (TrySurface(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point,
+                out Vector3 inputPoint, out WorldUI.MenuDepth.MenuDepthRayHit depthHit))
             {
                 best = canvas;
                 bestDist = dist;
                 bestPoint = point;
+                bestInputPoint = inputPoint;
+                bestDepth = depthHit;
             }
             if (WorldUI.ModalFallback.IsSettingsSurface(canvas)
-                && TryIntersect(canvas, pick.Origin, pick.Direction, settingsDist,
-                    out float sDist, out Vector3 sPoint))
+                && TrySurface(canvas, pick.Origin, pick.Direction, settingsDist,
+                    out float sDist, out Vector3 sPoint, out Vector3 sInput,
+                    out WorldUI.MenuDepth.MenuDepthRayHit sDepth))
             {
                 settings = canvas;
                 settingsDist = sDist;
                 settingsPoint = sPoint;
+                settingsInputPoint = sInput;
+                settingsDepth = sDepth;
             }
         }
 
@@ -208,7 +218,7 @@ internal sealed class RayUguiDriver
             && offered != null
             && WorldUI.TownServicePhysicalRay.TryOfferedCardDistance(offered,
                 pick.Origin, pick.Direction, bestDist, out float cardDist)
-            && _pointer.TryRaycast(best, ToScreen(best, bestPoint), out checkedAreaTop)
+            && _pointer.TryRaycast(best, ToScreen(best, bestInputPoint), out checkedAreaTop)
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(best, checkedAreaTop.gameObject,
                 out VRCard? areaCard)
             && ReferenceEquals(areaCard, offered)
@@ -287,12 +297,14 @@ internal sealed class RayUguiDriver
         // die on nothing are redirected, and only INTO the mod-owned settings UI.
         if (best != null && settings != null && !ReferenceEquals(best, settings)
             && settingsDist >= bestDist
-            && TrySettingsFallThrough(best, bestPoint, settingsDist, in pick, scale))
+            && TrySettingsFallThrough(best, bestInputPoint, settingsDist, in pick, scale))
         {
             LogSettingsExemption(best, bestDist, settings, settingsDist);
             best = settings;
             bestDist = settingsDist;
             bestPoint = settingsPoint;
+            bestInputPoint = settingsInputPoint;
+            bestDepth = settingsDepth;
         }
 
         // Resolve trigger-collider bars BEFORE any hover, scroll or press callback. RayGrab
@@ -361,10 +373,13 @@ internal sealed class RayUguiDriver
         _hand.Ray.SetPanelUiHit(bestPoint, $"a HOVER of the uGUI panel '{_canvas.name}' "
                                            + "(RayUguiDriver — canvas plane, no press required)");
 
-        Vector2 screenPos = ToScreen(_canvas, bestPoint);
+        Vector2 screenPos = ToScreen(_canvas, bestInputPoint);
         RaycastResult top = checkedAreaTop;
         bool hit = nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
-            || _pointer.TryRaycast(_canvas, screenPos, out top);
+            || (bestDepth.Graphic != null
+                ? _pointer.TryRaycastSurface(_canvas, screenPos, bestDepth.Graphic, bestDepth.PreferGraphic,
+                    bestDepth.WorldPoint, bestDepth.Distance, out top, nativeRoot: bestDepth.NativeRoot)
+                : _pointer.TryRaycast(_canvas, screenPos, out top));
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
@@ -570,13 +585,27 @@ internal sealed class RayUguiDriver
         local.z = 0f;
         point = t.TransformPoint(local);
 
+        WorldUI.MenuDepth.MenuDepthRayHit depthHit = default;
+        Vector3 inputPoint = point;
+        if (TrySurface(canvas, pick.Origin, pick.Direction, MaxDistanceMeters * scale,
+            out float surfaceDistance, out Vector3 surfacePoint, out Vector3 surfaceInput,
+            out WorldUI.MenuDepth.MenuDepthRayHit surfaceDepth) && surfaceDepth.Graphic != null)
+        {
+            point = surfacePoint; inputPoint = surfaceInput; depthHit = surfaceDepth;
+            HitDistance = surfaceDistance;
+        }
+
         HasHit = true;
         // A press/drag is in flight. A later hover writer must not erase its ownership.
         _hand.Ray.SetWorldUiHit(point, "active uGUI pointer drag");
         _hand.Ray.ClaimTrigger("active uGUI pointer drag");
 
-        Vector2 screenPos = ToScreen(canvas, point);
-        bool hit = _pointer.TryRaycast(canvas, screenPos, out RaycastResult top);
+        Vector2 screenPos = ToScreen(canvas, inputPoint);
+        RaycastResult top;
+        bool hit = depthHit.Graphic != null
+            ? _pointer.TryRaycastSurface(canvas, screenPos, depthHit.Graphic, depthHit.PreferGraphic,
+                depthHit.WorldPoint, depthHit.Distance, out top, nativeRoot: depthHit.NativeRoot)
+            : _pointer.TryRaycast(canvas, screenPos, out top);
         _pointer.SetHovered(hit ? top.gameObject : null);
 
         TickStickScroll(); // task #8: stick-scroll stays live during a held trigger too
@@ -859,6 +888,45 @@ internal sealed class RayUguiDriver
     /// </summary>
     private static Rect HitRectOf(Canvas canvas, RectTransform rect) =>
         WorldUI.CanvasConversion.TryGetHitRect(canvas, out Rect hit) ? hit : rect.rect;
+
+    /// <summary>Arbitrate physical menu ink, retaining a separate native event coordinate.</summary>
+    private bool TrySurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,
+        out float distance, out Vector3 point, out Vector3 inputPoint,
+        out WorldUI.MenuDepth.MenuDepthRayHit depth)
+    {
+        bool flat = TryIntersect(canvas, origin, direction, maxDistance, out distance, out point);
+        inputPoint = point; depth = default;
+        bool hasSpatial = WorldUI.MenuDepth.MenuDepthSources.TryRaycast(canvas, origin, direction, maxDistance, out var spatial);
+        float budget = hasSpatial ? spatial.Distance : maxDistance;
+        // Native raised members are a converted-window feature. Physical
+        // board/fan/NPC canvases retain their existing gesture arbitration.
+        if (WorldUI.CanvasConversion.TryGetHitRect(canvas,out _))
+        {
+            if (WorldUI.MenuDepth.MenuDepthSources.TryNativeRaycast(canvas,canvas,origin,direction,budget,out var raised))
+            { spatial=raised;budget=raised.Distance;hasSpatial=true; }
+            var nested = UguiPokeSurfaces.NestedOf(canvas);
+            if (nested != null)
+                for (int i=0;i<nested.Count;i++)
+                    if (WorldUI.MenuDepth.MenuDepthSources.TryNativeRaycast(canvas,nested[i],origin,direction,budget,out raised))
+                    { spatial=raised;budget=raised.Distance;hasSpatial=true; }
+        }
+        if (!hasSpatial)
+            return flat;
+        if (flat && distance < spatial.Distance
+            && _pointer.TryRaycast(canvas, ToScreen(canvas, point), out RaycastResult native)
+            && native.gameObject != null && !native.gameObject.transform.IsChildOf(spatial.NativeRoot))
+        {
+            Graphic graphic = native.gameObject.GetComponent<Graphic>();
+            // A real foreground native control still occludes geometry behind
+            // the glass. An invisible story-advance target is an input owner,
+            // not painted glass hiding the actual model/illustration behind it.
+            if (graphic != null && graphic.color.a * graphic.canvasRenderer.GetAlpha()
+                * graphic.canvasRenderer.GetInheritedAlpha() >= .01f) return true;
+        }
+        distance = spatial.Distance; point = spatial.WorldPoint;
+        inputPoint = spatial.NativePoint; depth = spatial;
+        return true;
+    }
 
     /// <summary>
     /// World-space corners of an arbitrary local rect on a RectTransform, in the exact order

@@ -20,20 +20,26 @@ internal static class Program
     {
         p.HostGo=new GameObject("mod host");p.HostCanvas=p.HostGo.Add<Canvas>();p.Target.parent=p.HostGo.transform;
         var canvas=p.Target.gameObject.Add<Canvas>();canvas.enabled=false;
+        // Attachment boundary: include the native menu's recorded mode lease in
+        // every failure path. Actual Unity adapter/pixels run in desktop-render.
+        p.NativeMenuCanvas=canvas;p.OriginalNativeMenuCanvasMode=RenderMode.ScreenSpaceCamera;
+        canvas.renderMode=RenderMode.WorldSpace;
         p.HiddenCanvases.Add(canvas);p.AdoptedCanvases.Add(new NestedCanvasRecord { Canvas=canvas,OriginalWorldCamera=new GameObject("native camera").Add<Camera>(),OriginalOverrideSorting=true,ConcededOverrideSorting=true,OriginalSortingOrder=6 });
         p.Relayered.Add(new LayerRecord { Transform=p.Target,OriginalLayer=5 });p.Target.gameObject.layer=27;
         var bg=p.Target.gameObject.Add<Graphic>();bg.enabled=false;p.HiddenBackgrounds.Add(bg);p.KeepBackgroundHidden=true;
         var added=p.Target.gameObject.Add<RectMask2D>();p.AddedScrollMasks.Add(added);
         p.Flattened.Add(new FlattenRecord { Transform=p.Target,OriginalLocalZ=8 });
     }
-    private static void NativeRestored(ConvertedPanel p)
+    private static void NativeRestored(ConvertedPanel p, bool construction = true)
     {
         Check(ReferenceEquals(p.Target.parent,p.OriginalParent),"Failed conversion restores the native hierarchy");
         Check(!p.Target.gameObject.Destroyed,"Rollback must preserve native objects");
         Check(p.Target.GetComponent<UIWindow>()!.IsOpen,"Rollback must not close the native decision");
         Check(p.Target.GetComponent<CanvasGroup>()!.interactable,"Rollback preserves native button permission");
         Check(p.Target.sizeDelta.x==300,"Rollback restores original layout");
-        if(p.HostGo!=null)
+        // Destroyed Unity objects compare equal to null; ownership still needs
+        // checking after successful destruction, including every native receipt.
+        if(!ReferenceEquals(p.HostGo,null))
         {
             Check(p.HostGo.Destroyed,"Empty mod host is destroyed after native detach");
             var canvas=p.Target.GetComponent<Canvas>();
@@ -41,9 +47,11 @@ internal static class Program
             {
                 Check(canvas.enabled,"Failed reveal restores the native canvas");
                 Check(canvas.worldCamera!=null && canvas.worldCamera.gameObject.name=="native camera","Rollback restores original native camera");
+                Check(canvas.renderMode==RenderMode.ScreenSpaceCamera && p.NativeMenuCanvas==null,
+                    "Rollback restores original menu camera mode after native ownership");
                 Check(canvas.overrideSorting && canvas.sortingOrder==6,"Rollback restores native canvas ordering");
                 Check(p.Target.gameObject.layer==5,"Rollback restores native render layer");
-                Check(p.Target.GetComponent<Graphic>()!.enabled,"Failed menu conversion restores its native background");
+                if(construction)Check(p.Target.GetComponent<Graphic>()!.enabled,"Failed menu conversion restores its native background");
                 Check(p.Target.GetComponent<RectMask2D>()!.Destroyed,"Rollback removes only its added scroll mask");
             }
         }
@@ -95,6 +103,23 @@ internal static class Program
         using(var transaction=CanvasConversion.Transaction(committed)){Adopt(committed);CanvasConversion.CompleteTransaction(transaction);}
         Check(ReferenceEquals(committed.Target.parent,committed.HostGo!.transform),"Successful conversion commits without rollback");
         CanvasConversion.Release(committed);
+        var menuPinFailure=NewPanel();menuPinFailure.HostGo=new GameObject("partial menu host");
+        var pinCanvas=menuPinFailure.Target.gameObject.Add<Canvas>();pinCanvas.renderMode=RenderMode.ScreenSpaceCamera;
+        menuPinFailure.Target.ThrowParentCount=1;
+        Exception? pinError=null;
+        try
+        {
+            using var transaction=CanvasConversion.Transaction(menuPinFailure);
+            // Verbatim production pin/parent/pose block: SetParent faults AFTER
+            // the mode was changed, before Convert could return its panel.
+            CanvasConversion.AttachMenuFrameForTest(menuPinFailure);
+        }
+        catch(Exception error){pinError=error;}
+        Check(pinError?.Message=="reparent fault","Actual menu handoff fault follows the recorded native mode pin");
+        Check(pinCanvas.renderMode==RenderMode.ScreenSpaceCamera && menuPinFailure.NativeMenuCanvas==null,
+            "Construction exception before Convert returns restores native menu camera mode");
+        Check(ReferenceEquals(menuPinFailure.Target.parent,menuPinFailure.OriginalParent)
+            && !CanvasConversion.Pending(menuPinFailure.Target),"Construction rollback restores native home before retiring menu receipt");
         foreach(bool enrolled in new[]{false,true})
         {
             var p=NewPanel();Adopt(p);CanvasConversion.Active.Add(p);var grab=new GrabbableModal();
@@ -109,6 +134,7 @@ internal static class Program
         CanvasConversion.RollbackFailedConversion(cameraFailure);
         Check(CanvasConversion.Pending(cameraFailure.Target),"Failed restoration retains rollback ownership");
         Check(cameraFailure.AdoptedCanvases.Count==1,"Failed camera restoration retains original camera snapshots");
+        Check(cameraFailure.NativeMenuCanvas!=null,"Failed camera restoration retains original menu mode receipt");
         CanvasConversion.Retry();NativeRestored(cameraFailure);
         Check(!CanvasConversion.Pending(cameraFailure.Target),"Normal frame retries incomplete native restoration");
         var detachFailure=NewPanel();Adopt(detachFailure);detachFailure.Target.ThrowParentCount=1;
@@ -143,6 +169,25 @@ internal static class Program
         Check(CanvasConversion.Pending(detachedOnly.Target) && detachedOnly.AdoptedCanvases.Count==1,"Scene-root detach must not complete a pending original-home restore");
         detachedOnly.Target.RefuseSpecificParent=null;CanvasConversion.Retry();NativeRestored(detachedOnly);
         Check(!CanvasConversion.Pending(detachedOnly.Target),"Retry must restore live native home after safety detach");
+        var normalRefusal=NewPanel();Adopt(normalRefusal);normalRefusal.Target.RefuseParent=true;
+        CanvasConversion.Release(normalRefusal);
+        Check(CanvasConversion.Pending(normalRefusal.Target) && normalRefusal.NativeMenuCanvas!=null,
+            "Normal menu release retains refused native home and mode receipt");
+        int pendingMenus=CanvasConversion.PendingCountForTest;CanvasConversion.Release(normalRefusal);
+        Check(CanvasConversion.PendingCountForTest==pendingMenus,
+            "Normal refused menu release never duplicates the existing retry owner");
+        normalRefusal.Target.RefuseParent=false;CanvasConversion.Retry();NativeRestored(normalRefusal,construction:false);
+        Check(!CanvasConversion.Pending(normalRefusal.Target),"Normal refused menu home recovers through existing native retry");
+        var normalDetached=NewPanel();Adopt(normalDetached);normalDetached.Target.RefuseSpecificParent=normalDetached.OriginalParent;
+        CanvasConversion.Release(normalDetached);
+        Check(normalDetached.HostGo!.Destroyed && normalDetached.Target.parent==null && normalDetached.NativeMenuCanvas!=null
+            && CanvasConversion.Pending(normalDetached.Target),"Normal persistent menu receipt survives safety detach and destroyed host");
+        normalDetached.Target.RefuseSpecificParent=null;CanvasConversion.Retry();NativeRestored(normalDetached,construction:false);
+        Check(!CanvasConversion.Pending(normalDetached.Target),"Retained menu receipt restores original home after host destruction");
+        var ordinaryRefusal=NewPanel();Adopt(ordinaryRefusal);ordinaryRefusal.NativeMenuCanvas=null;
+        ordinaryRefusal.Target.RefuseParent=true;CanvasConversion.Release(ordinaryRefusal);
+        Check(!CanvasConversion.Pending(ordinaryRefusal.Target),"Ordinary release without menu mode lease preserves generic deferred ownership");
+        ordinaryRefusal.Target.RefuseParent=false;CanvasConversion.Release(ordinaryRefusal);
         // Run the production relayer on an enchantress-sized original subtree.
         // Initial ownership records every original layer once. A later native
         // relayer must not overwrite that snapshot, while a newly pooled child

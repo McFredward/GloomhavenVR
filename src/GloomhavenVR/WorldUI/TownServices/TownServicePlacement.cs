@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Author-only placement on the actual room floor, independent of the visitor's head.</summary>
+/// <summary>Author-only placement in the native map frame, independent of local scenery and tracking.</summary>
 internal static class TownServicePlacement
 {
     internal static bool TryResolve(byte service, Vector3 center, float scale,
@@ -13,18 +13,30 @@ internal static class TownServicePlacement
         position = center;
         rotation = Quaternion.identity;
         if (!MapRoomDriver.Active || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
-        Transform? room = SkyAlternative.PlacedRoomRoot;
-        TownServiceLayout.Resolve(TownServiceLayout.ForRoom(room), service, 0,
+        TownServiceLayout.Resolve(TownServiceLayout.Environment.Open, service, 0,
             out Vector3 offset, out float heading);
-        Quaternion frame = TownServiceLayout.Frame(room, MapRoomDriver.ParchmentRenderer?.transform);
+        Quaternion frame = TownServiceLayout.Frame(null, MapRoomDriver.ParchmentRenderer?.transform);
         position = center + frame * offset * scale;
         rotation = frame * Quaternion.Euler(0f, heading, 0f);
-        // Build 541 used tracking floor, which is not the floor mesh beneath the floating map.
-        // In MR/default there is no custom floor; the canonical map seat remains the reference.
-        position.y = room != null ? room.position.y : seat.FloorPosition.y;
-        if (room != null) position.y = GroundHeight(room, position);
+        // Build745's author sampled PlacedRoomRoot, then published its local floor
+        // and sole/support offsets. Changing only the host's scenery therefore moved
+        // everybody's residents. The maintainer's paired745 review requires every
+        // environment choice to stay local. Native map/furniture geometry remains
+        // the common reference; a room preference is never a shared pose input.
+        position.y = CanonicalFloor(seat.FloorPosition.y);
         return true;
     }
+
+    internal static bool TryCanonicalFloor(out float floor)
+    {
+        floor = 0f;
+        if (!MapRoomDriver.Active || !MapRoomDriver.TrySolveSeat(out MapRoomSeat.Seat seat, out _)) return false;
+        floor = CanonicalFloor(seat.FloorPosition.y);
+        return true;
+    }
+
+    private static float CanonicalFloor(float mapFloor) =>
+        GuildmasterRoomGeometry.TryFloor(out float nativeFurnitureFloor) ? nativeFurnitureFloor : mapFloor;
 
     internal static float GroundHeight(Transform room, Vector3 position)
     {

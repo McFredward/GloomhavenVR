@@ -181,6 +181,9 @@ internal sealed class WorldTooltips
     /// few frames instead of watching it jump to a fallback spot as it fades out.
     /// </summary>
     private RectTransform? _hoveredRect;
+    private bool _characterHintOnRight;
+    private Transform? _characterHintParent;
+    private readonly CharacterTooltipPlacement.NativeShared _nativeCharacterHint = new();
 
     /// <summary>The host decision last LOGGED (reference-compared, so the change-gated diagnostic
     /// allocates its line only when the answer actually changes — never per frame).</summary>
@@ -196,6 +199,8 @@ internal sealed class WorldTooltips
     /// <summary>[Optimize] TooltipScanGate: earliest frame the CanvasManager may be searched for
     /// again while the tooltip canvas is still unresolved.</summary>
     private int _canvasSearchNextFrame;
+    private int _tooltipSearchNextFrame;
+    private Canvas? _tooltipLookupCanvas;
 
     /// <summary>Frames between two CanvasManager searches (~1/6 s at 90 Hz) — a hover needs the
     /// canvas within human reaction time, not within one frame.</summary>
@@ -663,6 +668,12 @@ internal sealed class WorldTooltips
     private Vector3 ResolveMenuFrameCenter(RectTransform host, Quaternion rotation,
                                            float ttHalfW, float ttHalfH)
     {
+        // The maintainer's Build730 review explicitly seats character hints
+        // beside the RIGHT edge. Do not apply the ordinary inside/left flip:
+        // that puts their text back through the live character cabinet.
+        if (_characterHintOnRight)
+            return CharacterTooltipPlacement.RightCenter(host, rotation, _hoveredRect,
+                ttHalfW, ttHalfH, MenuPanelProudZ);
         Vector3 right = rotation * Vector3.right;
         Vector3 up = rotation * Vector3.up;
         // TOWARD the viewer: the floated panel's +Z points AWAY from the head (PanelPlacement
@@ -776,12 +787,20 @@ internal sealed class WorldTooltips
             {
                 _hostWindow = null; // hint gone for good — next hover decides afresh
                 _hoveredRect = null;
+                _characterHintOnRight = false;
+                _characterHintParent = null;
             }
             return;
         }
 
         Transform? hovered = _tooltip != null ? _tooltip.m_AnchorToTarget : null;
         ConvertedPanel? owner = ModalFallback.FindOwningWindow(hovered);
+        if (!ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)
+            || !ReferenceEquals(_characterHintParent, hovered != null ? hovered.parent : null))
+        {
+            _characterHintOnRight = owner != null && CharacterTooltipPlacement.IsSharedHint(hovered as RectTransform);
+            _characterHintParent = hovered != null ? hovered.parent : null;
+        }
         _hostWindow = owner;
         _hoveredRect = hovered as RectTransform;
 
@@ -1040,7 +1059,9 @@ internal sealed class WorldTooltips
         // closed. One bool store per frame.
         _backingShown = false;
 
-        // Menu2D keeps the vanilla 2D tooltip path (UICamera → FlatScreen RT); every
+        // Menu2D keeps the native canvas and styling (UICamera → FlatScreen RT);
+        // exact character annotations are seated beside its fixed frame below.
+        // Every
         // scenario mode (incl. ModalUI/BoardTargeting — Recompute() only leaves
         // Menu2D while a scenario runs) gets the world-space presentation.
         // [WorldUI] Tooltips AND [WorldUI] ActionElementHints are GONE (user ruling 2026-08-13):
@@ -1056,24 +1077,18 @@ internal sealed class WorldTooltips
         if (!want)
         {
             Restore();
+            if (WorldUIConfig.ConversionActive && ResolveCanvas())
+            {
+                ResolveTooltip();
+                if (_tooltip != null) _nativeCharacterHint.Tick(_canvas!, _tooltip);
+                else _nativeCharacterHint.Restore();
+            }
+            else _nativeCharacterHint.Restore();
             return;
         }
 
-        if (_canvas == null)
-        {
-            // [Optimize] TooltipScanGate (2026-07 perf pass): this full-scene FindObjectOfType had
-            // NO interval gate, so on any scene where the CanvasManager is absent or not yet built
-            // it re-scanned the whole scene EVERY FRAME, forever. Retrying a handful of times a
-            // second finds it just as fast in human terms (the canvas is needed for a hover, not
-            // for a frame) and costs ~1/10 of the scans.
-            if (PerfConfig.TooltipGateOn && Time.frameCount < _canvasSearchNextFrame)
-                return;
-            _canvasSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
-            var manager = Object.FindObjectOfType<CanvasManager>();
-            _canvas = manager != null ? manager.tooltipCanvas : null;
-            if (_canvas == null)
-                return;
-        }
+        _nativeCharacterHint.Restore();
+        if (!ResolveCanvas() || _canvas == null) return;
 
         // Scale WITH THE BOARD (user #7a): the control board's live lossy scale (diorama ×
         // tray-grab resize) when it exists, else the diorama scale (menu / no-tray fallback).
@@ -1117,8 +1132,7 @@ internal sealed class WorldTooltips
 
         // Resolve the persistent tooltip content (singleton under the canvas) for the
         // flatten pass, frame clip, the visibility gate AND the ownership test below.
-        if (_tooltip == null)
-            _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
+        ResolveTooltip();
 
         // MIXED REALITY (user report 2026-08-09, the green tooltip background): register the box
         // for an opaque plate behind the game's own frame — see TooltipBacking for the whole
@@ -1854,6 +1868,28 @@ internal sealed class WorldTooltips
             + "cards in the slots) nor from the box's own size while it is shown.");
     }
 
+    private bool ResolveCanvas()
+    {
+        if (_canvas != null) return true;
+        // A negative cold lookup is interval-gated on both native and converted
+        // routes. The steady state never scans the scene or hierarchy again.
+        if (PerfConfig.TooltipGateOn && Time.frameCount < _canvasSearchNextFrame) return false;
+        _canvasSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
+        var manager = Object.FindObjectOfType<CanvasManager>();
+        _canvas = manager != null ? manager.tooltipCanvas : null;
+        return _canvas != null;
+    }
+
+    private void ResolveTooltip()
+    {
+        if (_tooltip != null || _canvas == null) return;
+        if (PerfConfig.TooltipGateOn && ReferenceEquals(_tooltipLookupCanvas, _canvas)
+            && Time.frameCount < _tooltipSearchNextFrame) return;
+        _tooltipLookupCanvas = _canvas;
+        _tooltipSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
+        _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
+    }
+
     private void Restore()
     {
         if (!_converted)
@@ -1921,6 +1957,8 @@ internal sealed class WorldTooltips
         _transitionOverridden = false;
 
         _tooltip = null;
+        _tooltipLookupCanvas = null;
+        _tooltipSearchNextFrame = 0;
         _lastShownTime = float.NegativeInfinity;
         _parkedLogged = false;
         // The wire must never carry a torn-down presentation's text (extras record 9 is
@@ -1934,6 +1972,9 @@ internal sealed class WorldTooltips
         // session a stale window reference (its panel is released by then), and the change-gated
         // diagnostic re-arms so the first decision after a restore is logged again.
         _hostWindow = null;
+        _hoveredRect = null;
+        _characterHintOnRight = false;
+        _characterHintParent = null;
         _hostLoggedWindow = null;
         _hostLoggedOnce = false;
 
@@ -1949,5 +1990,9 @@ internal sealed class WorldTooltips
         }
     }
 
-    public void Shutdown() => Restore();
+    public void Shutdown()
+    {
+        _nativeCharacterHint.Restore();
+        Restore();
+    }
 }

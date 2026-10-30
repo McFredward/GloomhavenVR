@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Hands.Interact;
+using Script.GUI.SMNavigation;
+using Script.GUI.SMNavigation.States.CampaignMapStates;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -93,7 +95,29 @@ internal static class HoverHapticTargets
             return action;
         }
         Selectable? selectable = target.GetComponentInParent<Selectable>();
-        return selectable != null && selectable.IsActive() && selectable.IsInteractable()
+        return selectable != null && selectable.IsActive()
+            && (selectable.IsInteractable() || FurtherAbilityPreview(selectable))
             ? selectable : null;
+    }
+
+    private static bool FurtherAbilityPreview(Selectable selectable)
+    {
+        // Build750: the original More Cards row deliberately disables selection
+        // while ExtendedButton.scaleNonInteractable and UILevelUpCard.MouseEnter
+        // still offer its full-card preview. Build749 restored that native hover,
+        // but the generic actionable-UI filter discarded its haptic identity.
+        // Admit only the exact native row button and the original preview state;
+        // disabled ordinary buttons/tooltips remain silent. Keep the per-hand
+        // encounter gate, click permission, native animation and PlaySound intact.
+        if (selectable is not ExtendedButton button || button.interactable || !button.scaleNonInteractable)
+            return false;
+        UILevelUpCard? row = button.GetComponent<UILevelUpCard>();
+        if (row == null || !row.isActiveAndEnabled || row.Selectable != button
+            || !Singleton<UINavigation>.IsInitialized)
+            return false;
+        var navigation = Singleton<UINavigation>.Instance;
+        return navigation != null && navigation.StateMachine != null
+            && navigation.StateMachine.CurrentState
+                != navigation.StateMachine.GetState(CampaignMapStateTag.ShowingCardLevelUp);
     }
 }

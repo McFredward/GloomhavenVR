@@ -51,8 +51,10 @@ internal sealed class WorldUIModule : IVRModule
         // A flat host may select while the VR map room is still entering; installing from
         // MapRoomDriver.Engage alone misses that native edge and leaves Accept unreachable.
         MapRoom.MapQuestReadyUp.Install();
+        MapRoom.MapCityEventReadyUp.Install();
         MapRoom.MapQuestDepartureValidation.Install();
         MapRoom.MapRetirementPrompt.Install();
+        MapRoom.NativeMapTravelAudio.Install();
 
         // The town bank is large and optional. Start its Unity async requests while
         // the player is still in the menu, before the first map frame can create NPCs.
@@ -82,6 +84,22 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(VrGamepadConnectionUpdateGuard));
         VRSession.Harmony?.PatchAll(typeof(UITextInfoPanel_Show_Patch)); // test #18 attribution diagnostic
         VRSession.Harmony?.PatchAll(typeof(MapItemConfirmationRequestObserver)); // observe the exact native box before its first request event
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationProducerScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationRequestOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(ItemConfirmationRequestOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(DeferredConfirmationProducerScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(PersistentConfirmationActionScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationAdditionalOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeOutcomePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationNativeTweenOutcomePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationReentrantHidePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationPartyNavigationPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationMenuNavigationPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationProducerDeparturePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationInventoryRefreshPatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationIdentityWritePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCapturePatch));
+        VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCoroutinePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
@@ -137,6 +155,10 @@ internal sealed class WorldUIModule : IVRModule
         // rested on an inverted A-B-A test and is retracted in the patch header and in
         // RenderTargetProbe. See Character3DDisplayRefcount.
         VRSession.Harmony?.PatchAll(typeof(Patches.Character3DDisplayRefcount));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthCharacterDisplayObserver));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthLifecycleObserver));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthLevelUpHoverObserver));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthFurtherAbilityHoverObserver));
         // ModBuild 191 (user report 2026-08-21, the merchant's item mouseovers): the SECOND tooltip
         // family — UIPartyItemInventoryTooltip / UILocalTooltip / UITempleSlotTooltip / TooltipUI —
         // never touches CanvasManager.tooltipCanvas, so WorldTooltips had never heard of it. Each of
@@ -265,6 +287,7 @@ internal sealed class WorldUIModule : IVRModule
         TownServiceSync.Shutdown();
         TownServiceAssets.Reset();
         MapRoom.MapRetirementPrompt.Reset();
+        MenuDepth.MenuDepthDriver.Shutdown();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -283,6 +306,7 @@ internal sealed class WorldUIModule : IVRModule
 
         Patches.ConfirmationRescue.Reset(); // the stand-in must never outlive the mod
         CanvasConversion.ReleaseAll();
+        MenuDepth.MenuDepthDisplay.Shutdown(); // Consumers have restored their native materials.
         WorldUIAssets.Reset();
         NativeButtonSkin.Reset();
         InputModeGuard.Reset();
@@ -467,6 +491,10 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars", ActorBars.Tick),
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
+                // Register original depth content before panel engagement reserves its
+                // two-eye targets. Actual eye preparation runs after native visual writers.
+                // FRAME-ORDER WorldUIModule.MenuDepth [MenuDepth.MenuDepthDriver.Tick, CanvasConversion.LateTick]
+                ("MenuDepth", MenuDepth.MenuDepthDriver.Tick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
                 ("MapRetirementPrompt.Late", MapRoom.MapRetirementPrompt.LateTick),
                 // ModBuild 191: the LOCAL tooltip family (item card hints and friends) hangs inside

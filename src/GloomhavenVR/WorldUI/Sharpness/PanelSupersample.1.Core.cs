@@ -1027,6 +1027,10 @@ internal static partial class PanelSupersample
     /// <summary>One supersampled panel: everything allocated for it and everything to hand back.</summary>
     private sealed class Entry
     {
+        internal MenuDepth.MenuDepthDisplay? MenuDepthDisplay;
+        internal long MenuDepthBytes;
+        internal int MenuDepthFrame = -1;
+        internal int MenuDepthFailures;
         internal ConvertedPanel Panel = null!;
         internal string Window = string.Empty;
 
@@ -2106,8 +2110,9 @@ internal static partial class PanelSupersample
     /// </summary>
     internal static bool OwnsPanelLayers(ConvertedPanel? panel)
     {
-        if (panel == null || Entries.Count == 0)
+        if (panel == null)
             return false;
+        if (CapturedOwnedMember(panel)) return true;
         for (int i = 0; i < Entries.Count; i++)
         {
             if (ReferenceEquals(Entries[i].Panel, panel))
@@ -2123,8 +2128,9 @@ internal static partial class PanelSupersample
     /// </summary>
     internal static void NoticeRelease(ConvertedPanel? panel)
     {
-        if (panel == null || Entries.Count == 0)
+        if (panel == null)
             return;
+        ForgetOwnedPanel(panel);
         for (int i = Entries.Count - 1; i >= 0; i--)
         {
             if (ReferenceEquals(Entries[i].Panel, panel))
@@ -2234,6 +2240,7 @@ internal static partial class PanelSupersample
         {
             for (int i = Entries.Count - 1; i >= 0; i--)
                 StandDown(Entries[i], i, "module shutdown");
+            ResetOwnedMembers();
             RestoreMaskedCameras();
             UninstallHooks();
             Refused.Clear();
@@ -2604,7 +2611,7 @@ internal static partial class PanelSupersample
             if (candidates > 0)
             {
                 _capLogged = true;
-                long average = Entries.Count > 0 ? _vramTotal / Entries.Count : 0;
+                long average = Entries.Count > 0 ? (_vramTotal + _menuDepthVramTotal) / Entries.Count : 0;
                 string capSource = PoolSize < MaxPanels
                     ? $"the LAYER POOL ({PoolSize} private capture layer(s) exist; MaxPanels is "
                       + $"{MaxPanels}). A ninth window cannot be given a tenth layer, and it must "
@@ -2621,7 +2628,7 @@ internal static partial class PanelSupersample
                                   + "rendering — the same text and edge shimmer as before this build. "
                                   + "HOW TO SIZE THE NEXT VALUE from this line rather than from an "
                                   + $"estimate: the {Entries.Count} panel(s) actually engaged cost "
-                                  + $"{Mb(_vramTotal)} MB together, i.e. {Mb(average)} MB each on "
+                                  + $"{Mb(_vramTotal + _menuDepthVramTotal)} MB together, i.e. {Mb(average)} MB each on "
                                   + $"average, against a session ceiling of {Mb(MaxTotalVramBytes)} MB "
                                   + $"and a per-panel ceiling of {Mb(MaxPanelVramBytes)} MB — so "
                                   + $"{(average > 0 ? (MaxTotalVramBytes / average).ToString() : "many")} "
@@ -2736,7 +2743,8 @@ internal static partial class PanelSupersample
         // ACHIEVED field, so a degraded window never reads like a full-strength one.
         int msaa = PreferredMsaa;
         int askedMsaa = msaa;
-        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal);
+        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal - _menuDepthVramTotal);
+        if (MenuDepth.MenuDepthSources.HasContent(panel.HostRect)) budget /= 2;
         ResolveRate(e, frame, ref msaa, budget, out factor, out int rtW, out int rtH, out long vram);
         float askedFactor = e.AskedFactor;
         e.EffectiveFactor = factor;
@@ -2751,7 +2759,7 @@ internal static partial class PanelSupersample
                               + $"{factor:F2} (stepped down from {askedFactor:F2}, floor "
                               + $"{MinStepDownFactor:F2}), against a remaining budget of "
                               + $"{Mb(budget)} MB (per-panel cap {Mb(MaxPanelVramBytes)} MB, session "
-                              + $"{Mb(_vramTotal)} of {Mb(MaxTotalVramBytes)} MB across "
+                              + $"{Mb(_vramTotal + _menuDepthVramTotal)} of {Mb(MaxTotalVramBytes)} MB across "
                               + $"{Entries.Count} panel(s)). THE CONSEQUENCE: this window keeps "
                               + "today's direct rendering and will still shimmer. BOTH automatic "
                               + "concessions are already exhausted here, so the remaining levers are "

@@ -10,10 +10,27 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
+from project_compilers import cleanup_project_compilers
+from town_run_retention import cleanup_completed_run
+
+
+def execute(command, log, timeout):
+    with log.open('w') as output:
+        child = subprocess.Popen(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            return child.wait(timeout=timeout)
+        finally:
+            if child.poll() is None:
+                try: os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                child.wait()
 
 
 def method(source, signature):
@@ -30,8 +47,25 @@ def main():
     parser.add_argument('--case', action='append')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     args = parser.parse_args()
+    args.source_root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
+    print('Evidence: ' + str(run), flush=True)
+    completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
+    status = 1
+    try:
+        run_suite(args, run)
+        status = 0
+    finally:
+        compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
+        (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        if compilers['remaining']:
+            raise RuntimeError('Private project compilers remain; retaining caches: ' + str(run))
+        receipt = cleanup_completed_run('desktop-render-runtime', status, completion, ROOT, process_reaped=True)
+        (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
+
+
+def run_suite(args, run):
     flat = args.source_root / 'src/GloomhavenVR/WorldUI/FlatScreen'
     desktop = (flat/'FlatScreen.3.Desktop.cs').read_text()
     core = (flat/'FlatScreen.1.Core.cs').read_text()
@@ -75,7 +109,7 @@ def main():
 using UnityEngine;
 using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
-internal sealed class ConvertedPanel { internal RectTransform Target = null!, HostRect = null!; }
+internal sealed class ConvertedPanel { internal RectTransform Target = null!, HostRect = null!; internal Transform? OriginalParent; internal GameObject? HostGo; internal Canvas? NativeMenuCanvas; internal RenderMode OriginalNativeMenuCanvasMode; }
 internal static partial class CanvasConversion
 {
 private const float FitMinAlpha = .05f;
@@ -96,6 +130,21 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     probe += method(adopt, '    private static Camera? FindGameUiCamera(Camera head)')
     probe += 'internal static Camera? OriginalUi(Camera head) => FindGameUiCamera(head);\n'
     sources['Fit.cs'] = probe + '}\n'
+    conversion = args.source_root/'src/GloomhavenVR/WorldUI/Conversion'
+    convert = (conversion/'CanvasConversion.1.Core.cs').read_text()
+    release = (conversion/'CanvasConversion.4.Lifecycle.cs').read_text()
+    start = convert.index('        Canvas? menuCanvas = capHeightToCanvas ?')
+    end = convert.index('\n        AdoptNestedCanvases(panel);', start)
+    handoff = convert[start:end]
+    start = release.index('        if (panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel))')
+    end = release.index('\n        RetainNativeMenuHome(panel);', start)
+    mode_restore = release[start:end]
+    assert convert.index('using var transaction = new ConversionTransaction(panel);') < convert.index(handoff)
+    assert release.index('bool cameraWasWrong = RestoreAdoptedCameras("release");') < release.index(mode_restore)
+    sources['NativeMenuCanvas.cs'] = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class CanvasConversion {\n' + \
+        'internal static void MenuFrame(ConvertedPanel panel, RectTransform target, RectTransform hostRect, Vector2 size, bool capHeightToCanvas) {\n' + handoff + '\n}\n' + \
+        'internal static void RestoreMenuMode(ConvertedPanel panel) {\n' + mode_restore + '\n}\n' + \
+        method(release, '    private static bool NativeConversionHomeRestored(ConvertedPanel panel)\n') + '\n}\n'
     movie = (args.source_root/'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs').read_text()
     start = movie.index('    internal static bool OwnsRenderCamera(')
     owner = movie[start:movie.index(';', start)+1]
@@ -109,6 +158,12 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
+        ('native-menu-camera-mode-unpinned', 'NativeMenuCanvas.cs', '            menuCanvas.renderMode = RenderMode.WorldSpace;', '            /* injected: retain native head-driven camera adapter */', 'first menu head pixels already use the final native window frame'),
+        ('native-menu-family-gate-lost', 'NativeMenuCanvas.cs', 'capHeightToCanvas ? target.GetComponent<Canvas>() : null', 'target.GetComponent<Canvas>()', 'ordinary converted windows retain their original canvas-mode policy'),
+        ('native-menu-root-gate-lost', 'NativeMenuCanvas.cs', 'menuCanvas != null && menuCanvas.isRootCanvas', 'menuCanvas != null', 'nested native menu canvases never rewrite their original ancestor mode'),
+        ('native-menu-mode-receipt-lost', 'NativeMenuCanvas.cs', 'panel.OriginalNativeMenuCanvasMode = menuCanvas.renderMode;', 'panel.OriginalNativeMenuCanvasMode = RenderMode.WorldSpace;', 'menu release restores the original camera adapter after native camera ownership'),
+        ('native-menu-release-mode-lost', 'NativeMenuCanvas.cs', 'panel.NativeMenuCanvas.renderMode = panel.OriginalNativeMenuCanvasMode;', '/* injected: native camera mode never restored */', 'menu release restores the original camera adapter after native camera ownership'),
+        ('native-menu-refused-home-lost', 'NativeMenuCanvas.cs', 'panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel)', 'panel.NativeMenuCanvas != null', 'refused native home retains the original menu canvas-mode receipt'),
         ('late-menu-discovery-lost', 'CaptureRender.cs', '            CaptureStack();', '            /* injected: first render bypasses native capture */', 'late native camera is captured before its first actual render'),
         ('late-menu-base-clear-lost', 'CaptureStack.cs', '                if (cam.backgroundColor != OpaqueBlack)\n                    cam.backgroundColor = OpaqueBlack;', '                /* injected: new base retains undefined native background */', 'first native render applies current opaque stack base clear'),
         ('late-menu-release-lost', 'CaptureStack.cs', '                cam.targetTexture = null;', '                { /* injected: first-render camera stays captured after release */ }', 'first-render capture releases exact camera and native clear state'),
@@ -155,12 +210,20 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         'Core/NativeCameraRenderBudget.cs', 'Core/VRCameraPolicy.cs',
         'Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs', 'Rig/VRRigDriver.HeadCamera.cs',
         'WorldUI/Conversion/PanelMaintenanceCadence.cs', 'WorldUI/Conversion/CanvasConversion.3.Fit.cs',
-        'WorldUI/Conversion/CanvasConversion.2.Adopt.cs')]
-    input_files = source_files + [Path(__file__).resolve()] + sorted(fixture.rglob('*.cs')) + [fixture/'Desktop.csproj']
+        'WorldUI/Conversion/CanvasConversion.2.Adopt.cs', 'WorldUI/Conversion/CanvasConversion.1.Core.cs',
+        'WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs', 'WorldUI/Conversion/ConvertedPanel.cs')]
+    input_files = source_files + [Path(__file__).resolve(), ROOT/'scripts/menu-depth-character/project_compilers.py'] + sorted(fixture.rglob('*.cs')) + [fixture/'Desktop.csproj']
     input_hashes = {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest() for path in input_files}
+    for path in input_files:
+        # Freeze actual source/fixture inputs before any caches can be removed.
+        kind = 'production' if path in source_files else 'fixture'
+        base = args.source_root if path in source_files else ROOT
+        target = run/'source'/kind/path.relative_to(base)
+        target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(path, target)
     manifest = {'result': str(run/'results.txt'), 'managed': str((args.source_root/'ressources/GH_Data/Managed').resolve()), 'cases': []}
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{key:hashlib.sha256(value.encode()).hexdigest() for key,value in sources.items()},'inputs': input_hashes,'limits':['No OpenXR device is attached; provider presentation remains hardware-open.','Actual Camera.Render callbacks, ownership and current RenderTexture are executed.','Split/stereo construction is an explicit fixture boundary; same-pass sync calls and native glass pixels execute, not headset stereo presentation.']},indent=2)+'\n')
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{key:hashlib.sha256(value.encode()).hexdigest() for key,value in sources.items()},'inputs': input_hashes,'limits':['No OpenXR device is attached; provider presentation remains hardware-open.','Actual Camera.Render callbacks, ownership and current RenderTexture are executed.','Split/stereo construction is an explicit fixture boundary; same-pass sync calls and native glass pixels execute, not headset stereo presentation.','This ordinary-menu fixture has no menu-depth sources or borrowed eye camera; the separate menu-depth-desktop suite executes the spatial capture path.']},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
+    assemblies = run/'assemblies'; assemblies.mkdir()
     for name, filename, before, after, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
         for path, value in sources.items():
@@ -170,10 +233,17 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
             (production/path).write_text(value)
         project = build/'Desktop.csproj'; shutil.copyfile(fixture/'Desktop.csproj',project)
         assembly = 'DesktopRender_'+name.replace('-','_')
-        result = subprocess.run([dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed'),'-p:UnityUi='+str(args.source_root/'ressources/GH_Data/Managed/UnityEngine.UI.dll')],capture_output=True,text=True)
-        (build/'build.log').write_text(result.stdout+result.stderr)
-        if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nCompilation failure is not a passing negative control')
-        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+        command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet',
+            '--disable-build-servers','-nr:false','-p:UseSharedCompilation=false',
+            '-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),
+            '-p:UnityManaged='+str(args.unity.parent/'Data/Managed'),
+            '-p:UnityUi='+str(args.source_root/'ressources/GH_Data/Managed/UnityEngine.UI.dll')]
+        (build/'command.json').write_text(json.dumps(command, indent=2) + '\n')
+        if execute(command, build/'build.log', 180):
+            raise SystemExit((build/'build.log').read_text()+'\nCompilation failure is not a passing negative control')
+        retained = assemblies/(assembly+'.dll')
+        shutil.copyfile(build/'bin/Release/netstandard2.1'/retained.name, retained)
+        manifest['cases'].append({'name':name,'dll':str(retained),'expected':expected})
     dependencies = run/'dependencies'; dependencies.mkdir()
     for dependency in (run/variants[0][0]/'bin/Release/netstandard2.1').glob('*.dll'):
         if not dependency.name.startswith('DesktopRender_'): shutil.copyfile(dependency, dependencies/dependency.name)
@@ -187,17 +257,12 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     # rendering callbacks and therefore cannot establish the ownership contract.
     command = [str(args.unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','InteractionRunner.Start','-interactionManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run','-a'] + command
-    try:
-        result=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
-    finally:
-        # Keep generated source, assemblies, logs and the manifest as evidence;
-        # editor import caches are reproducible and otherwise dominate each run.
-        for cache in ('Library', 'Temp'):
-            shutil.rmtree(project/cache, ignore_errors=True)
+    (run/'unity-command.json').write_text(json.dumps(command, indent=2) + '\n')
+    unity_code = execute(command, run/'launch.log', 240)
     report=Path(manifest['result'])
     if report.is_file(): print(report.read_text(),end='')
-    (run/'unity-exit-code.txt').write_text(str(result.returncode)+'\n')
-    if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
+    (run/'unity-exit-code.txt').write_text(str(unity_code)+'\n')
+    if unity_code or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
     stable = all(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == input_hashes[str(path.resolve())]
                  for path in input_files)
     (run/'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(input_files)}, indent=2)+'\n')

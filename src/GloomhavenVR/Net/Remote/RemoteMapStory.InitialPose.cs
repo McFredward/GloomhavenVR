@@ -27,7 +27,7 @@ internal static partial class RemoteMapStory
                 local = QuestLocal; peers = QuestPeers; stamps = QuestStampAt;
                 break;
             case SharedWindowKind.Encounter:
-                UIEventPanel? encounter = EventPanel();
+                UnityEngine.UI.UIWindow? encounter = EventPanel();
                 key = encounter != null ? EncounterKey(encounter) : 0;
                 local = EncounterLocal; peers = EncounterPeers; stamps = EncounterStampAt;
                 break;
@@ -55,6 +55,7 @@ internal static partial class RemoteMapStory
             if (requireOpeningReceipt && unchecked(peer.ReceiptFrame - local.InitialReceiptFrame) < 0) continue;
             if (kind == SharedWindowKind.MapStory
                 && !MapStoryLifecycle.MatchesPose(true, pair.Key, peer.OpeningEpoch, peer.OpeningToken)) continue;
+            if (!SharedWindowMoves.MayFollow(pair.Key, kind, key)) continue;
             if (peer.Initial && !SharedWindowSpawnAuthority.AcceptInitial(pair.Key, peer.Context, (int)kind)) continue;
             if (!stamps.TryGetValue(pair.Key, out float at)) continue;
             if (best != 0 && peer.Initial && !initial) continue;

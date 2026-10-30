@@ -27,7 +27,8 @@ internal static class Program
         MapRoomDriver.Center=new(10,20,30);MapRoomDriver.Scale=2;NetPlayerActors.Local=10;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;TownServicePresentation.SessionAge=0;
         TownServiceStation.Ready=true;TownServiceStation.Missing.Clear();TownServiceStation.Creates=0;TownServiceStation.Disposals=0;
-        Time.unscaledTime=100;Time.unscaledDeltaTime=.3f;TownServiceStation.Floor=4;
+        Time.unscaledTime=100;Time.unscaledDeltaTime=.3f;TownServiceStation.MapFloor=4;
+        TownServiceLighting.Samples=TownServiceLighting.Replays=0;
     }
     private static void Tick(float dt=.3f) { Time.unscaledDeltaTime=dt;Time.unscaledTime+=dt;TownServicePopulation.Tick(); }
     private static TownResidentsState State(float tag=7)
@@ -315,18 +316,20 @@ internal static class Program
             "production settled .95-second activity remains serializable");
         byte[] bytes=new byte[TownActivityCodec.PacketBytes];
         int count=TownActivityCodec.WritePacket(bytes,in state,in face);
-        Check(count==TownActivityCodec.PacketBytes
+        Check(count>0
             && TownActivityCodec.ReadPacket(bytes,count,out var replay,out var replayFace),
             "actual producer writes and reads the extended atomic performance packet");
         Check(TownActivityCodec.ReadPacket(bytes,count,out replay,out replayFace)
             && replay.HasSharedPerformance && replay.Interactive,
             "new performance tail retains the author interaction state");
-        Check(replay.HasEnvironmentLight && replay.EnvironmentLightIntensity==.4f
-            && replay.EnvironmentLightColour.y==.8f && replay.EnvironmentLightDirection.z==1f,
-            "author fill sampler survives the actual atomic packet");
-        Check(replay.HasAmbientProbe && replay.AmbientProbe.C0.z==.4f
-            && replay.HasAuthoredKey && replay.KeyIntensity==.75f,
-            "actual sampler ambient and native directional key survive the atomic packet");
+        Check(replay.HasEnvironmentLight&&replay.EnvironmentLightIntensity==0f
+            &&replay.EnvironmentLightColour.sqrMagnitude==0f&&!replay.HasAmbientProbe&&!replay.HasAuthoredKey,
+            "actual resident publication never exports a participant's local room lighting");
+        Check(TownServiceLighting.Samples>0&&TownServiceStation.Live[1].LocalLighting.HasAmbientProbe,
+            "actual resident producer binds its local environment separately from shared performance");
+        // Explicit old-version data remains readable even though new production
+        // packets do not publish these participant-local environment tails.
+        TownServiceLighting.SampleEnvironment(TownServicePopulation.Frame!,ref state);
         var invalid=state;invalid.TempleUnavailableBlend=1.01f;
         Check(!TownActivityCodec.Valid(in invalid),"out-of-range author cover is rejected");
         invalid=state;invalid.TempleBlessingGeneration=1;invalid.TempleBlessingStartedClock=state.Clock+.01f;
@@ -380,9 +383,10 @@ internal static class Program
         var diagnostic=TownServicePopulation.PublishedActivities;
         Check(TownActivityCodec.Valid(in diagnostic) && !diagnostic.HasAuthoredFoley,
             "follower diagnostic snapshot stays valid without authoring a second shared contact stream");
-        Check(TownServiceLighting.Replays>0 && TownServiceLighting.LastReplay.EnvironmentLightIntensity==.25f
-            && TownServiceLighting.LastReplay.EnvironmentLightDirection.y==1f,
-            "follower applies the published light instead of resampling its own room");
+        Check(TownServiceLighting.Replays==0&&TownServiceLighting.Samples>0
+            && TownServiceStation.Live[1].LocalLighting.EnvironmentLightIntensity==.4f
+            && TownServiceStation.Live[1].LocalLighting.EnvironmentLightDirection.z==1f,
+            "follower keeps its local fill when another participant publishes a different room");
         var pose=TownServicePopulation.PublishedActivities.Temple;
         var expected=TownServiceActivityMotion.Visual(2,in pose);
         TownServiceActivityMotion.ApplyTempleAvailability(ref expected,false,.73f);
@@ -449,9 +453,9 @@ internal static class Program
             Near(TownServicePopulation.Published.At(s-1).ActorFloorOffset,-.03f*s,"republished sole height stays authored");
             Near(TownServicePopulation.Published.At(s-1).FurnitureBottom,-.06f*s,"republished support height stays authored");
         }
-        Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==false),"followers never choose their local floor");TownServiceStation.Floor=-100;Tick(.2f);Near(TownServiceStation.Live[1].Root.position.y,24,"viewer environment floor cannot overwrite author");
+        Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==false),"followers never re-author the native map floor");TownServiceStation.MapFloor=-100;Tick(.2f);Near(TownServiceStation.Live[1].Root.position.y,24,"observer map metric cannot overwrite an accepted author pose");
         RemoteTownResidents.Forget(2);Check(RemoteTownResidents.TryAuthor(out chosen,out _),"next peer after departure");Near(chosen.Merchant.Age,5,"next lowest wins");
-        Observe(5,new TownResidentsState{Active=false});Check(!RemoteTownResidents.TryAuthor(out _,out _),"opt-out withdraws immediately");Tick();Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==true),"authority handover restores local placement");Near(TownServiceStation.Live[1].Root.position.y,-100,"new author applies current environment floor");
+        Observe(5,new TownResidentsState{Active=false});Check(!RemoteTownResidents.TryAuthor(out _,out _),"opt-out withdraws immediately");Tick();Check(TownServiceStation.Live.Values.All(s=>s.LastAuthor==true),"authority handover restores native map placement");Near(TownServiceStation.Live[1].Root.position.y,-100,"new author applies the canonical native map metric");
         Observe(2,State());Time.unscaledTime+=NetProtocol.StaleTimeoutSeconds+.01f;Check(!RemoteTownResidents.TryAuthor(out _,out _),"stale author expires");
         Observe(2,State());RemoteTownResidents.Observe(2,default);Check(!RemoteTownResidents.TryAuthor(out _,out _),"missing resident presence withdraws prior author");
         Observe(2,State());NetPlayerActors.Local=1;Check(!RemoteTownResidents.TryAuthor(out _,out _),"lower local player retains authority");WorldUIConfig.ImmersiveTownServices.Value=false;Check(RemoteTownResidents.TryAuthor(out _,out _),"opted-out local cannot claim authority");

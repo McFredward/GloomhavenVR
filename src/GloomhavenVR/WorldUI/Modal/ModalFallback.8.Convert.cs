@@ -63,8 +63,8 @@ internal static partial class ModalFallback
     /// The full-screen menu family whose floated host would otherwise show an opaque
     /// full-window backing/blur rectangle (user #8 part 2): the ESC / Options menus and
     /// the end-of-scenario Results / Rewards / adventure-completion panels. For these the
-    /// backing image is disabled while floated so only the foreground content shows; every
-    /// other modal (story box, events, messages) keeps its backing.
+    /// backing image is disabled while floated so only the foreground content shows. Native
+    /// narrative producers additionally supply their exact dimmer selector at conversion.
     ///
     /// PAUSE/OPTIONS CONFIRMATIONS (issue #1): the generic-warning confirmation boxes the
     /// pause menu spawns (restart round/turn, skip mission/tutorial, quit dungeon — all
@@ -121,6 +121,21 @@ internal static partial class ModalFallback
     private static double ModalConvertMilliseconds(long begin, long end) =>
         begin == 0 || end == 0 ? -1d
         : (end - begin) * 1000d / System.Diagnostics.Stopwatch.Frequency;
+
+    /// <summary>Make the native city proposal complete before its first conversion snapshot.
+    /// VRRigDriver and the world-UI driver have no guaranteed Update order. Reconcile both old
+    /// owners here, then adopt the original ready-tracker bar before recording native homes,
+    /// bounds or captures. This is presentation only; native consent remains a manual action.</summary>
+    private static void PrepareCityReadinessForConversion(UIWindow window)
+    {
+        if (!MapRoom.MapRoomDriver.Active || !window.IsOpen
+            || !ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window))
+            return;
+        MapRoom.MapTravelConfirm.Reconcile(FloatedQuestConfirmationWindow());
+        LoadoutConfirmPark.Tick();
+        MapRoom.MapQuestReadyRoster.Tick(MapRoom.ReadyRosterSite.CityEvent,
+            window, window.gameObject, confirmPosed: true);
+    }
 
     /// <summary>
     /// THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — why every window this method floats now
@@ -193,6 +208,11 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool TryConvertWindow(UIWindow window)
     {
+        // A persistent level-up member already has one visible, owner-seated
+        // capture. Report that presentation as handled, including Dialogs=off;
+        // a false conversion failure would unnecessarily raise the flat screen.
+        if (ConfirmationOnOwner.IsOwned(window)) return true;
+        if (LevelUpComposite.IsOwnedInventory(window)) return true;
         string name = window.name;
         bool sampleConversion = VRLog.WantsDebug && _modalConvertTimingReports < ModalConvertTimingLimit;
         long started = sampleConversion ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
@@ -216,6 +236,7 @@ internal static partial class ModalFallback
         ReleaseScreenBind(window, "the float takes over — the window draws itself now");
         try
         {
+            PrepareCityReadinessForConversion(window);
             var rect = window.transform as RectTransform;
             if (rect == null)
             {
@@ -346,7 +367,8 @@ internal static partial class ModalFallback
             // User #8 part 2: the full-screen menu family (ESC / Options / Results / Rewards)
             // floats as an opaque backing rectangle — hide that backing so only the
             // foreground content shows.
-            bool transparentBg = WantsTransparentBackground(window.ID);
+            var narrativeBackground = NarrativeBackdrop.Filter(window, isStoryBox);
+            bool transparentBg = WantsTransparentBackground(window.ID) || narrativeBackground != null;
             // FLICKER FIX: float the modal host at a dominant sortingOrder so it composites
             // ON TOP of every other order-0 world-space host instead of tying with them and
             // swapping render order as the head micro-moves — see ModalHostSortingOrder.
@@ -414,7 +436,7 @@ internal static partial class ModalFallback
                 // target is still under its original parent. Unconditional, exactly like
                 // flattenWindow above and for the same reason — the ruling is about a CLASS of
                 // window, and a per-ID whitelist here would reproduce the failure it is meant to end.
-                sharedWindow: window);
+                sharedWindow: window, backgroundFilter: narrativeBackground);
             if (sampleConversion) afterCanvas = System.Diagnostics.Stopwatch.GetTimestamp();
 
             if (escMenuWidthHug)
@@ -687,8 +709,10 @@ internal static partial class ModalFallback
             // and the derived net "the mod's X must not do what the game's own ESC key refuses to
             // do" (escapeKeyAction None), with one exemption for the mod's own settings pane.
             bool isMandatoryDecision = IsMandatoryDecision(window, out string mandatoryReason);
+            bool isCityReadiness = ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window);
             if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
-                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen && !isMandatoryDecision)
+                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen && !isMandatoryDecision
+                && !isCityReadiness)
             {
                 ModalCloseButton.Attach(panel, window);
                 // HW-VERIFY
@@ -860,7 +884,13 @@ internal static partial class ModalFallback
                 // path that hides the window without CloseFloatedWindow would leave the frame
                 // standing with nothing in it. The reasoning is written out on that method.
                 Sticky = (MenuWindowFamily.IsGameOwnedMenu(window) || MapRoomParallel(window))
-                         && !isTransient && !IsIntroductionWindow(window),
+                         && !isTransient && !IsIntroductionWindow(window)
+                         // The native pooled ready toggle serves city events, quests, rewards
+                         // and loadout. Its native Hide ends that offer; keeping its old label
+                         // force-visible leaves an inert city-event button after completion.
+                         // Keep MapRoomParallel's nonblocking input policy, only decline its
+                         // presentation lifetime extension for this exact component (#18).
+                         && window.GetComponent<UIReadyToggle>() == null,
                 Transient = isTransient,
                 // ModBuild 230 (liveness): the clock every grace and dwell in TickWindowLiveness is
                 // measured from, and the "had been standing for" term of its release line.

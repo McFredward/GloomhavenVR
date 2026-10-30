@@ -497,40 +497,16 @@ internal static partial class Loc
                 + "sofort der normale dunkle Look zurück.",
             // ---- [Sky] ----
             ["Sky/Style"] =
-                "In welcher Umgebung du spielst (Nutzer-Entscheide 2026-08-12/13: die "
-                + "Umgebung rendert NUR im Szenario, so wie es die originale "
-                + "Standard-Umgebung auch macht — niemals im Menü; sie besteht aus EIGENEN "
-                + "Inhalten des Mods im malerischen Stil des Spiels). Default = der eigene "
-                + "animierte Himmel des Spiels, exakt wie bisher. Cellar = ein "
-                + "kerzenbeleuchteter Steinkeller; SwampNight = eine mondbeschienene "
-                + "Sumpflichtung unter einer Sternenkuppel mit Sternschnuppen, Bodennebel "
-                + "und Glühwürmchen. Eine andere Wahl als Default blendet im Szenario die "
-                + "Himmelskugel des Spiels aus und baut die Umgebung als FESTEN ORT UM DAS "
-                + "SPIELBRETT, wobei das Brett ein KLEINES SPIELFELD IST, DAS IN DER MITTE "
-                + "EINES VIEL GRÖSSEREN ORTES SCHWEBT — wie ein Tisch mit Spielfiguren in "
-                + "einem Raum, niemals ansatzweise so groß wie die Umgebung. Die offene "
-                + "Fläche, in der du stehst — die Waldlichtung, der Kellerinnenraum —, ist "
-                + "ein Mehrfaches der Brettbreite, damit alles, woraus die Umgebung "
-                + "besteht, Bäume und Wände eingeschlossen, deutlich außerhalb des "
-                + "Spielfelds bleibt; und das Brett schwebt um eine brettproportionale Höhe "
-                + "über dem Boden, statt in ihm zu stecken. DAS BRETT "
-                + "BEWEGT SICH NIEMALS IM RAUM. Zoomen skaliert die ganze Szene — Brett "
-                + "und Raum gemeinsam, im gleichen Verhältnis: weit herausgezoomt wirkt "
-                + "der Ort wie ein Modell vor dir, hereingezoomt stehst du darin, und das "
-                + "Brett schwebt bei jedem Zoom exakt gleich. Das "
-                + "Brett kann nicht mehr unter dem Boden landen. Stick-Flug, Drehen, das "
-                + "Welt-Greifen und körperliches Gehen bewegen dich alle durch den Ort "
-                + "hindurch; keines davon setzt ihn je neu. Nur der Himmel selbst wird neu "
-                + "um dich herum gesetzt, und das ausschließlich durch die Recenter-Geste "
-                + "(B+Y) oder einen Rig-Neuaufbau — ein erneutes Auswählen des Stils baut "
-                + "alles neu. Sie kann den Laser niemals abfangen (keine Collider, nur "
-                + "Mod-Layer). Wirkt sofort aus dem VR-Menü, greift sobald ein Szenario "
-                + "läuft. MIXED REALITY GEWINNT IMMER: solange MR an ist, ist jeder Himmel "
-                + "und jede Umgebung aus, damit der Chroma-Key dein Zimmer zeigen kann; "
-                + "die Wahl greift wieder, sobald MR ausgeht. Werte aus den alten "
-                + "Panorama-Builds (Night/Sunset) gibt es nicht mehr, sie fallen auf "
-                + "Default zurück. Rein lokale Darstellung, wird nie mit Mitspielern "
-                + "synchronisiert.",
+                "Wählt die Umgebung für Hauptmenü, 3D-Karte und Szenarien. "
+                + "Die Umgebung erscheint mit dem Hauptmenü nach dem Intro. Default zeigt "
+                + "den originalen animierten Himmel des Spiels. Cellar zeigt einen "
+                + "kerzenbeleuchteten Steinkeller; SwampNight eine nächtliche Sumpflichtung "
+                + "mit Sternschnuppen, Bodennebel und Glühwürmchen. OffBlack zeigt nur Schwarz "
+                + "und schaltet Mixed Reality nicht ein. Die Räume bleiben an ihrem Platz, "
+                + "während du dich bewegst; auf Karte und im Szenario bleibt das Spielbrett "
+                + "fest in der Umgebung. Die Auswahl wirkt sofort. Mixed Reality hat Vorrang "
+                + "und blendet Himmel und Umgebung aus; nach dem Ausschalten gilt wieder "
+                + "deine Umgebungsauswahl. Rein lokale Darstellung.",
             // ---- [Elements] ----
             ["Elements/EnvironmentResponse"] =
                 "Lässt die 3D-Umgebung auf die ELEMENT-INFUSIONEN auf dem Brett reagieren (Feuer, Eis, "
@@ -2736,10 +2712,11 @@ internal static partial class Loc
                 + "Bildschirm. Aus = altes Verhalten: das Intro läuft nur auf dem Desktop und im HMD steht eine "
                 + "\"startet…\"-Anzeige in der Leere.",
             ["WorldUI/ScreenWidth"] =
-                "Breite der schwebenden 2D-Leinwand in echten Metern (16:9, die Höhe folgt daraus). Ersetzt "
+                "Anfängliche Breite der schwebenden 2D-Leinwand in echten Metern (16:9, die Höhe folgt daraus). "
+                + "Das Hauptmenü lässt sich mit beiden Händen an seiner Fensterstange skalieren. Ersetzt "
                 + "den Schlüssel \"FlatScreenWidth\" von vor Test #6 (1.4 m wirkte auf 1.6 m Entfernung zu "
                 + "klein).",
-            ["WorldUI/ScreenDistance"] = "Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern.",
+            ["WorldUI/ScreenDistance"] = "Anfänglicher Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern. Das Hauptmenü lässt sich frei an seiner Fensterstange verschieben.",
             ["WorldUI/MapWindOpacity"] =
                 "Deckkraft der treibenden Wind-/Wolken-Ambiente-Partikel auf der Kampagnenkarte (0..1). Die "
                 + "flache Kartenkamera des Spiels bearbeitet/maskiert sie per Post-Processing, sodass sie "
@@ -2786,10 +2763,10 @@ internal static partial class Loc
                 + "Nachdrehen genau die Ausrichtung wegwerfen, die du selbst eingestellt hast. \"Immer\": "
                 + "beides (das bisherige Verhalten aller Fenster). \"Nie\": ein losgelassenes Fenster "
                 + "behält exakt die Ausrichtung, in der du es losgelassen hast. In jedem Modus ist das ein "
-                + "EINMALIGES Drehen beim Loslassen — kein Fenster folgt jemals deinem Kopf. GETEILTE "
-                + "Mehrspieler-Fenster (blauer Greifbalken) sind von allen drei Modi ausgenommen und drehen "
-                + "sich nie: sie gehören allen im Raum, ein Nachdrehen zu dir würde sie von den anderen "
-                + "wegdrehen und der Position widersprechen, die dieser Rechner gerade gesendet hat.",
+                + "EINMALIGES Drehen beim Loslassen — kein Fenster folgt jemals deinem Kopf. Auch geteilte "
+                + "Mehrspieler-Fenster verwenden diese Einstellung: Wer einen angenommenen Griff zuletzt "
+                + "loslässt, bestimmt die Ausrichtung; alle sehen dieselbe synchronisierte Drehung. Die "
+                + "Einstellungen anderer Spieler ändern diese abgelegte Ausrichtung nicht.",
             ["WorldUI/CombatLogFollowSeat"] =
                 "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). GENAU DIE BEIDEN "
                 + "WÖRTER WIE AM CONTROLBOARD, seit 2026-09-05 mit demselben Code (FollowPinAnchor). "
@@ -3513,6 +3490,10 @@ internal static partial class Loc
             // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
             // bars take part in the panel-vs-panel compose again, unconditionally, per the user
             // ruling that perspective must be respected everywhere.
+            ["WorldUI/CharacterPreviewDepth"] =
+                "Zeigt lebendige Charaktervorschauen auf Menüfenstern mit 3D-Tiefe und einer Perspektive passend zu deiner Blickposition. "
+                + "Aus stellt sofort das ursprüngliche flache Livebild wieder her. Auf allen Systemen standardmäßig eingeschaltet. "
+                + "Das ist deine lokale Darstellung; Storybilder und Videos behalten ihre eigene Tiefendarstellung.",
             ["WorldUI/StereoScreen"] =
                 "Stellt die schwebende 2D-Leinwand MIT Stereo-Tiefe dar (3D-Film-/Fenstereffekt): der "
                 + "erfasste 3D-Menüinhalt (Kampagnenkarte, Stadt, Slideshow-Szene) wird über modeigene "

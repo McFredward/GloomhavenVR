@@ -313,8 +313,14 @@ public static partial class MirrorProgram
             && TownServiceMirror.TryExpandNativeTemplateState(samples[0], out _),
             "first captured enhancement original carries complete owner state without a template-repair wait");
         TownServiceFrame first = samples[0]; int initialBytes = lengths[0];
+        Check(TownServiceMirror.TryExpandNativeTemplateState(first, out TownServiceFrame firstComplete),
+            "first queued native original retains its exact complete owner baseline");
+        byte[] firstCompleteBytes = TownServiceCodec.Write(firstComplete);
         pump();
-        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        float originalSentAt = Time.unscaledTime;
+        // Deliberately cross the genuine .15s no-receipt repair grace period.
+        // Its exact retained original must coexist with the next changed delta.
+        for (float until = Time.unscaledTime + .18f; Time.unscaledTime < until;) yield return null;
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 41) != null, "real first-offer queue builds its complete original on reception");
 
@@ -322,13 +328,28 @@ public static partial class MirrorProgram
         _fill.fillAmount = .43f; _fill.color = Color.cyan;
         _clip.padding = new Vector4(3f, 5f, 7f, 9f);
         original.Find("Viewport/Oversized").localPosition += new Vector3(0f, 11f, 0f);
+        int hoverCaptureStart = samples.Count;
         capture();
-        Check(samples.Count == 2 && samples[1].BaseSequence == first.Sequence
-            && samples[1].NativeTemplateBasisKey == 0,
+        int hoverIndex = samples.Count - 1;
+        // The native .15s unacknowledged-original repair can precede the new
+        // hover delta. CaptureCore emits that one exact
+        // retained full original before the new hover delta. Validate its bytes;
+        // never mistake it for the changed capture or weaken the delta contract.
+        Check(hoverIndex >= hoverCaptureStart && hoverIndex - hoverCaptureStart <= 1,
+            "hover capture emits one changed frame and at most one retained native original repair");
+        for (int i = hoverCaptureStart; i < hoverIndex; i++)
+            Check(samples[i].Sequence == first.Sequence && samples[i].BaseSequence == 0
+                && samples[i].NativeTemplateBasisKey == 0
+                && TownServiceCodec.Write(samples[i]).SequenceEqual(firstCompleteBytes),
+                "intermediate native repair preserves every exact original owner byte and sequence");
+        File.AppendAllText(Path.Combine(_output,"native-queued-delta626-repair.csv"),
+            "elapsed="+(Time.unscaledTime-originalSentAt).ToString("R",System.Globalization.CultureInfo.InvariantCulture)
+            +",repairs="+(hoverIndex-hoverCaptureStart)+",frames="+samples.Count+"\n");
+        Check(samples[hoverIndex].Sequence != first.Sequence && samples[hoverIndex].BaseSequence == first.Sequence
+            && samples[hoverIndex].NativeTemplateBasisKey == 0,
             "after the exact native original actual hover capture uses the existing cumulative owner delta");
-        TownServiceFrame changed = samples[1];
-        Check(TownServiceMirror.TryExpandNativeTemplateState(first, out TownServiceFrame firstComplete)
-            && lengths[1] < TownServiceCodec.Write(firstComplete).Length,
+        TownServiceFrame changed = samples[hoverIndex];
+        Check(lengths[hoverIndex] < firstCompleteBytes.Length,
             "actual cumulative hover avoids repeating the complete owner native property table");
         Check(TownServiceDelta.Expand(null, changed) == null,
             "a missing genuine owner baseline never reconstructs hover from viewer defaults");
@@ -369,7 +390,7 @@ public static partial class MirrorProgram
             "periodic native repair cannot roll selected upgrade artwork back");
         File.WriteAllText(Path.Combine(_output, "native-queued-delta626.txt"),
             "Actual CaptureCore -> immutable queue -> native bundle/fragments -> ReceiveParsed -> TickRemote.\n"
-            + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[1]
+            + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[hoverIndex]
             + " bytes; current complete repair=" + lengths[lengths.Count - 1] + " bytes.\n"
             + "Reordered delta requires its exact independently expanded original baseline.\n");
     }

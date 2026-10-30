@@ -7,12 +7,17 @@ and native Show/Hide/confirm/cancel methods establish continuation ordering.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
+
+from town_run_retention import cleanup_completed_run
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,6 +40,8 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--case", action="append")
     args = parser.parse_args()
+    def terminated(signum, frame): raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminated)
     root = args.source_root.resolve()
     fixture = root / "scripts/flat-confirmation657-runtime"
     managed = root / "ressources/GH_Data/Managed"
@@ -58,6 +65,9 @@ def main():
     for signature in ("public void ShowConfirmation(BoxConfirmationType boxConfirmationType", "private void OnCancel()", "private void OnConfirm()", "public void Hide()", "private void ResetConfirmationBox()", "private void OnHidden()"):
         native_item += method(item, signature) + "\n"
     native_item += "}\n"
+    navigation_spec = importlib.util.spec_from_file_location('navigation750_inputs', fixture/'navigation750_inputs.py')
+    navigation_tools = importlib.util.module_from_spec(navigation_spec); navigation_spec.loader.exec_module(navigation_tools)
+    navigation, navigation_provenance = navigation_tools.inputs(root, runtime, env, method, native_window, native_item, native_box)
     path = "src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs"
     source = (root/path).read_text()
     old = subprocess.run(["git", "show", "bf3444cb5:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
@@ -84,7 +94,66 @@ def main():
         ("item-stale-provenance", source.replace("        _itemBox = box;\n        ItemSeat.RequestedAs = null;", "        _itemBox = box;"), "unknown request on replacement cannot inherit old merchant provenance"),
         ("item-without-ownership", source.replace("if (window != null && TownServicePresentation.OwnsWindow(window))", "if (window != null && !ReferenceEquals(window, window))", 1), "item ownership leaves native presentation pose and layer untouched"),
         ("item-prefix-guarded-fault", observation_fault, ""),
-        ("item-prefix-unguarded-fault", unguarded_fault, "observation failure leaves native Show continuation intact")]
+        ("item-prefix-unguarded-fault", unguarded_fault, "observation failure leaves native Show continuation intact"),
+        ("navigation-production", source, ""),
+        ("navigation-gamepad", source, ""),
+        ("navigation-reentrant749", source, "reentrant native replacement remains open after the exact old Hide tail finishes"),
+        ("navigation-published749", source, "native Class Toggle declines the old Perks request before character mutation")]
+    navigation_mutations = {
+        'navigation-before-character-write-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'object? identity = CharacterIdentity(next);',
+            'if (owner.GetType().Name == "NewPartyDisplayUI") return;\n        object? identity = CharacterIdentity(next);',
+            'native Class Toggle declines the old Perks request before character mutation'),
+        'navigation-page-selection-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (selected == same) return;', 'if (selected || selected == same) return;',
+            'native tab selection declines old Perks before the new inventory page opens'),
+        'navigation-page-dismiss-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (selected == same) return;', 'if (!selected || selected == same) return;',
+            'closing only the active native Perks tab declines its pending original decision'),
+        'navigation-item-slot-context-lost': ('ConfirmationOnOwner.Identity.cs',
+            '|| field.Name == "slotType" || field.Name == "slotNum"', '',
+            'native focused item No selects the original item before same-character slot subpage fields reset'),
+        'navigation-natural-outcome-replayed': ('ConfirmationOnOwner.Navigation.cs',
+            'current.PendingNativeOutcome = false; // before native Hidden listeners/reentrant navigation',
+            '_ = current; // Causal control: naturally completed outcome remains pending.',
+            'naturally completed enhancement purchase is never invoked again by later navigation'),
+        'navigation-refresh-focus-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'AccessTools.Field(owner.GetType(), "selectedItemToCofirmSwitch")?.SetValue(owner, refresh.Selection);',
+            '_ = refresh.Selection; // Causal control: lost same-slot original selection.',
+            'same inventory slot refresh preserves its original pending item decision and focus target'),
+        'navigation-deferred-origin-rebased': ('ConfirmationOnOwner.NavigationState.cs',
+            'CurrentDeferredOrigin = _origin;', 'CurrentDeferredOrigin = new NavigationOrigin(_source);',
+            'deferred native request from a departed page declines on arrival instead of confirming the new context'),
+        'navigation-fallback-stale-yes': ('ConfirmationBoxRescue.cs',
+            'if (!ReferenceEquals(_outcomeToken, token)) return;',
+            '/* Causal control: obsolete fallback closures are still callable. */',
+            'navigation declines the exact fallback and invalidates its saved stale Yes closure'),
+        'navigation-foreign-owner-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (box != null && ForeignOwner(box)) continue;',
+            '/* Causal control: competing native owner ignored. */',
+            'foreign town-service ownership retains its native decision authority'),
+        'navigation-outer-options-owner-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'return FindMenu(button);', 'return null;',
+            'native Options logout declines through the authored outer ESC opening button before another outer page opens'),
+        'navigation-outer-multiplayer-owner-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'owner = target;', '_ = target;',
+            'native multiplayer ESC confirmation declines through its actual UnityEvent owner without ending the session'),
+        'navigation-manual-admission-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'private static bool NavigationActive => WorldUIConfig.ConversionActive;',
+            'private static bool NavigationActive => Enabled;',
+            'manual flat-screen same-character Perks to Cards retains native navigation No semantics'),
+        'navigation-user-close-epoch-lost': ('ConfirmationOnOwner.Navigation.cs',
+            'if (NavigationActive && NativeShowDepth == 0) AdvanceGeneration(window);',
+            '/* Causal control: closed source window has no navigation epoch. */',
+            'explicit source-window close invalidates a native delayed request even before its original Show'),
+        'navigation-gamepad-state-lost': ('ConfirmationOnOwner.Reentrant.cs',
+            'Singleton<UINavigation>.Instance.StateMachine.SwitchToState(state);',
+            '_ = state; // Causal control: visible new modal lost its original state history.',
+            'reentrant native gamepad opening restores its exact original state history and enabled input'),
+    }
+    for name, (filename, before, after, expected) in navigation_mutations.items():
+        if navigation[filename].count(before) != 1: raise RuntimeError('Navigation control binding drift: ' + name)
+        variants.append((name, source, expected))
     if any(before == source for name, before, expected in variants if name in ("without-host-hide", "slow-host-cancel")):
         raise RuntimeError("Host cancellation control binding drift")
     if any(before == source for name, before, expected in variants if name.startswith("item-") and expected and name != "item-published669"):
@@ -94,67 +163,122 @@ def main():
         variants = [entry for entry in variants if entry[0] in args.case]
     args.output_dir.mkdir(parents=True,exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-",dir=args.output_dir.resolve()))
-    shutil.copytree(fixture,run/"fixture"); fixture=run/"fixture"
-    provenance = {"GH.Runtime.dll": hashlib.sha256(runtime.read_bytes()).hexdigest(),
-        **{name:hashlib.sha256(value.encode()).hexdigest() for name,value in decompiled.items()},
-        "NativeWindowMethods.cs":hashlib.sha256(native_window.encode()).hexdigest(),
-        "NativeBoxMethods.cs":hashlib.sha256(native_box.encode()).hexdigest(),
-        "NativeItemMethods.cs":hashlib.sha256(native_item.encode()).hexdigest()}
-    dependencies = [Path.home()/".nuget/packages"/path for path in (
-        "harmonyx/2.7.0/lib/net45/0Harmony.dll", "monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll",
-        "monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll", "mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll")]
-    hashes={}; cases=[]
-    for name, seat, expected in variants:
-        build=run/name; production=build/"production"; production.mkdir(parents=True)
-        sources={"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"NativeItemMethods.cs":native_item,"TownServiceWindowMask.cs":mask_source}
-        hashes[name]={filename:hashlib.sha256(value.encode()).hexdigest() for filename,value in sources.items()}
-        for filename,value in sources.items(): (production/filename).write_text(value)
-        shutil.copyfile(fixture/"Confirmation.csproj",build/"Confirmation.csproj")
-        assembly="Confirmation657_"+name.replace("-","_")
-        result=subprocess.run([str(Path.home()/".dotnet/dotnet"),"build",str(build/"Confirmation.csproj"),"-c","Debug","--nologo","--verbosity","quiet",
-            "-p:CaseName="+assembly,"-p:FixtureDir="+str(fixture),"-p:ProductionDir="+str(production),
-            "-p:UnityManaged="+str(args.unity.parent/"Data/Managed"),"-p:GameManaged="+str(managed.resolve()),"-p:HarmonyPath="+str(dependencies[0])],capture_output=True,text=True,env=env)
-        (build/"build.log").write_text(result.stdout+result.stderr)
-        if result.returncode: raise SystemExit(result.stdout+result.stderr+"\nCompilation failure is not a causal pass")
-        cases.append({"name":name,"dll":str(build/"bin/Debug/netstandard2.1"/(assembly+".dll")),"expected":expected})
-    manifest={"result":str(run/"results.txt"),"cases":cases}
-    manifest_path=run/"manifest.json";manifest_path.write_text(json.dumps(manifest,indent=2)+"\n")
-    (run/"source-hashes.json").write_text(json.dumps(hashes,indent=2)+"\n")
-    (run/"native-provenance.json").write_text(json.dumps(provenance,indent=2)+"\n")
-    (run/"fixture-hashes.json").write_text(json.dumps({str(p.relative_to(fixture)):hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.rglob("*") if p.is_file()},indent=2)+"\n")
-    print("Evidence: "+str(run),flush=True)
-    # Native Unity scripts and Harmony detour caches share type names. Each item
-    # variant therefore receives a fresh process with only its own patched DLL.
-    # The original enhancement variants retain their unchanged shared-process proof.
-    groups = [("enhancement", [entry for entry in cases if not entry["name"].startswith("item-")])]
-    groups += [(entry["name"], [entry]) for entry in cases if entry["name"].startswith("item-")]
-    reports=[]; failed=False
-    for group, entries in groups:
-        if not entries: continue
-        project=run/"unity"
-        for dirname in ("Assets/Editor","Assets/Plugins","Packages","ProjectSettings"): (project/dirname).mkdir(parents=True)
-        for dependency in dependencies: shutil.copyfile(dependency, project/"Assets/Plugins"/dependency.name)
-        process_cases=[]
-        for entry in entries:
-            destination=project/"Assets/Plugins"/Path(entry["dll"]).name
-            shutil.copyfile(entry["dll"], destination)
-            process_cases.append({**entry,"dll":str(destination)})
-        shutil.copyfile(fixture/"Editor/ConfirmationRunner.cs",project/"Assets/Editor/ConfirmationRunner.cs")
-        (project/"Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
-        (project/"ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
-        report=run/(group+".results.txt")
-        process_manifest=run/(group+".manifest.json")
-        process_manifest.write_text(json.dumps({"result":str(report),"cases":process_cases},indent=2)+"\n")
-        result=subprocess.run(["xvfb-run","-a",str(args.unity),"-batchmode","-force-glcore","-projectPath",str(project),"-executeMethod","ConfirmationRunner.Start","-confirmationManifest",str(process_manifest),"-logFile",str(run/(group+".unity.log"))],timeout=180)
-        # A normal return has reaped xvfb-run and its Unity process. On timeout or
-        # interruption, leave the project for the central runner to clean only
-        # after it kills/reaps every descendant; never delete a live Unity project.
-        shutil.rmtree(project,ignore_errors=True)
-        if report.is_file(): reports.append(report.read_text());print(reports[-1],end="",flush=True)
-        failed |= result.returncode != 0 or not report.is_file()
-    Path(manifest["result"]).write_text("".join(reports))
-    if failed: raise SystemExit("FAIL native confirmation lifecycle: "+str(run))
-    print(("PARTIAL PASS" if args.case else "PASS")+": native confirmation lifecycle; "+str(run))
+    compiler_temp=Path(tempfile.mkdtemp(prefix="ghvr-confirm-",dir="/tmp"));env['TMPDIR']=str(compiler_temp)
+    (run/'compiler-temp.json').write_text(json.dumps({'TMPDIR':str(compiler_temp)})+'\n')
+    completion=run/'completion.log';completion.write_text('Evidence: '+str(run)+'\n')
+    spec=importlib.util.spec_from_file_location('confirmation_project_tools',ROOT/'scripts/menu-depth-character/project_compilers.py')
+    project_tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(project_tools)
+    spec=importlib.util.spec_from_file_location('confirmation_run_tools',ROOT/'scripts/check-environment-menu-scope.py')
+    run_tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(run_tools)
+    process=None;project=None;reaped=True;code=1
+    try:
+        shutil.copytree(fixture,run/"fixture"); fixture=run/"fixture"
+        provenance = {"GH.Runtime.dll": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+            **{name:hashlib.sha256(value.encode()).hexdigest() for name,value in decompiled.items()},
+            "NativeWindowMethods.cs":hashlib.sha256(native_window.encode()).hexdigest(),
+            "NativeBoxMethods.cs":hashlib.sha256(native_box.encode()).hexdigest(),
+            "NativeItemMethods.cs":hashlib.sha256(native_item.encode()).hexdigest()}
+        dependencies = [Path.home()/".nuget/packages"/path for path in (
+            "harmonyx/2.7.0/lib/net45/0Harmony.dll", "monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll",
+            "monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll", "mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll")]
+        hashes={}; cases=[]
+        for name, seat, expected in variants:
+            build=run/name; production=build/"production"; production.mkdir(parents=True)
+            sources = dict(navigation) if name.startswith('navigation-') else {"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"NativeItemMethods.cs":native_item,"TownServiceWindowMask.cs":mask_source}
+            if name in navigation_mutations:
+                filename, before, after, _ = navigation_mutations[name]
+                sources[filename] = sources[filename].replace(before, after)
+            hashes[name]={filename:hashlib.sha256(value.encode()).hexdigest() for filename,value in sources.items()}
+            for filename,value in sources.items(): (production/filename).write_text(value)
+            shutil.copyfile(fixture/("Navigation750.csproj" if name.startswith('navigation-') else "Confirmation.csproj"),build/"Confirmation.csproj")
+            assembly="Confirmation657_"+name.replace("-","_")
+            result=subprocess.run([str(Path.home()/".dotnet/dotnet"),"build",str(build/"Confirmation.csproj"),"-c","Debug","--nologo","--verbosity","quiet",
+                "-p:CaseName="+assembly,"-p:FixtureDir="+str(fixture),"-p:ProductionDir="+str(production),
+                "-p:UnityManaged="+str(args.unity.parent/"Data/Managed"),"-p:GameManaged="+str(managed.resolve()),"-p:HarmonyPath="+str(dependencies[0])],capture_output=True,text=True,env=env)
+            (build/"build.log").write_text(result.stdout+result.stderr)
+            if result.returncode: raise SystemExit(result.stdout+result.stderr+"\nCompilation failure is not a causal pass")
+            binary=build/("bin/Debug/net472" if name.startswith('navigation-') else "bin/Debug/netstandard2.1")/(assembly+".dll")
+            executed=run/"executed-assemblies";executed.mkdir(exist_ok=True)
+            retained=executed/binary.name;shutil.copyfile(binary,retained)
+            cases.append({"name":name,"dll":str(retained),"expected":expected,"sha256":hashlib.sha256(retained.read_bytes()).hexdigest()})
+        manifest={"result":str(run/"results.txt"),"cases":cases}
+        manifest_path=run/"manifest.json";manifest_path.write_text(json.dumps(manifest,indent=2)+"\n")
+        (run/"source-hashes.json").write_text(json.dumps(hashes,indent=2)+"\n")
+        (run/"native-provenance.json").write_text(json.dumps(provenance,indent=2)+"\n")
+        (run/'navigation-native-provenance.json').write_text(json.dumps(navigation_provenance,indent=2)+'\n')
+        (run/"fixture-hashes.json").write_text(json.dumps({str(p.relative_to(fixture)):hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.rglob("*") if p.is_file()},indent=2)+"\n")
+        dotnet = Path.home()/'.dotnet/dotnet'
+        sdk = subprocess.run([str(dotnet),'--version'],cwd=root,env=env,capture_output=True,text=True,check=True).stdout.strip()
+        tool_inputs = [args.unity, dotnet, Path.home()/'.dotnet/tools/ilspycmd',
+            dotnet.parent/'sdk'/sdk/'Roslyn/bincore/csc.dll', managed/'UnityEngine.UI.dll', runtime,
+            Path(__file__), ROOT/'scripts/town_run_retention.py', ROOT/'scripts/menu-depth-character/project_compilers.py',
+            ROOT/'scripts/check-environment-menu-scope.py', *dependencies,
+            *(args.unity.parent/'Data/Managed/UnityEngine').glob('*.dll')]
+        (run/'toolchain-pins.json').write_text(json.dumps({'python':sys.version,'dotnet_sdk':sdk,
+            'sha256':{str(path.resolve()):hashlib.sha256(path.read_bytes()).hexdigest() for path in tool_inputs if path.is_file()},
+            'unity_project_version':'2021.3.5f1','ugui_manifest':'com.unity.ugui=1.0.0',
+            'limits':'Source-bound native callbacks/Unity lifecycle, declared session/artwork/network ports; not Windows/HMD or live actor/network acceptance.'},indent=2)+'\n')
+        print("Evidence: "+str(run),flush=True)
+        # Native Unity scripts and Harmony detour caches share type names. Each item
+        # variant therefore receives a fresh process with only its own patched DLL.
+        # The original enhancement variants retain their unchanged shared-process proof.
+        groups = [("enhancement", [entry for entry in cases if not entry["name"].startswith(("item-", "navigation-"))])]
+        groups += [(entry["name"], [entry]) for entry in cases if entry["name"].startswith(("item-", "navigation-"))]
+        reports=[]; failed=False
+        for group, entries in groups:
+            if not entries: continue
+            project=run/("unity-"+group)
+            for dirname in ("Assets/Editor","Assets/Plugins","Packages","ProjectSettings"): (project/dirname).mkdir(parents=True)
+            for dependency in dependencies: shutil.copyfile(dependency, project/"Assets/Plugins"/dependency.name)
+            process_cases=[]
+            for entry in entries:
+                destination=project/"Assets/Plugins"/Path(entry["dll"]).name
+                shutil.copyfile(entry["dll"], destination)
+                process_cases.append({**entry,"dll":str(destination)})
+            shutil.copyfile(fixture/"Editor/ConfirmationRunner.cs",project/"Assets/Editor/ConfirmationRunner.cs")
+            (project/"Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
+            (project/"ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
+            report=run/(group+".results.txt")
+            process_manifest=run/(group+".manifest.json")
+            process_manifest.write_text(json.dumps({"result":str(report),"cases":process_cases},indent=2)+"\n")
+            process=subprocess.Popen(["xvfb-run","-a",str(args.unity),"-batchmode","-force-glcore","-projectPath",str(project),"-executeMethod","ConfirmationRunner.Start","-confirmationManifest",str(process_manifest),"-logFile",str(run/(group+".unity.log"))],start_new_session=True,env=env)
+            reaped=False
+            try: result=process.wait(timeout=180)
+            finally:
+                try: os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait();reaped=True
+                editor=project_tools.cleanup_project_editors(project,args.unity,launcher_reaped=True)
+                compiler=run_tools.cleanup_run_compilers(run,editor_reaped=True)
+                (run/(group+".process-cleanup.json")).write_text(json.dumps({'editor':editor,'compiler':compiler},indent=2)+"\n")
+                if editor['remaining'] or compiler['remaining'] or compiler['refused']:
+                    (run/'.keep').write_text('Private process cleanup requires review.\n')
+                    raise RuntimeError('Private native confirmation processes still active')
+                receipt=cleanup_completed_run('flat-confirmation-lifecycle',result if 'result' in locals() else 1,completion,root,process_reaped=True)
+                (run/(group+".cache-cleanup.json")).write_text(json.dumps(receipt,indent=2)+"\n")
+            if report.is_file(): reports.append(report.read_text());print(reports[-1],end="",flush=True)
+            failed |= result != 0 or not report.is_file()
+        Path(manifest["result"]).write_text("".join(reports))
+        if failed: raise SystemExit("FAIL native confirmation lifecycle: "+str(run))
+        print(("PARTIAL PASS" if args.case else "PASS")+": native confirmation lifecycle; "+str(run))
+
+        code=0
+    finally:
+        if process is not None and process.poll() is None:
+            os.killpg(process.pid,signal.SIGKILL);process.wait();reaped=True
+        if project is not None:
+            editor=project_tools.cleanup_project_editors(project,args.unity,launcher_reaped=reaped)
+            if editor['remaining']:
+                (run/'.keep').write_text('Private editor cleanup requires review.\n')
+                raise RuntimeError('Private editor cleanup incomplete')
+        compiler=run_tools.cleanup_run_compilers(run,editor_reaped=reaped)
+        (run/'completion-compiler-cleanup.json').write_text(json.dumps(compiler,indent=2)+'\n')
+        if compiler['remaining'] or compiler['refused']:
+            (run/'.keep').write_text('Private compiler ownership requires review.\n')
+            raise RuntimeError('Private compiler cleanup incomplete')
+        shutil.rmtree(compiler_temp)
+        receipt=cleanup_completed_run('flat-confirmation-lifecycle',code,completion,root,process_reaped=reaped)
+        (run/'cache-cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
 
 
 if __name__ == "__main__": main()
