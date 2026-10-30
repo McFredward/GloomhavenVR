@@ -318,7 +318,9 @@ public static partial class MirrorProgram
         byte[] firstCompleteBytes = TownServiceCodec.Write(firstComplete);
         pump();
         float originalSentAt = Time.unscaledTime;
-        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        // Deliberately cross the genuine .15s no-receipt repair grace period.
+        // Its exact retained original must coexist with the next changed delta.
+        for (float until = Time.unscaledTime + .18f; Time.unscaledTime < until;) yield return null;
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 41) != null, "real first-offer queue builds its complete original on reception");
 
@@ -329,8 +331,8 @@ public static partial class MirrorProgram
         int hoverCaptureStart = samples.Count;
         capture();
         int hoverIndex = samples.Count - 1;
-        // A real frame may overshoot the .13s wait past the native .15s
-        // unacknowledged-original repair. CaptureCore then emits that one exact
+        // The native .15s unacknowledged-original repair can precede the new
+        // hover delta. CaptureCore emits that one exact
         // retained full original before the new hover delta. Validate its bytes;
         // never mistake it for the changed capture or weaken the delta contract.
         Check(hoverIndex >= hoverCaptureStart && hoverIndex - hoverCaptureStart <= 1,
