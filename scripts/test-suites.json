@@ -3154,6 +3154,17 @@
       "weight": 45
     },
     {
+      "id": "menu-depth-laser",
+      "command": [
+        "python3",
+        "scripts/menu-depth-laser/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
       "id": "menu-depth-desktop",
       "command": [
         "python3",
