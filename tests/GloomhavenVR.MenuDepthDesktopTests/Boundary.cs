@@ -16,6 +16,18 @@ public static class DesktopEyeInput
 }
 public sealed class ItemCardUI : MonoBehaviour { }
 public sealed class FullAbilityCard : MonoBehaviour { }
+// Desktop/head-pixel cases supply item cards, never native More Cards rows.
+// Keep that input-only association explicit; the native laser fixture executes
+// the original GH.Runtime types and their callbacks instead.
+public sealed class MiniAbilityCard : MonoBehaviour { }
+public sealed class AbilityCardUI : MonoBehaviour
+{
+    public MiniAbilityCard MiniAbilityCard => throw new InvalidOperationException("Unexpected More Cards input in desktop rendering");
+}
+public sealed class UILevelUpCard : MonoBehaviour
+{
+    public Selectable Selectable => throw new InvalidOperationException("Unexpected More Cards row in desktop rendering");
+}
 public sealed class Character3DDisplayManager : MonoBehaviour
 {
     private Transform character3DHolder = null!;
