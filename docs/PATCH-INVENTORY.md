@@ -229,14 +229,14 @@ runtime, which is why a runtime audit could never do this job (see
 | `ConfirmationDeferredCapturePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Deferred.cs:16</sub> | *(resolved at runtime by `TargetMethod`)* | transpiler | `WorldUIModule`:101 |
 | `ConfirmationDeferredCoroutinePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Deferred.cs:53</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `WorldUIModule`:102 |
 | `ConfirmationIdentityWritePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Identity.cs:18</sub> | *(resolved at runtime by `TargetMethod`)* | transpiler | `WorldUIModule`:100 |
-| `ConfirmationNativeTweenOutcomePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:397</sub> | `UIWindow.OnTweenFinished()` *(private)* | prefix | `WorldUIModule`:94 |
-| `ConfirmationAdditionalOriginPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:403</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:92 |
+| `ConfirmationNativeTweenOutcomePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:439</sub> | `UIWindow.OnTweenFinished()` *(private)* | prefix | `WorldUIModule`:94 |
+| `ConfirmationAdditionalOriginPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:445</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:92 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
-| `ConfirmationNativeOutcomePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:425</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:93 |
-| `ConfirmationPartyNavigationPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:436</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:96 |
-| `ConfirmationMenuNavigationPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:451</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:97 |
-| `ConfirmationProducerDeparturePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:462</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:98 |
-| `ConfirmationInventoryRefreshPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:474</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:99 |
+| `ConfirmationNativeOutcomePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:467</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:93 |
+| `ConfirmationPartyNavigationPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:478</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:96 |
+| `ConfirmationMenuNavigationPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:493</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:97 |
+| `ConfirmationProducerDeparturePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:504</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:98 |
+| `ConfirmationInventoryRefreshPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Navigation.cs:516</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:99 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | postfix | &nbsp; |
 | `ConfirmationProducerScopePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Origins.cs:78</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:87 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
@@ -247,7 +247,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `DeferredConfirmationProducerScopePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Origins.cs:175</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:90 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
 | `PersistentConfirmationActionScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Origins.cs:224</sub> | `PersistentAbilitiesUI.GetCustomEffects()` *(private)* | postfix | `WorldUIModule`:91 |
-| `ConfirmationReentrantHidePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Reentrant.cs:55</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:95 |
+| `ConfirmationReentrantHidePatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Reentrant.cs:64</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:95 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | postfix | &nbsp; |
 | `HintProducerScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:154</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:169 |
 | &nbsp; | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | finalizer | &nbsp; |
