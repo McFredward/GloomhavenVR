@@ -51,6 +51,12 @@ def main():
     sources['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+'\n'.join(block(ray,s)for s in signatures)+'\n'+hit+'\n}'
     cases=[('production','','','',''),
         ('more-cards-hover','','','',''),
+        ('more-cards-old-root','MenuDepthCardPlane.cs','nativeRoot: NativeInputRoot()',
+            'nativeRoot: _card', 'raised More Cards centre reaches the original row MouseEnter callback'),
+        ('more-cards-old-canvas','UguiPointer.cs','Canvas? ownerCanvas = nativeRoot != null',
+            'Canvas? ownerCanvas = nativeRoot == null', 'adopted nested mini Canvas still reaches its original outer More Cards row raycaster'),
+        ('more-cards-owner-tie-order','UguiPointer.cs','pass == 0 && ownerCanvas != null && ownerCanvas != logical ? ownerCanvas : logical',
+            'pass == 0 ? logical : ownerCanvas', 'raised native query preserves the original flat top hit for equal-order nested children'),
         ('source-draw-throws','MenuDepthCharacterSource.cs','_camera.Render();',
             'if (_rayRenderedIdentity != null) throw new InvalidOperationException("fixture source draw failed"); _camera.Render();',''),
         ('card-flat','MenuDepthCardPlane.cs','float depth = -Mathf.Abs(root.rect.width) * plane._depthWidthRatio * xScale / zScale;',
@@ -81,9 +87,13 @@ def main():
     field=ROOT/'src/GloomhavenVR/Assets/MenuDepth/Story/af21d2cb8296eb19eac3f458e3773d1f.gmd'
     os.environ['GHVR_LASER_NATIVE_BRUTE']=str(native);os.environ['GHVR_LASER_FIELD']=str(field)
     os.environ['GHVR_LASER_NATIVE_ROW']=str(run/'native-row.json')
-    toolchain=[*managed.glob('UnityEngine/*.dll'),*Path('/home/claw/.dotnet/sdk').glob('*/Roslyn/bincore/csc.dll')]
+    unitypy=Path('/home/claw/unitypy-venv')
+    toolchain=[*managed.glob('UnityEngine/*.dll'),*Path('/home/claw/.dotnet/sdk').glob('*/Roslyn/bincore/csc.dll'),
+        unitypy/'bin/python',Path(sys.executable).resolve(),
+        *[p for p in (unitypy/'lib').rglob('*') if p.suffix in {'.py','.so'} and '__pycache__' not in p.parts],
+        Path('/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472/0Harmony.dll')]
     pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
-        unity,native,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',
+        unity,native,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',ROOT/'ressources/GH_Data/sharedassets2.assets',
         ROOT/'scripts/menu726-native-profile.py',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
     project=run/'unity';status=1;stable=None

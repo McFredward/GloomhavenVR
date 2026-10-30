@@ -128,7 +128,8 @@ public static partial class MenuDepthLaserProgram
             Plane=Mini.gameObject.AddComponent<MenuDepthCardPlane>();Plane.Configure(mini,Mini,new[]{Ink},scene.Root);
             Full.gameObject.SetActive(false);Root.gameObject.SetActive(true);
         }
-        internal Vector3 Physical(Vector2 local)=>Mini.TransformPoint(new Vector3(local.x,local.y,-335*.056f));
+        internal Vector3 Physical(Vector2 local)=>Mini.TransformPoint(new Vector3(local.x,local.y,0))
+            -Mini.forward*(335*.056f*Mini.TransformVector(Vector3.right).magnitude);
     }
 
     public static IEnumerator RunMoreCards(string output,Action<int> count)
@@ -174,6 +175,12 @@ public static partial class MenuDepthLaserProgram
                                 "original row hover stays continuous across More Cards centre edges and label");
                         }
                     }
+                    foreach(Vector2 sample in new[]{Vector2.zero,new Vector2(-145,0),new Vector2(145,0),new Vector2(20,12)})
+                    {
+                        scene.Driver.Cancel();int before=first.Enters;scene.Aim(first.Physical(sample));scene.Tick();
+                        Check(first.Enters==before+1&&scene.Driver.Hovered==first.Input.gameObject&&first.Full.gameObject.activeSelf,
+                            "a fresh More Cards centre edge or label hover invokes the original row exactly once");
+                    }
                     int exits=first.Exits;scene.Aim(second.Physical(Vector2.zero));scene.Tick();
                     Check(first.Exits==exits+1&&second.Enters==1&&!first.Full.gameObject.activeSelf&&second.Full.gameObject.activeSelf,
                         "moving directly between native More Cards rows switches original preview and balanced callbacks immediately");
@@ -196,29 +203,147 @@ public static partial class MenuDepthLaserProgram
                     second.Root.gameObject.SetActive(false);scene.Tick();
                     Check(!second.Plane.IsReady&&second.Enters==enters,"hidden original More Cards row has no raised source or callback");
                     second.Root.gameObject.SetActive(true);
+                    // Card admission and completed head capture are explicit
+                    // fixture boundaries; their coordinators run in the card
+                    // suite. Reuse the real rebind and capture lease after a
+                    // native pool reactivation, then restore its original pose.
+                    second.Plane.Rebind(scene.Root,new[]{second.Ink});Canvas.ForceUpdateCanvases();
+                    second.Plane.BeforeCapture(new MenuDepthEye(false,scene.Head.transform.position,scene.Head));second.Plane.AfterCapture();
+                    Canvas.ForceUpdateCanvases();
+                    scene.Aim(second.Physical(Vector2.zero));
+                    Check(MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _),
+                        "original card readmission restores its real printed-surface ownership before mask and Canvas transitions");
                     var aperture=Rect("native More Cards clip",scene.Root,new Vector2(20,20));aperture.position=second.Mini.position;aperture.gameObject.AddComponent<RectMask2D>();
                     second.Root.SetParent(aperture,true);Canvas.ForceUpdateCanvases();scene.Aim(second.Physical(new Vector2(100,0)));scene.Tick();
-                    Check(!second.Plane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _)||!MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _),
+                    Check(!MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _),
                         "native More Cards mask clips its raised printed surface at the original input pixel");
                     second.Root.SetParent(scene.Root,true);Object.DestroyImmediate(aperture.gameObject);Canvas.ForceUpdateCanvases();
                     // A real adopted nested Canvas must not strand the outer native
                     // input owner on a different original GraphicRaycaster.
-                    var nested=second.Ability.gameObject.AddComponent<Canvas>();nested.overrideSorting=true;nested.sortingOrder=101;
+                    var nested=second.Ability.gameObject.AddComponent<Canvas>();nested.overrideSorting=false;nested.sortingOrder=101;nested.worldCamera=scene.Head;
                     nested.gameObject.AddComponent<GraphicRaycaster>();UguiPokeSurfaces.Nested[scene.Canvas]=new(){nested};
                     Canvas.ForceUpdateCanvases();yield return null;scene.Driver.Cancel();enters=second.Enters;
                     scene.Aim(second.Physical(Vector2.zero));scene.Tick();
+                    var nativeHits=new List<RaycastResult>();var probeData=new PointerEventData(EventSystem.current)
+                        {position=RectTransformUtility.WorldToScreenPoint(scene.Head,second.Mini.position)};
+                    scene.Canvas.GetComponent<GraphicRaycaster>().Raycast(probeData,nativeHits);
+                    File.WriteAllText(Path.Combine(output,"adopted-canvas-probe.txt"),"enters="+enters+"->"+second.Enters+" hovered="+(scene.Driver.Hovered!=null?scene.Driver.Hovered.name:"null")
+                        +" physical="+scene.Driver.HasHit+" visualCanvas="+second.Ink.canvas.name+" inputCanvas="+second.Input.canvas.name+" inputCull="+second.Input.canvasRenderer.cull
+                        +" inkCull="+second.Ink.canvasRenderer.cull+" sourceReady="+second.Plane.IsReady+" directPlane="+second.Plane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _)
+                        +" registeredSource="+MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _)
+                        +" inkAlpha="+second.Ink.canvasRenderer.GetInheritedAlpha()+" canvasEnabled="+nested.isActiveAndEnabled
+                        +" nativeHits="+string.Join(",",nativeHits.ConvertAll(hit=>hit.gameObject.name))+"\n");
                     Check(second.Enters==enters+1&&scene.Driver.Hovered==second.Input.gameObject,"adopted nested mini Canvas still reaches its original outer More Cards row raycaster");
                     Check(second.Plane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out raised)&&raised.NativeRoot==second.Button.transform,
                         "More Cards input scope is exactly its typed native selectable owner");
+                    foreach(bool locked in new[]{false,true})
+                    {
+                        scene.Driver.Cancel();second.Button.interactable=!locked;enters=second.Enters;
+                        scene.Aim(second.Physical(Vector2.zero));scene.Tick();
+                        Check(second.Enters==enters+1&&second.Full.gameObject.activeSelf==locked,
+                            "normal and locked adopted rows execute their original preview eligibility on the first centre hover");
+                        foreach(Vector2 sample in new[]{Vector2.zero,new Vector2(-145,0),new Vector2(145,0),new Vector2(20,12),new Vector2(20,-12)})
+                        {
+                            physical=second.Physical(sample);scene.Aim(physical);scene.Tick();
+                            Check(scene.Driver.Hovered==second.Input.gameObject&&second.Enters==enters+1
+                                &&Vector3.Distance(scene.Hand.Ray.WorldUiHit,physical)<.0001f,
+                                "adopted normal and locked row centre edges and label keep native hover and physical laser geometry");
+                        }
+                        int clicks=second.Clicks;scene.Hand.TriggerDown=scene.Hand.TriggerPressed=true;scene.Tick();
+                        scene.Hand.TriggerDown=false;scene.Hand.TriggerPressed=false;scene.Tick();
+                        Check(second.Clicks==clicks+(locked?0:1),"adopted native row press and release retain original locked and unlocked click permission");
+                    }
+                    scene.Driver.Cancel();enters=second.Enters;
+                    var poke=second.Root.gameObject.AddComponent<PokeOnlyTarget>();scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"native row ownership never bypasses far-ray poke-only exclusion");
+                    Object.DestroyImmediate(poke);
+                    // Keep both original raycaster results: opening the native
+                    // holder's input demonstrates a legitimate nested child hit.
+                    var holderGroup=second.Holder.GetComponent<CanvasGroup>();holderGroup.blocksRaycasts=true;holderGroup.interactable=true;
+                    Check(second.Plane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out var childHit),
+                        "legitimate nested child probe retains the independently established physical surface");
+                    nativeScreen=RectTransformUtility.WorldToScreenPoint(scene.Head,childHit.NativePoint);
+                    bool flatChild=original.TryRaycast(scene.Canvas,nativeScreen,out var flatTop);
+                    bool raisedChild=original.TryRaycastSurface(scene.Canvas,nativeScreen,childHit.Graphic,childHit.PreferGraphic,childHit.WorldPoint,childHit.Distance,out var raisedTop,childHit.NativeRoot);
+                    File.WriteAllText(Path.Combine(output,"native-child-priority.txt"),"flat="+(flatChild?flatTop.gameObject.name:"null")+" order="+flatTop.sortingOrder+" depth="+flatTop.depth
+                        +" raised="+(raisedChild?raisedTop.gameObject.name:"null")+" order="+raisedTop.sortingOrder+" depth="+raisedTop.depth+"\n");
+                    Check(flatChild&&flatTop.gameObject==second.Ink.gameObject,"original unmodified flat query gives legitimate nested mini child its native input priority");
+                    Check(flatTop.sortingOrder==scene.Canvas.sortingOrder,
+                        "independent original nested child and host expose equal native sorting orders");
+                    Check(raisedChild&&raisedTop.gameObject==flatTop.gameObject,
+                        "raised native query preserves the original flat top hit for equal-order nested children");
+                    scene.Tick();
+                    Check(scene.Driver.Hovered==second.Ink.gameObject&&second.InnerEnters>0&&!second.Card.IsHovered,
+                        "original nested child graphics and internal native callbacks retain their native priority within the row");
+                    scene.Driver.Cancel();holderGroup.blocksRaycasts=false;holderGroup.interactable=false;
+                    nested.overrideSorting=true;Canvas.ForceUpdateCanvases();yield return null;Canvas.ForceUpdateCanvases();
+                    scene.Aim(second.Physical(Vector2.zero));
+                    Check(second.Plane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out var overrideHit),
+                        "native override-sorting transition retains its actual printed source before the input comparison");
+                    nativeScreen=RectTransformUtility.WorldToScreenPoint(scene.Head,overrideHit.NativePoint);
+                    Check(original.TryRaycast(scene.Canvas,nativeScreen,out var overrideTop),
+                        "original flat query independently supplies the override-sorting transition input owner");
+                    File.WriteAllText(Path.Combine(output,"override-sorting-native-owner.txt"),overrideTop.gameObject.name+" order="+overrideTop.sortingOrder+" depth="+overrideTop.depth+"\n");
+                    scene.Tick();
+                    Check(scene.Driver.Hovered==overrideTop.gameObject&&second.Full.gameObject.activeSelf,
+                        "native override-sorting transition retains original flat top-hit permission and row callbacks");
+                    scene.Driver.Cancel();nested.overrideSorting=false;
+                    var ownerRect=Rect("adopted original row owner Canvas",scene.Root,new Vector2(500,500));
+                    var ownerCanvas=ownerRect.gameObject.AddComponent<Canvas>();ownerCanvas.overrideSorting=true;ownerCanvas.sortingOrder=100;
+                    ownerCanvas.worldCamera=scene.Head;
+                    var ownerRaycaster=ownerRect.gameObject.AddComponent<GraphicRaycaster>();
+                    second.Root.SetParent(ownerRect,true);UguiPokeSurfaces.Nested[scene.Canvas].Add(ownerCanvas);
+                    Canvas.ForceUpdateCanvases();yield return null;scene.Aim(second.Physical(Vector2.zero));scene.Tick();
+                    Check(scene.Driver.Hovered==second.Input.gameObject,"registered original nested owner Canvas retains native row input");
+                    scene.Driver.Cancel();enters=second.Enters;
+                    UguiPokeSurfaces.Nested[scene.Canvas].Remove(ownerCanvas);scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"unregistered original owner Canvas cannot gain permission through a registered visual Canvas");
+                    UguiPokeSurfaces.Nested[scene.Canvas].Add(ownerCanvas);ownerRaycaster.enabled=false;scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"disabled original owner raycaster cannot gain permission through physical mini geometry");
+                    ownerRaycaster.enabled=true;ownerCanvas.enabled=false;scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"inactive original owner Canvas cannot receive raised row events");
+                    ownerCanvas.enabled=true;rowGroup.blocksRaycasts=false;scene.Tick();
+                    Check(scene.Driver.HasHit&&scene.Driver.Hovered==null&&second.Enters==enters,"adopted native owner Canvas still respects original row CanvasGroup read-only input");
+                    rowGroup.blocksRaycasts=true;nested.enabled=false;scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"inactive original visual Canvas cannot authorize the outer native row");
+                    nested.enabled=true;UguiPokeSurfaces.Nested[scene.Canvas].Remove(nested);scene.Tick();
+                    Check(scene.Driver.Hovered==null&&second.Enters==enters,"unregistered original visual Canvas cannot authorize the outer native row");
+                    UguiPokeSurfaces.Nested[scene.Canvas].Add(nested);second.Button.enabled=false;scene.Tick();
+                    Check(second.Enters==enters,"adopted disabled native row component receives no hover callback");
+                    scene.Driver.Cancel();second.Button.enabled=true;
+                    Canvas.ForceUpdateCanvases();yield return null;Canvas.ForceUpdateCanvases();scene.Aim(second.Physical(Vector2.zero));
+                    Check(MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out var recoveryHit),
+                        "reenabled adopted native row retains its physical source before input recovery");
+                    nativeScreen=RectTransformUtility.WorldToScreenPoint(scene.Head,recoveryHit.NativePoint);
+                    Check(original.TryRaycast(scene.Canvas,nativeScreen,out var recoveryTop)&&recoveryTop.gameObject==second.Input.gameObject,
+                        "original flat raycaster independently confirms the adopted row is ready after reenabling");
+                    scene.Tick();
+                    Check(second.Enters==enters+1&&second.Full.gameObject.activeSelf,"reenabled adopted locked row recovers its original preview callback; enters="
+                        +enters+"->"+second.Enters+" preview="+second.Full.gameObject.activeSelf+" hovered="+(scene.Driver.Hovered!=null?scene.Driver.Hovered.name:"null"));
+                    scene.Driver.Cancel();
+                    var nestedMask=Rect("native adopted row mask",ownerRect,new Vector2(20,20));nestedMask.position=second.Mini.position;
+                    nestedMask.gameObject.AddComponent<RectMask2D>();second.Root.SetParent(nestedMask,true);Canvas.ForceUpdateCanvases();
+                    scene.Aim(second.Physical(new Vector2(100,0)));scene.Tick();
+                    Check(!MenuDepthSources.TryRaycast(scene.Canvas,scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out _)
+                        &&scene.Driver.Hovered==null,"adopted row ownership retains original native mask clipping for geometry and callbacks");
+                    second.Root.SetParent(ownerRect,true);Object.DestroyImmediate(nestedMask.gameObject);Canvas.ForceUpdateCanvases();
                     // A detached full preview must keep its own native scope even
                     // when its original AbilityCardUI still belongs to this row.
                     scene.Driver.Cancel();second.Full.SetParent(scene.Root,false);second.Full.localPosition=new Vector3(-280,-150,0);second.Full.gameObject.SetActive(true);
                     var fullCanvas=second.Full.GetComponent<Canvas>();if(fullCanvas!=null)Object.DestroyImmediate(fullCanvas);
                     var fullPlane=second.Full.gameObject.AddComponent<MenuDepthCardPlane>();var fullInk=second.Full.GetComponentInChildren<Image>();
                     fullPlane.Configure(second.Full.GetComponent<FullAbilityCard>(),second.Full,new[]{fullInk},scene.Root);Canvas.ForceUpdateCanvases();
-                    Vector3 fullPoint=second.Full.TransformPoint(new Vector3(0,0,-294*.104f));scene.Aim(fullPoint);
+                    Vector3 fullPoint=second.Full.position-second.Full.forward*(294*.104f*second.Full.TransformVector(Vector3.right).magnitude);scene.Aim(fullPoint);
                     Check(fullPlane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out raised)&&raised.NativeRoot==second.Full,
                         "detached native full preview retains its original card-only input root");
+                    var ordinary=Rect("ordinary native ability overview",scene.Root,new Vector2(335,55));ordinary.localPosition=new Vector3(-220,200,0);
+                    var ordinaryAbility=ordinary.gameObject.AddComponent<AbilityCardUI>();
+                    var ordinaryMini=Rect("ordinary native mini",ordinary,new Vector2(335,55));var ordinaryOwner=ordinaryMini.gameObject.AddComponent<MiniAbilityCard>();
+                    Assign(ordinaryAbility,"miniAbilityCard",ordinaryOwner);var ordinaryInk=Picture("ordinary mini print",ordinaryMini,ordinaryMini.rect.size,Color.white);
+                    var ordinaryPlane=ordinaryMini.gameObject.AddComponent<MenuDepthCardPlane>();ordinaryPlane.Configure(ordinaryOwner,ordinaryMini,new[]{ordinaryInk},scene.Root);
+                    Canvas.ForceUpdateCanvases();scene.Aim(ordinaryMini.position-ordinaryMini.forward*(335*.056f*ordinaryMini.TransformVector(Vector3.right).magnitude));
+                    Check(ordinaryPlane.TryRaycast(scene.Hand.Ray.Current.Origin,scene.Hand.Ray.Current.Direction,20,out raised)&&raised.NativeRoot==ordinaryMini,
+                        "ordinary ability mini cards outside More Cards retain their original card-only input root");
                     File.WriteAllText(Path.Combine(output,"native-callback-scope.txt"),"Actual GH.Runtime ExtendedButton enter/exit/down/up/click, OnHighlight, UILevelUpCard.MouseEnter/MouseExit, AbilityCardUI.OnPointerEnter and ToggleFullCardPreview execute. Native authored row/Image/blocked CardHolder values are independent read-only asset inputs. Campaign bootstrap, SetBackground/SetDisplayMode artwork, burning effects and desktop fit are explicit ports; highlight animation uses its original immediate path. No game boot, D3D11 or HMD claim.\n");
                 }
                 finally {scene.Driver.Cancel();Object.DestroyImmediate(navigation.gameObject);Object.DestroyImmediate(manager.gameObject);}

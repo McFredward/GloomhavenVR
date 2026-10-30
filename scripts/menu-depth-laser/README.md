@@ -26,9 +26,25 @@ an independently baked Unity MeshCollider, with warm hit/miss timings, allocatio
 triangle and shared skin-bake counts. A populated native canvas supplies 1,502 real
 registered Graphics for the original raised-member query cost measurement.
 
-Ten compiled causal variants independently remove physical depth, input mapping,
+The More Cards case reads the exact native inventory row prefab from level9 and
+its sharedassets2 dependency. Its original transparent row Image/ExtendedButton,
+non-raycasting CardHolder, nested AbilityCardUI button and MiniAbilityCard run with
+actual GH.Runtime pointer/preview callbacks. Independent flat-raycaster and
+physical-width checks precede the first raised centre hover. Fresh centre/edge/
+label entry, continuous movement, row transitions, locked/unlocked clicks, native
+navigation permission, masks, CanvasGroups, disabled/hidden controls and adopted
+visual/owner Canvas boundaries are exercised. Valid native nested-child hits keep
+their own priority. Detached full previews and ordinary mini input scopes stay
+independent. Campaign/artwork bootstrap, decoration, desktop fitting, card admission
+and completed head-capture boundaries are explicit fixture inputs; native highlight
+uses its original immediate animation path.
+
+Thirteen compiled causal variants independently remove physical depth, input mapping,
 alpha, source camera identity, capture lease, pooled-witness retirement, receipt
-expiry, input-root isolation, shared skin baking and native raised-member geometry.
+expiry, input-root isolation, shared skin baking, native raised-member geometry,
+More Cards row ownership, its cross-Canvas original raycaster lookup and the
+original host-before-nested tie ordering. The latter compares raised selection
+with the untouched flat query for independently established equal-order hits.
 Each must fail its named assertion. An additional fault variant injects a throw
 at the actual source Camera.Render call after one successful draw and asserts
 receipt invalidation, observer lease cleanup and original camera restoration.
