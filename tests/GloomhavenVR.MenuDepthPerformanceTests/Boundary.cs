@@ -32,9 +32,41 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Setting { internal bool Value = true; }
         internal static readonly Setting CharacterPreviewDepth = new();
     }
-    internal sealed class ConvertedPanel { internal Transform Target = null!; internal bool IsAlive = true; }
+    internal sealed class ConvertedPanel
+    {
+        internal Transform Target = null!;
+        internal bool IsAlive = true;
+        internal RectTransform HostRect => throw MenuDepthPerfContext.Unexpected("ConvertedPanel.HostRect");
+    }
     internal static class FlatScreen { internal static bool ManualScreenActive = false; }
     internal static class CanvasConversion { internal static readonly List<ConvertedPanel> ActivePanels = new(); }
+
+    // The complete directory also compiles the Further Ability hover helper,
+    // but this workload creates no ability-card owner and installs neither hover
+    // patch. Its tooltip geometry belongs to the actual-kernel card suite. Keep
+    // these inactive dependencies explicit: never invent a successful placement.
+    internal static class MenuDepthPerfContext
+    {
+        internal static int UnexpectedCalls { get; private set; }
+        internal static System.InvalidOperationException Unexpected(string member)
+        {
+            UnexpectedCalls++;
+            return new System.InvalidOperationException(member + " is outside the native discovery/character performance workload.");
+        }
+    }
+    internal static class ModalFallback
+    {
+        internal static ConvertedPanel? FindOwningWindow(Transform? hovered) =>
+            throw MenuDepthPerfContext.Unexpected("ModalFallback.FindOwningWindow");
+    }
+    internal static class TooltipOnWindow
+    {
+        internal static void Settle(Component? widget, string kind, Component? homeOwner = null) =>
+            throw MenuDepthPerfContext.Unexpected("TooltipOnWindow.Settle");
+        internal static bool PlaceFullCardPreview(Component? row, Component? fullCard,
+            float offsetXPixels, float offsetYPixels, string kind) =>
+            throw MenuDepthPerfContext.Unexpected("TooltipOnWindow.PlaceFullCardPreview");
+    }
 }
 namespace GloomhavenVR.Cards
 {

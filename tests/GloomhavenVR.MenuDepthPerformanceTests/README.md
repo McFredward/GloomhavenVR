@@ -9,6 +9,20 @@ RawImage lifecycle/texture setters, manager private fields and native cached-mod
 shader initialization are excluded explicitly; no gameplay scene is available.
 No fixture discovery notification or binding-result substitute is supplied.
 
+The complete directory also compiles the Further Ability hover helper. This
+workload creates no `UILevelUpCard`, `AbilityCardUI` or `FullAbilityCard`, and does
+not install either hover patch. Its unused `HostRect`, owning-window lookup and
+tooltip placement dependencies are explicit throwing context ports. The existing
+Finish boundary also checks their call count, so a swallowed presentation error
+cannot turn unsupported owner geometry into a passing result. Actual tooltip
+placement remains the responsibility of the real-kernel card suite; no character
+rendering or active geometry is replaced here.
+
+`--compile-only` prepares and strictly compiles the selected cases, preserves
+their source/assembly manifests and runs completion cleanup without launching
+Unity. It provides no runtime, pixel or timing evidence. An ordinary invocation
+still runs the complete containing workload and every causal control.
+
 The heavy population contains13 converted roots,39 original UIWindow instances,
 24,531 UI behaviours,2,808 unrelated RawImages and1,131 typed decorative images,
 plus the real native model camera and3 of its actual RT consumers. Timing disables

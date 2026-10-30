@@ -493,6 +493,8 @@ public static class MenuDepthPerformanceProof
     private static double Percentile(double[] sorted, double probability) => sorted[(int)Math.Floor((sorted.Length - 1) * probability)];
     public static int Finish()
     {
+        Check(MenuDepthPerfContext.UnexpectedCalls == 0,
+            "native discovery and character workload never substitutes ability-card tooltip owner geometry");
         if (_firstDrawOnly) return _assertions;
         var times = Samples.Take(_count).OrderBy(value => value).ToArray();
         var report = new Statistics

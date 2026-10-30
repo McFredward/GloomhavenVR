@@ -37,6 +37,7 @@ def replace_once(code, before, after):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append')
+    parser.add_argument('--compile-only', action='store_true', help='Prepare and strictly compile selected cases without launching Unity; no runtime or timing proof')
     parser.add_argument('--direct-batch-probe', action='store_true', help='Private source-copy diagnostic; never a production pass')
     parser.add_argument('--known-ready-724-probe', action='store_true', help='Actual shipped724 automatic known-ready historical comparator')
     parser.add_argument('--direct-cull-rebuild-probe', action='store_true', help='Private scoped cull-gated Graphic rebuild discriminator')
@@ -186,6 +187,14 @@ def main():
                 'restoreAfterRender': name in ('direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
                 'prepareBeforeRender': name == 'pre-render-capture-probe', 'automatic': name in ('automatic-first-draw', 'baseline724-automatic-ready')})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        if args.compile_only:
+            stable = all(hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest for path, digest in hashes.items())
+            (run / 'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(hashes)}, indent=2) + '\n')
+            if not stable: raise RuntimeError('Pinned production/fixture source changed during compilation')
+            (run / 'compile-only.json').write_text(json.dumps({'coverage': 'compilation only', 'cases': [item['name'] for item in manifest['cases']], 'unity_launched': False}, indent=2) + '\n')
+            print('PASS compilation only: ' + str(len(manifest['cases'])) + ' cases; Unity/runtime/timing not executed', flush=True)
+            status = 0
+            return 0
         argv = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthPerformanceRunner.Start',
                 '-menuDepthPerfManifest', str(run / 'manifest.json'), '-logFile', str(run / 'unity.log')]
