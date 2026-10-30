@@ -1,12 +1,13 @@
 # Planning index
 
-Updated 2026-10-30: Build751 restores scenario story laser/bar processing after
-a destroyed card-plane wrapper and beds local woodland terrain beneath fixed
-shared NPC soles, preserving the cellar and environment isolation. Class B uses
-only targeted laser/terrain cases, one direct environment consumer and strict/
-source/compiled checks; unchanged750 coverage is inherited. STATE.md and ignored
-mp751 evidence record exact counts, failures and hardware limits. Windows builds
-its archive from dev. Passive map-stall cause remains open in MP746-PERFORMANCE.md.
+Updated 2026-10-30: Build752 places the creation preview beside the name keyboard
+and makes the personal-quest preview smaller with its feet above the lower text.
+Class B uses two selected final-window variants, three consumer compilation
+checks and strict/source/compiled validation. Unchanged750/751 coverage is reused.
+STATE.md and ignored menu752 evidence retain input bindings, fixture failures,
+cleanup and hardware limits. Release1.2.2 is published; dev's automatic version
+is1.2.3. Windows builds its archive from dev. Passive map stalls remain open in
+MP746-PERFORMANCE.md.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

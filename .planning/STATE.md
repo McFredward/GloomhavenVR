@@ -1,3 +1,39 @@
+**Character creation preview layout, Build752, 2026-10-30 — validated for dev.**
+
+The name and personal-quest pages retain one shared native preview rectangle.
+Its ordinary centered cabinet fit obstructs the keyboard and lower quest copy.
+Only these exact creator pages now fit the private presentation beside the actual
+keyboard, or at 88% scale with its ground above the authored quest help line.
+Native UI and actor transforms remain untouched; ordinary previews, proportions,
+rotation, all seven shared projection callers, capture quality and cadence stay.
+
+Class B, explicitly minimal tests: two selected desktop variants pass 39 positive
+assertions and one compiling old-frame control through the actual converted-window
+coordinator and final head pixels. Short/tall bodies clear the keyboard and its
+laser ray. Quest feet clear the lower line by 32.4 native pixels; the tall body
+measures 671.2 rather than 762.8 pixels. Default framing matches an independent
+original metric. Measured Unity cases take 2.19s. Three unchanged character,
+rotation and laser consumers receive explicit native type/page input ports and
+compile cleanly; these compilation-only checks are not runtime passes.
+
+Four initial synthetic-photo attempts fail the unchanged default pixel oracle:
+the first engaged photograph retains its cached mono batch. One initial warmup
+retires that fixture photograph; later page transitions are tested immediately.
+Two rotation compile attempts expose the wrong boundary/missing IsOpen input,
+then pass after correcting the integrated port. All original failures remain.
+
+Fresh strict Debug/Release: zero warnings/errors, 18.53/18.04s; source 16/16 pass
+in 16.9s after strict cleanup. Compiled scope is one behavior type, nine exact
+build/version consumers and six exact release-version identities from the bot's
+1.2.3 dev bump; no added/removed types and 32 resources unchanged from751.
+All 1,768 strict inputs, 62 runtime inputs and declared consumer/native inputs
+bind to the final candidate. Inherited751 strict sources retain 1,765/1,768 exact;
+only project version, build stamp and this projection differ. Reuse qualified750
+full268/306739 evidence and751 closures for unchanged code; no full matrix rerun.
+Surfaces remain 670/267/4839. No Windows/native-art/headset acceptance is claimed.
+Per-run canonical cleanup and an empty process FD/cwd audit precede verified
+whole-worker evidence archival and retirement. Windows builds the dev archive.
+
 **Release1.2.2, 2026-10-30 — published.**
 
 Release workflow41094374980 published v1.2.2 from main7f6888707 after trusted
