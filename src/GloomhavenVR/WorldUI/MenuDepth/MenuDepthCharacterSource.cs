@@ -43,10 +43,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private object? _rayRenderedIdentity, _rayWitnessIdentity;
     private int _rayRenderedFrame = -1;
     private bool _rayCollecting;
-    private int _rayBakes, _rayTriangles;
+    private int _rayBakes;
+    private long _rayTriangles;
     private static int _rayFailures;
     internal int RayBakes => _rayBakes;
-    internal int RayTriangles => _rayTriangles;
+    internal long RayTriangles => _rayTriangles;
     internal int RayVisibleMembers => _rayMembers.Count;
     internal int RayReceiptFrame => _rayRenderedFrame;
     private readonly MenuDepthCharacterSurface _surface;
@@ -499,7 +500,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         internal bool Refused;
 
         internal bool TryHit(Renderer renderer, Vector3 origin, Vector3 direction, float maxDistance,
-            out float distance, ref int bakes, ref int triangles)
+            out float distance, ref int bakes, ref long triangles)
         {
             distance = 0f;
             Mesh? source = renderer is SkinnedMeshRenderer skin ? skin.sharedMesh

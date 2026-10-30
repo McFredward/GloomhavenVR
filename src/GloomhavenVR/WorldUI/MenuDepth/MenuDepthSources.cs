@@ -175,8 +175,10 @@ internal static class MenuDepthSources
             for (int i = 0; i < RayFilters.Count; i++)
             {
                 Component filter = RayFilters[i];
-                if (filter is Mask mask && mask.isActiveAndEnabled && !mask.IsRaycastLocationValid(screen, camera)) return false;
-                if (filter is RectMask2D rect && rect.isActiveAndEnabled && !rect.IsRaycastLocationValid(screen, camera)) return false;
+                if (filter is Mask mask && mask.isActiveAndEnabled && !mask.IsRaycastLocationValid(screen, camera))
+                { RayFilters.Clear(); return false; }
+                if (filter is RectMask2D rect && rect.isActiveAndEnabled && !rect.IsRaycastLocationValid(screen, camera))
+                { RayFilters.Clear(); return false; }
             }
             current = current.parent;
         }

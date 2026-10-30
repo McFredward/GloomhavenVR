@@ -300,7 +300,10 @@ internal sealed class UguiPointer
                 _hits.Clear(); original.Raycast(data, _hits);
                 for (int i = 0; i < _hits.Count; i++)
                     if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
-                    { topHit = _hits[i]; any = true; break; }
+                    {
+                        if (_hits[i].gameObject.GetComponent<PokeOnlyTarget>() != null) continue;
+                        topHit = _hits[i]; any = true; break;
+                    }
             }
         }
         if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);
