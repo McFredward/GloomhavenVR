@@ -61,23 +61,34 @@ namespace GloomhavenVR.Rig
 namespace GloomhavenVR.Hands
 {
     internal enum HandSide { Left, Right }
-    internal enum HapticPreset { ClickPulse }
+    internal enum HapticPreset { HoverTick, ClickPulse, GrabPulse }
+    internal static class VRHaptics
+    {
+        // The unchanged production sender reaches this device-delivery boundary.
+        internal static void Play(object device,HapticPreset preset)=>((VRHand)device).Pulses.Add(preset);
+    }
     internal sealed class GrabInput
     {
         internal object? Held;
         internal bool FigureGrabOffered, TriggerGrabOffered;
         internal bool TriggerGrabOfferedFor(Cards.VRCard card)=>false;
     }
-    internal sealed class VRHand
+    internal sealed partial class VRHand
     {
+        internal static float Now;
+        private static class Time { internal static float unscaledTime=>Now; }
+        private readonly HoverHapticGate _hoverHaptics=new();
+        private float _lastHoverHapticTime=float.NegativeInfinity,_lastSemanticHoverHapticTime=float.NegativeInfinity;
+        private const float HoverHapticMinInterval=.05f;
+        private readonly object _device;
+        internal readonly List<HapticPreset> Pulses=new();
+        internal VRHand()=>_device=this;
         internal HandSide Side;
         internal readonly Interact.RayInteractor Ray=new();
         internal readonly Interact.RayGrabDriver RayGrab=new();
         internal readonly GrabInput Grabber=new();
         internal bool TriggerDown, TriggerPressed;
         internal float WorldScale=1f;
-        internal void SendHoverHaptic(object? target) { }
-        internal void SendHaptic(HapticPreset preset) { }
     }
     internal static class VRHands
     {
@@ -117,7 +128,6 @@ namespace GloomhavenVR.Hands.Interact
         {handle=null;point=default;distance=float.PositiveInfinity;return false;}
     }
     internal sealed class PokeOnlyTarget : MonoBehaviour { }
-    internal static class HoverHapticTargets { internal static object? Ui(GameObject? target)=>target; }
     internal static class UguiPokeSurfaces
     {
         internal static readonly List<Canvas> Surfaces=new();

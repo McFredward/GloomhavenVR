@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using Code.State;
+using ClockStone;
 using HarmonyLib;
 using Script.GUI.SMNavigation;
 using Script.GUI.SMNavigation.States.CampaignMapStates;
@@ -29,6 +30,8 @@ public static partial class MenuDepthLaserProgram
         harmony.CreateClassProcessor(typeof(NativeLifecycle)).Patch();
         harmony.CreateClassProcessor(typeof(NativeGamepad)).Patch();
         harmony.CreateClassProcessor(typeof(NativeFit)).Patch();
+        harmony.CreateClassProcessor(typeof(NativeAudioLookup)).Patch();
+        harmony.CreateClassProcessor(typeof(NativeAudioOutput)).Patch();
         return harmony;
     }
 
@@ -62,14 +65,40 @@ public static partial class MenuDepthLaserProgram
     private static class NativeFit
     { [HarmonyPrefix] private static bool Before(ref Vector3 __result){__result=Vector3.zero;return false;} }
 
+    // Audio-bank availability and device output are boundaries. The actual
+    // ExtendedButton.OnHighlight/PlaySound bodies choose the original profile.
+    private static readonly List<string> AudioOutput=new();
+    [HarmonyPatch(typeof(AudioController),nameof(AudioController.GetAudioItem))]
+    private static class NativeAudioLookup
+    { [HarmonyPrefix] private static bool Before(ref AudioItem __result){__result=new AudioItem();return false;} }
+    [HarmonyPatch(typeof(AudioControllerUtils),nameof(AudioControllerUtils.PlaySound))]
+    private static class NativeAudioOutput
+    { [HarmonyPrefix] private static bool Before(string audioItem){AudioOutput.Add(audioItem);return false;} }
+
+    [DataContract] private sealed class AuthoredAudio
+    {
+        [DataMember] public string mouseClickAudioItem="",mouseDownAudioItem="",mouseUpAudioItem="",
+            mouseEnterAudioItem="",mouseExitAudioItem="",nonInteractableMouseDownAudioItem="";
+        internal AudioButtonProfile Profile()
+        {
+            var profile=ScriptableObject.CreateInstance<AudioButtonProfile>();
+            profile.mouseClickAudioItem=mouseClickAudioItem;profile.mouseDownAudioItem=mouseDownAudioItem;
+            profile.mouseUpAudioItem=mouseUpAudioItem;profile.mouseEnterAudioItem=mouseEnterAudioItem;
+            profile.mouseExitAudioItem=mouseExitAudioItem;profile.nonInteractableMouseDownAudioItem=nonInteractableMouseDownAudioItem;
+            return profile;
+        }
+    }
     [DataContract] private sealed class AuthoredRow
     {
-        [DataMember] public float width,height,rowAlpha,highlightScale;
+        [DataMember] public float width,height,rowAlpha,highlightScale,animationDuration;
         [DataMember] public Vector2 pivot;
         [DataMember] public Vector3 hoverMovement;
-        [DataMember] public bool rowRaycast,holderBlocksRaycasts,holderInteractable,scaleNonInteractable;
+        [DataMember] public bool rowRaycast,holderBlocksRaycasts,holderInteractable,scaleNonInteractable,useAudioController;
+        [DataMember] public AuthoredAudio audio=null!,audioProfile=null!;
     }
-    [DataContract] private sealed class AuthoredRowReport {[DataMember] public AuthoredRow summary=null!;}
+    [DataContract] private sealed class AuthoredOrdinary {[DataMember] public string name="";[DataMember] public AuthoredRow summary=null!;}
+    [DataContract] private sealed class AuthoredRowReport
+    { [DataMember] public AuthoredRow summary=null!;[DataMember] public AuthoredOrdinary[] ordinary=null!; }
     private sealed class InputState:IState
     {
         public void Enter<TPayload>(IStateProvider provider,TPayload payload=null!)where TPayload:class { }
@@ -83,7 +112,11 @@ public static partial class MenuDepthLaserProgram
         button.onMouseEnter=new UnityEvent();button.onMouseExit=new UnityEvent();
         button.onSelected=new UnityEvent();button.onDeselected=new UnityEvent();
         button.scaleNonInteractable=spec.scaleNonInteractable;button.highlightScaleFactor=spec.highlightScale;
-        button.animateScaling=false;button.useAudioController=true;
+        button.animateScaling=false;button.animationDuration=spec.animationDuration;button.useAudioController=spec.useAudioController;
+        button.audioProfile=spec.audioProfile.Profile();
+        button.mouseClickAudioItem=spec.audio.mouseClickAudioItem;button.mouseDownAudioItem=spec.audio.mouseDownAudioItem;
+        button.mouseUpAudioItem=spec.audio.mouseUpAudioItem;button.mouseEnterAudioItem=spec.audio.mouseEnterAudioItem;
+        button.mouseExitAudioItem=spec.audio.mouseExitAudioItem;button.nonInteractableMouseDownAudioItem=spec.audio.nonInteractableMouseDownAudioItem;
         return button;
     }
     private sealed class MoreRow
@@ -134,7 +167,7 @@ public static partial class MenuDepthLaserProgram
 
     public static IEnumerator RunMoreCards(string output,Action<int> count)
     {
-        _checks=0;var native=NativePorts();
+        _checks=0;AudioOutput.Clear();VRHand.Now=0;var native=NativePorts();
         try
         {
             AuthoredRow spec;
@@ -164,6 +197,10 @@ public static partial class MenuDepthLaserProgram
                     Check(first.Enters==1&&first.Full.gameObject.activeSelf&&scene.Driver.Hovered==first.Input.gameObject,
                         "raised More Cards centre reaches the original row MouseEnter callback");
                     Check(!first.Card.IsHovered&&first.InnerEnters==0,"native Further Ability flag keeps its internal card hover inactive");
+                    Check(scene.Hand.Pulses.Count==1&&scene.Hand.Pulses[0]==HapticPreset.HoverTick,
+                        "cold More Cards preview reaches the real hand sender with the ordinary HoverTick preset");
+                    Check(AudioOutput.Count==1&&AudioOutput[0]==spec.audioProfile.mouseEnterAudioItem,
+                        "cold More Cards preview plays its exact original native hover sound once");
                     foreach(float yaw in new[]{0f,34f,-29f})
                     {
                         scene.Root.SetPositionAndRotation(new Vector3(.04f,.05f,.03f),Quaternion.Euler(9,yaw,4));scene.Root.localScale=new Vector3(.0022f,.0019f,.0025f);

@@ -9,9 +9,11 @@
     <Reference Include="System.Runtime.Serialization"/>
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
-    <Reference Include="$(GameManaged)/GH.Runtime.dll;$(GameManaged)/GH.Runtime.FirstPass.dll;$(GameManaged)/GH.Shared.dll;$(GameManaged)/UnityEngine.UI.dll;$(GameManaged)/Unity.Addressables.dll;$(GameManaged)/Unity.ResourceManager.dll;$(GameManaged)/Unity.TextMeshPro.dll;$(GameManaged)/MapRuleLibrary.dll;$(GameManaged)/ScenarioRuleLibrary.dll;$(GameManaged)/Utilities.dll;$(GameManaged)/ThirdParty.dll"><Private>false</Private></Reference>
+    <Reference Include="GH.Runtime" HintPath="$(GameManaged)/GH.Runtime.dll" Publicize="true" Private="false"/>
+    <Reference Include="$(GameManaged)/GH.Runtime.FirstPass.dll;$(GameManaged)/GH.Shared.dll;$(GameManaged)/UnityEngine.UI.dll;$(GameManaged)/Unity.Addressables.dll;$(GameManaged)/Unity.ResourceManager.dll;$(GameManaged)/Unity.TextMeshPro.dll;$(GameManaged)/MapRuleLibrary.dll;$(GameManaged)/ScenarioRuleLibrary.dll;$(GameManaged)/Utilities.dll;$(GameManaged)/ThirdParty.dll"><Private>false</Private></Reference>
     <EmbeddedResource Include="$(DepthBundle)" LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle"/>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
     <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" ExcludeAssets="runtime"/>
   </ItemGroup>
 </Project>
