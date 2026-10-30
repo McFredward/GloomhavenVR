@@ -26,6 +26,8 @@ static class Program
         VRLog.Lines.Clear();
         Singleton<MapStoryController>.Instance = null!;
         Singleton<StoryController>.Instance = null!;
+        ConfirmationOnOwner.CloseIntents = 0;
+        ConfirmationOnOwner.OnCloseIntent = null;
     }
     private static void Refused(UIWindow window, string reason)
     {
@@ -35,6 +37,8 @@ static class Program
             "mandatory close cannot release or hide its native content");
         Check(GuildmasterDestinations.LeaveCalls == 0 && ModalFallback.MenuResets == 0,
             "mandatory guard runs before native mode exit and menu mutation");
+        Check(ConfirmationOnOwner.CloseIntents == 0,
+            "mandatory close never becomes a decision decline intent");
         Check(FlatScreen.RescueScreenActive && FlatScreen.Requests == 1,
             "refused close presents the original native options on the rescue screen");
         Check(FlatScreen.LastReason.Contains("a mod close request") && !FlatScreen.LastReason.Contains("long-hold"),
@@ -97,6 +101,20 @@ static class Program
                 "ordinary menu uses normal float release without rescue");
         }
         Reset();
+        var sourcePage = new UIWindow();
+        int declines = 0;
+        ConfirmationOnOwner.OnCloseIntent = original =>
+        {
+            Check(ReferenceEquals(original, sourcePage), "user close names the exact original source window");
+            Check(original.IsOpen && original.Hides == 0 && original.Escapes == 0
+                && !ModalFallback.Panel.UserClosing && GuildmasterDestinations.LeaveCalls == 0,
+                "decision decline intent precedes native close and source data teardown");
+            declines++;
+        };
+        ModalFallback.CloseFloatedWindow(sourcePage);
+        Check(declines == 1 && ConfirmationOnOwner.CloseIntents == 1 && !sourcePage.IsOpen,
+            "admitted user close dispatches its decision decline intent exactly once");
+        Reset();
         var destination = new UIWindow { Destination = true, escapeKeyAction = UIWindow.EscapeKeyAction.None };
         ModalFallback.CloseFloatedWindow(destination);
         Check(GuildmasterDestinations.Exits == 1 && !destination.IsOpen && !FlatScreen.RescueScreenActive,
@@ -110,6 +128,8 @@ static class Program
         ModalFallback.CloseFloatedWindow(permanent);
         Check(permanent.IsOpen && permanent.Hides == 0 && FlatScreen.Requests == 0,
             "permanent map furniture retains existing refusal");
+        Check(ConfirmationOnOwner.CloseIntents == 0,
+            "permanent close never becomes a decision decline intent");
         Reset();
         var chord = new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None };
         ModalFallback.RescueForMandatoryDecision(chord, "native wait", 1.2f);
@@ -130,6 +150,8 @@ static class Program
             && sharedQuest.Escapes == 0 && !ModalFallback.Panel.UserClosing
             && !FlatScreen.RescueScreenActive && GuildmasterDestinations.LeaveCalls == 0,
             "shared quest semantic close must stop local-only modal release");
+        Check(ConfirmationOnOwner.CloseIntents == 0,
+            "shared quest close keeps its native decision authority");
         Reset();
         var cityReady = new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None };
         MapCityEventReadyUp.Window = cityReady;
@@ -138,6 +160,8 @@ static class Program
             && !ModalFallback.Panel.UserClosing && !FlatScreen.RescueScreenActive
             && GuildmasterDestinations.LeaveCalls == 0,
             "shared city readiness cannot be privately hidden or marked for local release");
+        Check(ConfirmationOnOwner.CloseIntents == 0,
+            "shared city close keeps its native decision authority");
         Console.WriteLine($"Modal close: {_assertions} assertions passed.");
     }
 }

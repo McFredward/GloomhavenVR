@@ -72,6 +72,13 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // These service-close cases contain no page-owned decision. The real native
+    // decline route is covered by the confirmation fixture; modal-close verifies
+    // the caller's exact intent ordering after its permission guards.
+    internal static class ConfirmationOnOwner
+    {
+        internal static void BeforeUserWindowClose(UIWindow window) { }
+    }
     // The separate onboarding suite executes actual promise eligibility and dedup.
     // This port observes only the opaque capture/completion call order and inputs.
     internal static class TownServiceTutorialPatches

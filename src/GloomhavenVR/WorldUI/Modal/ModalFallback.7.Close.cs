@@ -167,6 +167,13 @@ internal static partial class ModalFallback
             return;
         }
 
+        // Build750: this admitted X/escape gesture leaves the original source
+        // page. Decline its exact outstanding request before native Hide or mode
+        // exit can replace the item/character data used by its No callback.
+        // Shared consent, permanent windows and mandatory continuation have
+        // already kept their original close authority above.
+        ConfirmationOnOwner.BeforeUserWindowClose(window);
+
         // A purchase can leave the native HUD in its home mode while the converted
         // shop is still open. Preserve explicit close intent through the fallback
         // Escape/Hide as well as LeaveMode, including converted 2D map windows.
