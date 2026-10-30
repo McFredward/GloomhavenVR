@@ -632,7 +632,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 751;
+    public const ushort ModBuild = 752;
+
+    // ModBuild752 — unobstructed character creation previews.
+    // The name and personal-quest steps share the creator's original RawImage;
+    // the ordinary centered cabinet fit overlaps the name keyboard and lower
+    // quest copy. Fit only these exact creator pages beside the keyboard and
+    // above the quest text, with a smaller quest-step presentation. Preserve
+    // native actor state, relative body proportions, ordinary roster framing,
+    // fixed capture quality/cadence, preview rotation and the wire grammar.
 
     // ModBuild751 — stable town contacts and restored scenario laser input.
     // Paired750/569728838 logs retain a destroyed card-plane interface. Its
