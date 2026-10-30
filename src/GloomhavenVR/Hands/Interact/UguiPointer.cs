@@ -302,7 +302,7 @@ internal sealed class UguiPointer
         {
             for (int pass = 0; pass < (ownerCanvas != null && ownerCanvas != logical ? 2 : 1); pass++)
             {
-                Canvas? inputCanvas = pass == 0 ? logical : ownerCanvas;
+                Canvas? inputCanvas = pass == 0 && ownerCanvas != null && ownerCanvas != logical ? ownerCanvas : logical;
                 if (inputCanvas == null || !inputCanvas.isActiveAndEnabled
                     || (inputCanvas != canvas && (nested == null || !nested.Contains(inputCanvas)))) continue;
                 GraphicRaycaster original = inputCanvas.GetComponent<GraphicRaycaster>();
