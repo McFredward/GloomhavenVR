@@ -41,7 +41,7 @@ internal static class NarrativeBackdrop
             blurs.Add(image, (parent, parent.sprite));
         }
         return graphic => IsBackdrop(root, kind, graphic)
-            || (graphic is Image image && blurs.TryGetValue(image, out var original)
+            || (graphic is Image image && image != null && blurs.TryGetValue(image, out var original) && original.Parent != null
                 && image.transform.parent == original.Parent.transform && image.sprite == null
                 && image.GetComponent<Mask>() == null && original.Parent.sprite == original.Source
                 && IsBackdrop(root, kind, original.Parent));
@@ -75,13 +75,15 @@ internal static class NarrativeBackdrop
     internal sealed class Lease : IDisposable
     {
         private readonly Transform _root;
+        private readonly Transform? _home;
         private readonly List<Graphic> _hidden = new(2);
         private readonly List<Graphic> _scratch = new(32);
         private readonly Dictionary<Graphic, (Transform Parent, Image Dimmer, Sprite Source)> _borrowed = new();
 
-        internal Lease(Transform root, ConvertedPanel? previous = null)
+        internal Lease(Transform root, ConvertedPanel? previous = null, Transform? home = null)
         {
             _root = root;
+            _home = home != null ? home : previous?.Target;
             if (previous == null || previous.BackgroundFilter == null) return;
             // The source may already be converted when Park moves its children.
             // Take its exact receipts while the previous native role still owns
@@ -99,16 +101,36 @@ internal static class NarrativeBackdrop
                     _borrowed.Add(graphic, (parent, dimmer, dimmer.sprite));
                     _hidden.Add(graphic);
                 }
-                previous.HiddenBackgrounds.RemoveAt(i);
             }
+            // Validate and allocate everything before changing the old owner's
+            // receipts. A later role callback may throw; in that case the old
+            // panel still owns the complete unchanged list. This final pass has
+            // no callbacks or allocations, and the caller can publish us next.
+            for (int i = previous.HiddenBackgrounds.Count - 1; i >= 0; i--)
+                if (_borrowed.ContainsKey(previous.HiddenBackgrounds[i])) previous.HiddenBackgrounds.RemoveAt(i);
         }
 
-        private bool OwnsBorrowed(Graphic graphic) => graphic != null
-            && _borrowed.TryGetValue(graphic, out var original) && graphic.transform.IsChildOf(_root)
-            && graphic.transform.parent == original.Parent && original.Dimmer != null
-            && original.Dimmer.sprite == original.Source && IsBackdrop(_root, Kind.Story, original.Dimmer)
-            && (graphic == original.Dimmer || (graphic is Image image && image.sprite == null
-                && image.name == "Blur" && image.GetComponent<Mask>() == null));
+        private bool OwnsBorrowed(Graphic graphic, bool returning = false)
+        {
+            if (graphic == null || !_borrowed.TryGetValue(graphic, out var original)) return false;
+            Transform? scope = _root != null && graphic.transform.IsChildOf(_root) ? _root
+                : returning && _home != null && graphic.transform.IsChildOf(_home) ? _home : null;
+            return scope != null && graphic.transform.parent == original.Parent && original.Dimmer != null
+                && original.Dimmer.sprite == original.Source && IsBackdrop(scope, Kind.Story, original.Dimmer)
+                && (graphic == original.Dimmer || (graphic is Image image && image.sprite == null
+                    && image.name == "Blur" && image.GetComponent<Mask>() == null));
+        }
+
+        private bool Remember(Graphic graphic)
+        {
+            if (_borrowed.ContainsKey(graphic)) return true;
+            if (!(graphic is Image image)) return false;
+            Transform? parent = image.transform.parent;
+            Image? dimmer = image.name == "Blur" ? parent?.GetComponent<Image>() : image;
+            if (parent == null || dimmer == null || dimmer.sprite == null) return false;
+            _borrowed.Add(graphic, (parent, dimmer, dimmer.sprite));
+            return true;
+        }
 
         internal void Sync()
         {
@@ -118,6 +140,7 @@ internal static class NarrativeBackdrop
             {
                 Graphic graphic = _scratch[i];
                 if ((!IsBackdrop(_root, Kind.Story, graphic) && !OwnsBorrowed(graphic)) || !graphic.enabled) continue;
+                if (!Remember(graphic)) continue;
                 if (!_hidden.Contains(graphic)) _hidden.Add(graphic);
                 graphic.enabled = false;
             }
@@ -126,12 +149,20 @@ internal static class NarrativeBackdrop
 
         public void Dispose()
         {
-            // Restore before the composite returns its original children. A
-            // pooled graphic already borrowed elsewhere belongs to its new owner.
+            // Unpark has returned the original children synchronously. A live
+            // source converter must take back its receipt with the Graphic still
+            // disabled; otherwise a still-open source dialog would flash its dimmer.
+            UIWindow? source = _home != null ? _home.GetComponent<UIWindow>() : null;
+            ConvertedPanel? panel = source != null ? ModalFallback.PanelFor(source) : null;
             for (int i = 0; i < _hidden.Count; i++)
             {
                 Graphic graphic = _hidden[i];
-                if (IsBackdrop(_root, Kind.Story, graphic) || OwnsBorrowed(graphic)) graphic.enabled = true;
+                if (!IsBackdrop(_root, Kind.Story, graphic) && !OwnsBorrowed(graphic, returning: true)) continue;
+                if (panel != null && panel.HideBackground && panel.BackgroundFilter != null && panel.BackgroundFilter(graphic))
+                {
+                    if (!panel.HiddenBackgrounds.Contains(graphic)) panel.HiddenBackgrounds.Add(graphic);
+                }
+                else graphic.enabled = true;
             }
             _hidden.Clear(); _scratch.Clear(); _borrowed.Clear();
         }

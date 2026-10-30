@@ -14,10 +14,21 @@ using Object=UnityEngine.Object;
 
 public static partial class LevelUpNativeProgram
 {
+    private static readonly Dictionary<string,TMP_FontAsset> _earlyFonts748=new();
+    private static readonly Dictionary<string,Texture2D> _earlyTextures748=new();
+    private static readonly List<Object> _earlyAssets748=new();
+    private static readonly List<RectTransform> _earlyRoots748=new();
+    private static void CleanupEarly748()
+    {
+        foreach(RectTransform root in _earlyRoots748)if(root!=null)Object.DestroyImmediate(root.gameObject);
+        for(int i=_earlyAssets748.Count-1;i>=0;i--)if(_earlyAssets748[i]!=null)Object.DestroyImmediate(_earlyAssets748[i]);
+        _earlyAssets748.Clear();_earlyRoots748.Clear();_earlyFonts748.Clear();_earlyTextures748.Clear();
+    }
+
     private static RectTransform NativeNarrative748(string route,Transform home)
     {
         var document=new XmlDocument();document.Load(Path.Combine(_inputs,"native-narrative-"+route+".xml"));
-        var root=ImportNode739(document.DocumentElement!,home,new Dictionary<string,TMP_FontAsset>(),true);
+        var root=ImportNode739(document.DocumentElement!,home,_earlyFonts748,true,_earlyTextures748,_earlyAssets748);_earlyRoots748.Add(root);
         root.gameObject.SetActive(true);
         foreach(CanvasGroup group in root.GetComponentsInChildren<CanvasGroup>(true))group.alpha=1;
         return root;
@@ -53,6 +64,7 @@ public static partial class LevelUpNativeProgram
         var home=Rect("native first reveal home",null,1920,1080);home.localScale=Vector3.one*.001f;
         var canvas=home.gameObject.AddComponent<Canvas>();canvas.renderMode=RenderMode.WorldSpace;canvas.worldCamera=head;
         var art=LoadTexture("native-loadout-illustration");var sprite=Sprite.Create(art,new Rect(0,0,art.width,art.height),new Vector2(.5f,.5f),100);sprite.name="CR_RU_01_Demon";
+        _earlyAssets748.Add(art);_earlyAssets748.Add(sprite);
         var rows=new List<string>{"mode,ready,phase,path,view,error"};
         var singleplayerPixels=new Dictionary<string,Color32[]>();
         bool wasOnline=FFSNetwork.IsOnline;
@@ -139,6 +151,37 @@ public static partial class LevelUpNativeProgram
 
     private static void BackdropOwnership748(RectTransform home,Camera head,Sprite illustration,string output)
     {
+        foreach(bool destroyParent in new[]{false,true})
+        {
+            var source=NativeNarrative748("story",home);var window=source.gameObject.AddComponent<UIWindow>();
+            var background=source.Find("UI Story Box/UI Story Background").GetComponent<Image>();var blur=background.transform.Find("Blur").GetComponent<Image>();
+            var filter=NarrativeBackdrop.Filter(window,true)!;
+            var panel=CanvasConversion.Convert(source,"destroyed original narrative component",useModLayer:true,transparentBackground:true,backgroundFilter:filter)!;
+            using(var capture=new PanelSupersample.ConfirmationCapture(panel)){capture.Draw();}
+            Object.DestroyImmediate(destroyParent?background:blur);
+            bool safe=true,owned=true;
+            try{owned=filter(blur);}
+            catch(MissingReferenceException){safe=false;}
+            catch(NullReferenceException){safe=false;}
+            Check(safe&&!owned,destroyParent?"destroyed native backdrop Image safely retires the cached Blur role":"destroyed native Blur Image safely retires its cached original role");
+            CanvasConversion.Release(panel);Object.DestroyImmediate(source.gameObject);
+        }
+        {
+            var host=NativeNarrative748("loadout",home);var native=NativeLoadout748(host);native.Viewer.imageHolder.sprite=illustration;
+            var source=NativeNarrative748("story",home);var window=source.gameObject.AddComponent<UIWindow>();
+            var background=source.Find("UI Story Box/UI Story Background").GetComponent<Image>();var blur=background.transform.Find("Blur").GetComponent<Image>();
+            var filter=NarrativeBackdrop.Filter(window,true)!;
+            var panel=CanvasConversion.Convert(source,"native role callback failure",useModLayer:true,transparentBackground:true,backgroundFilter:filter)!;
+            using(var capture=new PanelSupersample.ConfirmationCapture(panel)){capture.Draw();}
+            int before=panel.HiddenBackgrounds.Count,reads=0;
+            panel.BackgroundFilter=graphic=>++reads==2?throw new InvalidOperationException("injected second-role failure"):filter(graphic);
+            bool parked=NativeStoryComposite746.ParkOriginal(native.Window,host,window,native.Viewer.imageHolder.rectTransform);
+            Check(!parked&&reads==2&&panel.HiddenBackgrounds.Count==before&&!background.enabled&&!blur.enabled,
+                "failed native role adoption preserves every previous converter receipt and original hidden flag");
+            panel.BackgroundFilter=filter;CanvasConversion.Release(panel);
+            Check(background.enabled&&blur.enabled,"native owner restores original flags after a rejected composite role adoption");
+            Object.DestroyImmediate(source.gameObject);Object.DestroyImmediate(host.gameObject);
+        }
         foreach(bool online in new[]{false,true})
         foreach(bool releaseFirst in new[]{false,true})
         foreach(bool sourceDisabled in new[]{false,true})
@@ -156,7 +199,14 @@ public static partial class LevelUpNativeProgram
             Check(NativeStoryComposite746.ParkOriginal(native.Window,host,sourceWindow,native.Viewer.imageHolder.rectTransform),"native Park adopts an already converted original story source");
             Check(sourcePanel.HiddenBackgrounds.Count==0,"story dock takes every converted source backdrop receipt before moving native children");
             if(releaseFirst){CanvasConversion.Release(sourcePanel);NativeStoryComposite746.UnparkOriginal();}
-            else{NativeStoryComposite746.UnparkOriginal();CanvasConversion.Release(sourcePanel);}
+            else
+            {
+                NativeStoryComposite746.UnparkOriginal();
+                Check(!background.enabled&&!blur.enabled,"return to a live native story converter keeps its backdrop continuously disabled");
+                Check(sourcePanel.HiddenBackgrounds.Contains(blur)&&sourcePanel.HiddenBackgrounds.Contains(background)!=sourceDisabled,
+                    "live native source converter regains exactly its original enabled receipts after child return");
+                CanvasConversion.Release(sourcePanel);
+            }
             Check(background.enabled!=sourceDisabled&&blur.enabled,"converted source and story dock return native backdrop flags in either release order");
             Object.DestroyImmediate(story.gameObject);Object.DestroyImmediate(host.gameObject);
         }

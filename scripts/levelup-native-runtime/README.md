@@ -203,6 +203,21 @@ to StoryDock before its native children move. Both release orders and SP/MP
 inputs must restore each original flag. Dedicated source-bound omissions must
 compile and fail at the named first-pixel/fit/receipt/ownership assertions.
 
+An original story converter may still be open after Unpark. Its native children
+return synchronously while their backings stay disabled; only then does the
+positive source filter receive its receipts again. No early or periodic sweep
+runs between this hand-back and the intermediate disabled/receipt assertions.
+Destroyed Image components with surviving native GameObjects retire their cached
+roles safely. A callback that throws while validating the second source role
+must leave the previous converter's entire receipt list unchanged; mutation of
+that list begins only after all validation and snapshot allocation succeeds.
+
+The Early entry shares its read-only imported font/texture inputs within one
+case and explicitly destroys only its own generated roots/assets after the case.
+This bounds its extra native allocations during long control inventories without
+altering production captures or quality. The runner retains editor return codes,
+timeout status and the unchanged per-case timing/cleanup evidence.
+
 The native Cards browse-retirement helper is maintained in a separate lane.
 Its runner controls are strictly bound in Cards/full selection; narrative-only
 selection does not bind those unrelated new inventory mutations. The actual

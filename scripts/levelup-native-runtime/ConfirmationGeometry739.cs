@@ -35,7 +35,8 @@ public static partial class LevelUpNativeProgram
         =>Array.ConvertAll(item.GetAttribute(key).Split(','),s=>float.Parse(s,CultureInfo.InvariantCulture));
     private static Vector2 Pair739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector2(p[0],p[1]);}
     private static Vector3 Triple739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector3(p[0],p[1],p[2]);}
-    private static RectTransform ImportNode739(XmlElement node,Transform parent,Dictionary<string,TMP_FontAsset> fonts,bool narrative=false)
+    private static RectTransform ImportNode739(XmlElement node,Transform parent,Dictionary<string,TMP_FontAsset> fonts,bool narrative=false,
+        Dictionary<string,Texture2D>? textures=null,List<Object>? owned=null)
     {
         string name=node.GetAttribute("name");var rect=Rect(name,parent,0,0);rect.gameObject.SetActive(false);
         foreach(XmlElement part in node.SelectNodes("component"))
@@ -53,19 +54,27 @@ public static partial class LevelUpNativeProgram
                 var image=rect.gameObject.AddComponent<Image>();JsonUtility.FromJsonOverwrite(json,image);
                 if(part.HasAttribute("sprite"))
                 {
-                    var texture=LoadTexture(part.GetAttribute("sprite"));float[] pivot=Values739(part,"pivot"),border=Values739(part,"border");
+                    string key=part.GetAttribute("sprite");Texture2D texture;
+                    if(textures==null)texture=LoadTexture(key);
+                    else if(!textures.TryGetValue(key,out texture)){texture=LoadTexture(key);textures.Add(key,texture);owned?.Add(texture);}
+                    float[] pivot=Values739(part,"pivot"),border=Values739(part,"border");
                     image.sprite=Sprite.Create(texture,new Rect(0,0,texture.width,texture.height),new Vector2(pivot[0],pivot[1]),
                         float.Parse(part.GetAttribute("ppu"),CultureInfo.InvariantCulture),0,SpriteMeshType.FullRect,new Vector4(border[0],border[1],border[2],border[3]));
                     image.sprite.name=part.GetAttribute("spriteName");
+                    owned?.Add(image.sprite);
                 }
                 string shader=part.GetAttribute("shader");
-                if(shader=="Custom/SimpleGrabPassBlur")image.material=new Material(Resources.Load<Shader>("ConfirmationGrab738"));
+                if(shader=="Custom/SimpleGrabPassBlur"){image.material=new Material(Resources.Load<Shader>("ConfirmationGrab738"));owned?.Add(image.material);}
                 else if(!narrative) Check(shader=="UI/Default","native confirmation foreground retains the original stock UI material family");
             }
             else if(kind=="TextMeshProUGUI")
             {
                 var text=rect.gameObject.AddComponent<TextMeshProUGUI>();JsonUtility.FromJsonOverwrite(json,text);
-                string prefix=part.GetAttribute("font");if(!fonts.TryGetValue(prefix,out TMP_FontAsset font)){font=Font739(prefix);fonts.Add(prefix,font);}
+                string prefix=part.GetAttribute("font");if(!fonts.TryGetValue(prefix,out TMP_FontAsset font))
+                {
+                    font=Font739(prefix);fonts.Add(prefix,font);
+                    if(owned!=null){owned.Add(font.material);foreach(Texture2D atlas in font.atlasTextures)owned.Add(atlas);owned.Add(font);}
+                }
                 text.font=font;text.fontSharedMaterial=font.material;
             }
             else
@@ -87,7 +96,7 @@ public static partial class LevelUpNativeProgram
             }
         }
         rect.name=name;
-        foreach(XmlElement child in node.SelectNodes("node"))ImportNode739(child,rect,fonts,narrative);
+        foreach(XmlElement child in node.SelectNodes("node"))ImportNode739(child,rect,fonts,narrative,textures,owned);
         rect.gameObject.SetActive(node.GetAttribute("active")=="1");return rect;
     }
     private static int ExteriorDifference739(Texture2D actual,Texture2D reference,Camera head,RectTransform small)

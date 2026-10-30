@@ -31,6 +31,7 @@ public static partial class LevelUpNativeProgram
         AnnouncementContinue.Tick(false);ConfirmationOnOwner.Reset();MapDialogSeat.Reset();LevelUpComposite.Reset();
         _harmony?.UnpatchSelf();_harmony=null;CanvasConversion.ActivePanels.Clear();
         foreach(var go in Object.FindObjectsOfType<GameObject>())Object.DestroyImmediate(go);
+        CleanupEarly748();
     }
     private static Texture2D LoadTexture(string name)
     {var texture=new Texture2D(2,2,TextureFormat.RGBA32,false);texture.LoadImage(File.ReadAllBytes(Path.Combine(_inputs,name+".png")));return texture;}

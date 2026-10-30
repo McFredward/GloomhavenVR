@@ -115,8 +115,8 @@ def main():
     originals['NativeStoryCommitment748.cs']='namespace GloomhavenVR.WorldUI {internal static partial class StoryComposite {'+story_commitment[0]+'}}'
     story_methods=[method(story_source,signature) for signature in ('private static bool Park(',
         'private static void WriteLayers(', 'private static void ApplyPose(',
-        'private static bool TryPaintedBounds(', 'private static void Unpark(')]
-    painted=story_source[story_source.index('private static bool CountsAsPaintedHere('):story_source.index('    private static void Unpark(')]
+        'private static bool TryPaintedBounds(', 'private static void ReturnNarrativeBackdrop(', 'private static void Unpark(')]
+    painted=story_source[story_source.index('private static bool CountsAsPaintedHere('):story_source.index('    private static void ReturnNarrativeBackdrop(')]
     for name in ('DockName','MinParkSizePx','ImageGapPx','OffsetEpsilonPx'):
         declaration=re.findall(r'private const (?:string|float) '+name+r'\s*=\s*[^;]+;',story_source)
         if len(declaration)!=1:raise RuntimeError('Native story constant binding drift: '+name)
@@ -168,14 +168,14 @@ def main():
          '|| !graphic.transform.IsChildOf(root)', '|| false',
          'foreign native story graphics cannot join another producer background filter'),
         ('narrative-lease-restore-lost', 'NarrativeBackdrop.cs',
-         'if (IsBackdrop(_root, Kind.Story, graphic) || OwnsBorrowed(graphic)) graphic.enabled = true;',
-         '/* lost native hand-back */',
+         'else graphic.enabled = true;',
+         'else { /* lost native hand-back */ }',
          'composite unpark restores every original narrative dimmer flag'),
         ('narrative-input-role-lost', 'NarrativeBackdrop.cs',
          'if (image.raycastTarget || image.sprite == null', 'if (false || image.sprite == null',
          'native transparent input roots retain their original raycast component'),
         ('narrative-composite-lease-lost', 'NativeStoryComposite746.cs',
-         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));', '_narrativeBackdrop = null;',
+         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story), story.transform);', '_narrativeBackdrop = null;',
          'actual story Park and ApplyPose hide only the native dimmer Image'),
         ('narrative-composite-sync-lost', 'NativeStoryComposite746.cs',
          '_narrativeBackdrop?.Sync();', '/* composite pose omitted backdrop sync */',
@@ -235,25 +235,39 @@ def main():
          'if (!panel.HiddenBackgrounds.Contains(image)) panel.HiddenBackgrounds.Add(image);', '/* composite owner receipt omitted */',
          'converter receives every exact original receipt from the earlier composite lease'),
         ('narrative-ownership-handoff-reenables', 'NarrativeBackdrop.cs',
-         'if (panel != null && panel.HideBackground && panel.BackgroundFilter != null',
-         'if (panel != null && !panel.IsAlive && panel.HideBackground && panel.BackgroundFilter != null',
+         'if (panel != null && panel.HideBackground && panel.BackgroundFilter != null\n                    && panel.BackgroundFilter(image))',
+         'if (panel != null && !panel.IsAlive && panel.HideBackground && panel.BackgroundFilter != null\n                    && panel.BackgroundFilter(image))',
          'composite handoff never re-enables a backing inside its live converted owner'),
         ('narrative-ownership-pooled-restore-lost', 'NativeBackgroundKernel739.cs',
          'if (g != null && (panel.BackgroundFilter == null || panel.BackgroundFilter(g)))', 'if (g != null)',
          'converted native background receipts never re-enable pooled source or foreign-parent content'),
         ('narrative-ownership-blur-origin-lost', 'NarrativeBackdrop.cs',
          'blurs.Add(image, (parent, parent.sprite));', '/* original Blur receipt omitted */',
-         'owned native Blur remains identifiable after real capture material neutralization'),
+         'native owner restores original flags after a rejected composite role adoption'),
         ('narrative-ownership-original-disabled-lost', 'NativeBackgroundKernel739.cs',
          'if (g == null || !g.enabled || !(g is Image || g is RawImage))', 'if (g == null || !(g is Image || g is RawImage))',
-         'combined lease and converter restore each native original flag exactly once in either order'),
+         'live native source converter regains exactly its original enabled receipts after child return'),
         ('narrative-ownership-generic-restore-lost', 'NativeBackgroundKernel739.cs',
          'if (g != null && (panel.BackgroundFilter == null || panel.BackgroundFilter(g)))', 'if (g != null && panel.BackgroundFilter != null && panel.BackgroundFilter(g))',
          'ordinary no-filter restoration remains independent of narrative source roles'),
-        ('narrative-ownership-story-receipt-lost', 'NativeStoryComposite746.cs',
-         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));',
-         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock);',
+        ('narrative-ownership-story-receipt-lost', 'NarrativeBackdrop.cs',
+         'if (_borrowed.ContainsKey(previous.HiddenBackgrounds[i])) previous.HiddenBackgrounds.RemoveAt(i);',
+         'if (_borrowed.ContainsKey(previous.HiddenBackgrounds[i])) { /* owner receipt transfer omitted */ }',
          'story dock takes every converted source backdrop receipt before moving native children'),
+        ('narrative-ownership-destroyed-parent-lost', 'NarrativeBackdrop.cs',
+         '&& original.Parent != null', '&& true',
+         'destroyed native backdrop Image safely retires the cached Blur role'),
+        ('narrative-ownership-destroyed-blur-lost', 'NarrativeBackdrop.cs',
+         'graphic is Image image && image != null && blurs.TryGetValue', 'graphic is Image image && blurs.TryGetValue',
+         'destroyed native Blur Image safely retires its cached original role'),
+        ('narrative-ownership-adoption-atomicity-lost', 'NarrativeBackdrop.cs',
+         '_borrowed.Add(graphic, (parent, dimmer, dimmer.sprite));\n                    _hidden.Add(graphic);',
+         '_borrowed.Add(graphic, (parent, dimmer, dimmer.sprite));\n                    _hidden.Add(graphic); previous.HiddenBackgrounds.RemoveAt(i);',
+         'failed native role adoption preserves every previous converter receipt and original hidden flag'),
+        ('narrative-ownership-live-source-return-lost', 'NarrativeBackdrop.cs',
+         'if (panel != null && panel.HideBackground && panel.BackgroundFilter != null && panel.BackgroundFilter(graphic))',
+         'if (panel != null && !panel.IsAlive && panel.HideBackground && panel.BackgroundFilter != null && panel.BackgroundFilter(graphic))',
+         'return to a live native story converter keeps its backdrop continuously disabled'),
     ]
     for name,key,before,after,expected in early_controls:
         if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
@@ -440,11 +454,16 @@ def main():
             'cases': len(cases), 'seconds': editor_timeout,
             'formula': 'max(420,30*case_count)',
             'reason': 'The old420s limit cut off an active32/39-case pass before the remaining controls.'}, indent=2) + '\n')
+        editor_timed_out=False
         try: result = process.wait(timeout=editor_timeout)
+        except subprocess.TimeoutExpired:
+            editor_timed_out=True
+            raise
         finally:
             try: os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError: pass
             process.wait(); reaped = True
+            (run/'editor-exit.json').write_text(json.dumps({'returncode':process.returncode,'timed_out':editor_timed_out,'budget_seconds':editor_timeout},indent=2)+'\n')
             editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
             if editor_dll.exists(): shutil.copyfile(editor_dll, assemblies / 'Assembly-CSharp-Editor.dll')
             (run / 'executed-pins.json').write_text(json.dumps({str(p.relative_to(run)): hashlib.sha256(p.read_bytes()).hexdigest() for folder in (assemblies, run / 'harmony-runtime') for p in folder.glob('*.dll')}, indent=2) + '\n')

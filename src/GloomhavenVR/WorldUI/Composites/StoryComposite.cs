@@ -4261,7 +4261,7 @@ internal static class StoryComposite
             // story window's children with nobody holding a reference to it would strand the whole
             // dialog for the session — the exact class of leak the catch below exists to prevent.
             _dock = dock;
-            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story));
+            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock, ModalFallback.PanelFor(story), story.transform);
             _loadoutBackdrop = new NarrativeBackdrop.LoadoutLease(loadout, image);
             _dockSize = measured;
             _parkHost = loadout;
@@ -4585,14 +4585,19 @@ internal static class StoryComposite
         && g.color.a > 0.02f
         && !g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal);
 
+    private static void ReturnNarrativeBackdrop()
+    {
+        _narrativeBackdrop?.Dispose();
+        _narrativeBackdrop = null;
+    }
+
     private static void Unpark(string why)
     {
         _loadoutBackdrop?.Dispose();
         _loadoutBackdrop = null;
-        _narrativeBackdrop?.Dispose();
-        _narrativeBackdrop = null;
         if (_dock == null)
         {
+            ReturnNarrativeBackdrop();
             _parkHost = null;
             _parkSource = null;
             _picture = null;
@@ -4662,6 +4667,7 @@ internal static class StoryComposite
         }
         finally
         {
+            ReturnNarrativeBackdrop();
             Moved.Clear();
             MovedIndex.Clear();
             // THE DOCK IS DESTROYED ONLY WHEN IT IS EMPTY. If the source window was destroyed under
