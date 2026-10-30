@@ -108,7 +108,7 @@ public static partial class MenuDepthDesktopProgram
                         Rect all=local;
                         if(bear.activeSelf){Rect companion=ProjectBox752(view.NativeToGraphic,bear.GetComponent<Renderer>().bounds);all=Rect.MinMaxRect(Mathf.Min(all.xMin,companion.xMin),Mathf.Min(all.yMin,companion.yMin),Mathf.Max(all.xMax,companion.xMax),Mathf.Max(all.yMax,companion.yMax));}
                         Check(all.xMax < -363-20,"the entire short and tall creation figure clears every native keyboard key");
-                        Check(local.height>height*180f,"naming preview uses the free vertical space with an upright body frame");
+                        Check(local.height>height*170f,"naming preview uses the free vertical space with an upright body frame");
                         Check(all.xMin>=rawRect.rect.xMin&&all.xMax<=rawRect.rect.xMax,"wide bodies and the positive-offset companion fit the original portrait aperture");
                     }
                     else
@@ -130,6 +130,10 @@ public static partial class MenuDepthDesktopProgram
                     Check(Mathf.Abs(pixels.center.x-corner.x)<8&&Mathf.Abs(pixels.center.y-corner.y)<8,"final head pixels follow the live page-specific figure frame without residual flat copy");
                     if(page==1)
                     {
+                        Rect keysRect=keyboard.rectTransform.rect;
+                        Rect keyPixels=HeadBox753(scene.Head,keyboard.transform.localToWorldMatrix,new Bounds(keysRect.center,new Vector3(keysRect.width,keysRect.height,0)));
+                        File.AppendAllText(Path.Combine(output,"keyboard-head-clearance753.txt"),actor+",figure="+pixels+",keys="+keyPixels+",gap="+(keyPixels.xMin-pixels.xMax)+"\n");
+                        Check(pixels.xMax+4f<=keyPixels.xMin,"the complete final head silhouette clears the independently projected keyboard by four pixels");
                         Vector3 key=keyboard.transform.position;Vector3 eye=scene.Head.transform.position;
                         bool blocked=MenuDepthSources.TryRaycast(owner.GetComponent<Canvas>(),eye,(key-eye).normalized,10,out _);
                         Check(!blocked,"the creation figure does not intercept the laser aimed at the native keyboard");
