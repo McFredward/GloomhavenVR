@@ -1,6 +1,21 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+namespace GloomhavenVR.Cards
+{
+    // This material-clock fixture supplies original, unbaked sprites and never
+    // issues spatial ray queries. Keep the new bind-time alpha lookup in that
+    // exact no-replacement/no-cached-atlas context. The original sprite, native
+    // shader/mask payload and all actual rendering remain unchanged; a missing
+    // atlas receipt is not a successful alpha hit or a derived pixel buffer.
+    internal static class CardFaceMipBake
+    {
+        internal static Sprite OriginalFor(Sprite sprite) => sprite;
+        internal static bool TryGetCachedAtlasPixels(Texture2D texture, out Color32[]? pixels)
+        { pixels = null; return false; }
+    }
+}
+
 // Native material clock values are explicit inputs. Production source sync and
 // shader/UI rendering execute; only the surrounding logger/head reference is a port.
 namespace GloomhavenVR.Core
