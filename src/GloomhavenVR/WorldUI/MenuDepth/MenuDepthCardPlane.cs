@@ -99,8 +99,26 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
         if (ink == null) return false;
         Matrix4x4 original = plane == this ? native : native * root.worldToLocalMatrix * _card.localToWorldMatrix;
         hit = new MenuDepthRayHit(ink, origin + direction * distance,
-            original.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)), distance, preferGraphic: true, nativeRoot: _card);
+            original.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)), distance, preferGraphic: true, nativeRoot: NativeInputRoot());
         return true;
+    }
+
+    private Transform NativeInputRoot()
+    {
+        // Build748 hardware: More Cards has correct raised laser geometry but
+        // only its edges hover. The native row's CardHolder intentionally blocks
+        // raycasts; its transparent outer ExtendedButton owns MouseEnter/Exit.
+        // The mini-only input scope therefore rejected every valid native hit in
+        // the centre. Use that exact typed row selectable for its original mini,
+        // retaining native raycaster/filter/callback authority and physical ink.
+        // Full previews (including detached ones) retain their own card scope.
+        if (_owner is MiniAbilityCard mini
+            && mini.GetComponentInParent<AbilityCardUI>(true) is AbilityCardUI ability
+            && ReferenceEquals(ability.MiniAbilityCard, mini)
+            && ability.GetComponentInParent<UILevelUpCard>(true) is UILevelUpCard row
+            && row.Selectable is Selectable button && mini.transform.IsChildOf(button.transform))
+            return button.transform;
+        return _card!;
     }
 
     private void RebindDepthSurfaces()

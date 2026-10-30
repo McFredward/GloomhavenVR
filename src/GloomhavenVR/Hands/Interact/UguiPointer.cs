@@ -290,19 +290,30 @@ internal sealed class UguiPointer
         // itself returns that exact graphic: locks, CanvasGroup/mask/reversed
         // face tests and native raycastTarget are not bypassed.
         Canvas logical = surface != null ? surface.canvas : null!;
+        // More Cards' original input row is outside its non-raycasting card
+        // holder. An adopted nested mini Canvas must not strand that explicit
+        // owner on another raycaster. Keep the visual Canvas query and compare
+        // its hits with the owner's original Canvas, within the same root only.
+        Canvas? ownerCanvas = nativeRoot != null && logical != null && !root.IsChildOf(logical.transform)
+            ? root.GetComponentInParent<Canvas>() : null;
         List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas!);
         if (_farRay && preferSurface && surface != null && logical != null && logical.isActiveAndEnabled
             && (logical == canvas || nested != null && nested.Contains(logical)))
         {
-            GraphicRaycaster original = logical.GetComponent<GraphicRaycaster>();
-            if (original != null && original.isActiveAndEnabled)
+            for (int pass = 0; pass < (ownerCanvas != null && ownerCanvas != logical ? 2 : 1); pass++)
             {
+                Canvas? inputCanvas = pass == 0 ? logical : ownerCanvas;
+                if (inputCanvas == null || !inputCanvas.isActiveAndEnabled
+                    || (inputCanvas != canvas && (nested == null || !nested.Contains(inputCanvas)))) continue;
+                GraphicRaycaster original = inputCanvas.GetComponent<GraphicRaycaster>();
+                if (original == null || !original.isActiveAndEnabled) continue;
                 _hits.Clear(); original.Raycast(data, _hits);
                 for (int i = 0; i < _hits.Count; i++)
                     if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
                     {
                         if (_hits[i].gameObject.GetComponent<PokeOnlyTarget>() != null) continue;
-                        topHit = _hits[i]; any = true; break;
+                        if (!any || Beats(_hits[i], topHit)) { topHit = _hits[i]; any = true; }
+                        break;
                     }
             }
         }
