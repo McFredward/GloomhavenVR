@@ -25,9 +25,9 @@ internal static class MenuDepthCharacterProjection
     // side of that exact keyboard, and lift the slightly smaller quest preview
     // above that page's authored help line. Only the private presentation frame
     // changes: original UI/actors, native ground pivot and ordinary previews stay.
-    private static void CreationLayout(RectTransform rectangle, out Rect fit, out float scale, out float ground)
+    private static void CreationLayout(RectTransform rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan)
     {
-        fit = rectangle.rect; scale = 1f; ground = float.NegativeInfinity;
+        fit = rectangle.rect; scale = 1f; ground = float.NegativeInfinity; horizontalSpan = CommonSpan;
         UICharacterCreatorWindow? creator = rectangle.GetComponentInParent<UICharacterCreatorWindow>(true);
         if (creator == null) return;
         Component? quest = CreatorQuest?.GetValue(creator) as Component;
@@ -44,12 +44,19 @@ internal static class MenuDepthCharacterProjection
         UIKeyboard? keyboard = name!.GetComponentInChildren<UIKeyboard>(true);
         if (keyboard == null || !(keyboard.transform is RectTransform keys)) return;
         Rect occupied = InGraphic(rectangle, keys);
-        float padding = fit.width * .025f;
+        float padding = fit.width * .03f;
         float left = occupied.xMin - padding - fit.xMin;
         float right = fit.xMax - occupied.xMax - padding;
         if (Mathf.Max(left, right) <= fit.width * .08f) return;
-        if (right >= left) fit.xMin = occupied.xMax + padding;
-        else fit.xMax = occupied.xMin - padding;
+        // Build753: fitting a square2.4-unit frame into this upright strip made
+        // every hero tiny. Use one stable3:5 portrait metric for all name-page
+        // actors, retaining native relative heights and the vertical frame.
+        // Prefer the left strip when equally free: the authored long scythe
+        // points away from the keyboard, while the positive-X bear still fits.
+        // This is not an animated equipment envelope or per-character autofit.
+        horizontalSpan = CommonSpan * .6f;
+        if (left >= right) fit.xMax = occupied.xMin - padding;
+        else fit.xMin = occupied.xMax + padding;
     }
 
     private static bool Open(Component? step)
@@ -149,10 +156,10 @@ internal static class MenuDepthCharacterProjection
         // Character3D.models[0] is the original main actor, before companions.
         // Remove only its native camera-fit translation. Keep the complete scene's
         // authored scale, facing, equipment, companion offsets and animation.
-        CreationLayout(rectangle, out Rect fit, out float scale, out float ground);
+        CreationLayout(rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan);
         float fitWidth = fit.width == rect.width ? physicalWidth : physicalWidth * fit.width / rect.width;
         float fitHeight = fit.height == rect.height ? physicalHeight : physicalHeight * fit.height / rect.height;
-        float nativePerUnit = Mathf.Max(CommonSpan / (fitWidth * .82f), CommonSpan / (fitHeight * .75f)) / scale;
+        float nativePerUnit = Mathf.Max(horizontalSpan / (fitWidth * .82f), CommonSpan / (fitHeight * .75f)) / scale;
         Vector2 fitCenter = fit.center;
         if (!float.IsNegativeInfinity(ground))
             fitCenter.y = Mathf.Max(fitCenter.y, ground + CommonSpan * .5f / (nativePerUnit * rectangle.TransformVector(Vector3.up).magnitude));
