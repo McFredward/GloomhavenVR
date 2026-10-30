@@ -21,13 +21,14 @@ public sealed class Character3DDisplayManager : MonoBehaviour
     public void Replace(Transform main) => character3D = new(main);
 }
 public sealed class UIAdventurePartyAssemblyCharacterDisplay : MonoBehaviour { }
-public sealed class UICharacterCreatorWindow : MonoBehaviour { }
+
 
 namespace UnityEngine.UI
 {
     // Source-audited native focus contract; no gameplay/bootstrap substitute.
     public sealed class UIWindow : MonoBehaviour, UnityEngine.EventSystems.IPointerDownHandler
     {
+        public bool IsOpen;
         public int Downs;
         public void OnPointerDown(UnityEngine.EventSystems.PointerEventData data) => Downs++;
     }
@@ -99,3 +100,18 @@ public sealed class RotationNativeImageEffect : MonoBehaviour
         Graphics.Blit(source, destination);
     }
 }
+
+// Native creator ancestry, private serialized links and current page state are
+// fixture inputs. Projection/layout and the final rendering execute production.
+public sealed class UICharacterCreatorWindow : UnityEngine.MonoBehaviour
+{
+    private UnityEngine.Component? nameStep, personalQuestStep;
+    public void BindCreationPages(UnityEngine.Component name, UnityEngine.Component quest)
+    { nameStep = name; personalQuestStep = quest; }
+}
+public sealed class UICharacterCreatorPersonalQuestStep : UnityEngine.MonoBehaviour
+{
+    private UnityEngine.Component? helpText;
+    public void BindHelp(UnityEngine.Component help) => helpText = help;
+}
+public sealed class UIKeyboard : UnityEngine.MonoBehaviour { }
