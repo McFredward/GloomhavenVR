@@ -6,10 +6,12 @@
     <AssemblyName>$(CaseName)</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="System.Runtime.Serialization"/>
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
-    <Reference Include="$(GameManaged)/UnityEngine.UI.dll;$(GameManaged)/Unity.TextMeshPro.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/GH.Runtime.dll;$(GameManaged)/GH.Runtime.FirstPass.dll;$(GameManaged)/GH.Shared.dll;$(GameManaged)/UnityEngine.UI.dll;$(GameManaged)/Unity.Addressables.dll;$(GameManaged)/Unity.ResourceManager.dll;$(GameManaged)/Unity.TextMeshPro.dll;$(GameManaged)/MapRuleLibrary.dll;$(GameManaged)/ScenarioRuleLibrary.dll;$(GameManaged)/Utilities.dll;$(GameManaged)/ThirdParty.dll"><Private>false</Private></Reference>
     <EmbeddedResource Include="$(DepthBundle)" LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle"/>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
   </ItemGroup>
 </Project>

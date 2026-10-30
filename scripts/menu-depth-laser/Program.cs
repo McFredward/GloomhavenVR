@@ -35,7 +35,7 @@ public sealed class LaserNativeCallbacks : MonoBehaviour, IPointerClickHandler, 
     public void OnEndDrag(PointerEventData data) { }
 }
 
-public static class MenuDepthLaserProgram
+public static partial class MenuDepthLaserProgram
 {
     private static int _checks;
     private static readonly List<Object> _assets=new();
@@ -90,6 +90,7 @@ public static class MenuDepthLaserProgram
     public static IEnumerator Run(string output,Action<int> count)
     {
         _checks=0;
+        var nativePorts=NativePorts();
         try
         {
         using(var scene=new Scene())
@@ -131,7 +132,7 @@ public static class MenuDepthLaserProgram
         while(native.MoveNext())yield return native.Current;
         count(_checks);
         }
-        finally {for(int i=_assets.Count-1;i>=0;i--)if(_assets[i]!=null)Object.DestroyImmediate(_assets[i]);_assets.Clear();}
+        finally {for(int i=_assets.Count-1;i>=0;i--)if(_assets[i]!=null)Object.DestroyImmediate(_assets[i]);_assets.Clear();nativePorts.UnpatchAll(nativePorts.Id);}
     }
 
     private static object Field(object owner,string name)=>owner.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(owner);

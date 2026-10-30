@@ -7,8 +7,6 @@ using UnityEngine.EventSystems;
 // Session, tracked input, native scene/controller readiness and unrelated town
 // services are explicit inputs. All geometry, source camera draws, raycast,
 // pointer enter/down/up/click/drag dispatch and original UI filters execute.
-public sealed class FullAbilityCard : MonoBehaviour { }
-public sealed class ItemCardUI : MonoBehaviour { }
 public sealed class Character3DDisplayManager : MonoBehaviour
 {
     private Transform character3DHolder = null!;

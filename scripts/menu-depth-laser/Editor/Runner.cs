@@ -7,8 +7,8 @@ using UnityEngine;
 
 public static class MenuDepthLaserRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; }
-    [Serializable] private sealed class Manifest { public string result, evidence; public Case[] cases; }
+    [Serializable] private sealed class Case { public string name, dll, expected, method; }
+    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
     private static Manifest manifest;
     private static IEnumerator routine;
     private static StreamWriter output;
@@ -19,12 +19,24 @@ public static class MenuDepthLaserRunner
     {
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthLaserManifest") + 1]));
+        AppDomain.CurrentDomain.AssemblyResolve += Resolve;
         output = new StreamWriter(manifest.result);
         output.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         EditorApplication.update += Tick;
         EditorApplication.EnterPlaymode();
+    }
+
+    private static Assembly Resolve(object sender, ResolveEventArgs args)
+    {
+        string name = new AssemblyName(args.Name).Name + ".dll";
+        foreach (string root in new[] { manifest.gameManaged, manifest.harmonyRuntime })
+        {
+            string path = Path.Combine(root, name);
+            if (File.Exists(path)) return Assembly.LoadFrom(path);
+        }
+        return null;
     }
 
     private static void Tick()
@@ -40,7 +52,7 @@ public static class MenuDepthLaserRunner
                 string evidence = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(evidence);
                 Environment.SetEnvironmentVariable("GHVR_LASER_CASE",item.name);
                 routine = (IEnumerator)Assembly.LoadFile(item.dll).GetType("MenuDepthLaserProgram")
-                    .GetMethod("Run").Invoke(null, new object[] { evidence, new Action<int>(count => assertions = count) });
+                    .GetMethod(string.IsNullOrEmpty(item.method) ? "Run" : item.method).Invoke(null, new object[] { evidence, new Action<int>(count => assertions = count) });
             }
             if (routine.MoveNext()) return;
             if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);

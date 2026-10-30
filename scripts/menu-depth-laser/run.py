@@ -50,6 +50,7 @@ def main():
     hit=ray[ray.index('    private static Rect HitRectOf('):ray.index(';',ray.index('    private static Rect HitRectOf('))+1]
     sources['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+'\n'.join(block(ray,s)for s in signatures)+'\n'+hit+'\n}'
     cases=[('production','','','',''),
+        ('more-cards-hover','','','',''),
         ('source-draw-throws','MenuDepthCharacterSource.cs','_camera.Render();',
             'if (_rayRenderedIdentity != null) throw new InvalidOperationException("fixture source draw failed"); _camera.Render();',''),
         ('card-flat','MenuDepthCardPlane.cs','float depth = -Mathf.Abs(root.rect.width) * plane._depthWidthRatio * xScale / zScale;',
@@ -79,16 +80,21 @@ def main():
     native=ROOT/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/hero_brute_assets_all.bundle'
     field=ROOT/'src/GloomhavenVR/Assets/MenuDepth/Story/af21d2cb8296eb19eac3f458e3773d1f.gmd'
     os.environ['GHVR_LASER_NATIVE_BRUTE']=str(native);os.environ['GHVR_LASER_FIELD']=str(field)
+    os.environ['GHVR_LASER_NATIVE_ROW']=str(run/'native-row.json')
     toolchain=[*managed.glob('UnityEngine/*.dll'),*Path('/home/claw/.dotnet/sdk').glob('*/Roslyn/bincore/csc.dll')]
     pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
-        unity,native,field,Path('/home/claw/.dotnet/dotnet'),game/'UnityEngine.UI.dll',game/'Unity.TextMeshPro.dll',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
+        unity,native,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',
+        ROOT/'scripts/menu726-native-profile.py',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
     project=run/'unity';status=1;stable=None
     try:
         retained=run/'Sources';retained.mkdir();shutil.copytree(fixture,retained/'fixture')
         for name,source in sources.items():(retained/name).write_text(source)
         (retained/'RayUguiDriver.full-source.txt').write_text(ray)
-        assemblies=run/'assemblies';assemblies.mkdir();manifest={'result':str(run/'results.txt'),'evidence':str(run),'cases':[]}
+        if execute(['/home/claw/unitypy-venv/bin/python',str(fixture/'audit-native.py'),'--output',str(run/'native-row.json')],run/'native-audit.log'):
+            raise RuntimeError('Original More Cards row audit failed')
+        assemblies=run/'assemblies';assemblies.mkdir();manifest={'result':str(run/'results.txt'),'evidence':str(run),
+            'gameManaged':str(game.resolve()),'harmonyRuntime':'/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472','cases':[]}
         for name,filename,before,after,expected in cases:
             case=run/name;production=case/'production';production.mkdir(parents=True)
             for source_name,source in sources.items():
@@ -102,7 +108,8 @@ def main():
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failed: '+name)
             dll=assemblies/(assembly+'.dll');shutil.copy2(case/'bin/Release/net472'/dll.name,dll)
             shutil.copy2(case/'obj/project.assets.json',case/'resolved-build-assets.json')
-            manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected})
+            manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected,
+                'method':'RunMoreCards' if name.startswith('more-cards-') else 'Run'})
         for directory in ['Assets/Editor','Packages','ProjectSettings']:(project/directory).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')
