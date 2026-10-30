@@ -25,23 +25,46 @@ internal static partial class ConfirmationOnOwner
 
     internal sealed class NavigationOrigin
     {
+        internal readonly Component Source;
+        private readonly int _sourceGeneration, _partyGeneration, _menuGeneration;
         internal readonly Component? Party;
         internal readonly object? Character;
         internal readonly object? PartyCharacter;
         internal readonly object? Page;
         internal readonly Component? Menu;
+        private readonly Dictionary<string, object?> _sourceFields = new();
         internal NavigationOrigin(Component source)
         {
+            Source = source;
             Party = FindParty(source);
             Character = CharacterIdentity(Read(source, IdentityField(source.GetType())));
             PartyCharacter = CharacterIdentity(Read(Party, "selectedCharacter"));
             Page = Read(Party, "displayActive");
             Menu = FindMenu(source);
+            foreach (string field in new[] { "characterData", "character", "selectedCharacter", "selectedCard", "mode",
+                "slotType", "slotNum", "currentSelection", "player", "characterID", "characterName", "m_CurrentSlotIndex" })
+                _sourceFields[field] = CharacterIdentity(Read(source, field));
+            _sourceGeneration = Generation(source);
+            _partyGeneration = Generation(Party);
+            _menuGeneration = Generation(Menu);
         }
+        internal object? SourceField(string field) => _sourceFields.TryGetValue(field, out object? value) ? value : null;
+        internal bool IsCurrent => Source != null && _sourceGeneration == Generation(Source)
+            && _partyGeneration == Generation(Party) && _menuGeneration == Generation(Menu)
+            && Equals(Character, CharacterIdentity(Read(Source, IdentityField(Source.GetType()))))
+            && (Party == null || Equals(PartyCharacter, CharacterIdentity(Read(Party, "selectedCharacter")))
+                && Equals(Page, Read(Party, "displayActive")));
     }
 
     private static readonly List<NavigationOpening> NavigationOpenings = new(4);
     private static int _navigationFailures;
+    private static int _navigationReports;
+    private static void ReportNavigation(Request request, string outcome, string reason)
+    {
+        if (_navigationReports++ < 24)
+            VRLog.Note("WorldUI", "CONFIRMATION NAVIGATION: " + request.Source.GetType().Name
+                + " " + outcome + " before " + reason + ".");
+    }
 
     private static object? Read(object? source, string? field) => source == null || field == null
         ? null : AccessTools.Field(source.GetType(), field)?.GetValue(source);
@@ -50,9 +73,10 @@ internal static partial class ConfirmationOnOwner
     {
         string name = type.Name;
         if (name == "UIPerksInventory" || name == "UIResetLevelUpWindow") return "characterData";
-        if (name == "UILevelUpWindow" || name == "UIPartyItemInventoryDisplay") return "character";
+        if (name == "UILevelUpWindow" || name == "UIPartyItemInventoryDisplay" || name == "UIShopItemInventory"
+            || name == "UITempleWindow" || name == "UINewEnhancementWindow") return "character";
         if (name == "NewPartyDisplayUI" || IsNative(type, "UIAdventurePartyAssemblyWindow")) return "selectedCharacter";
-        if (name == "UIMultiplayerSelectPlayerScreen") return "selectedPlayer";
+        if (name == "UIMultiplayerSelectPlayerScreen") return "currentSelection";
         if (name == "UIMultiplayerMerchantSlot") return "player";
         return null;
     }
@@ -115,7 +139,7 @@ internal static partial class ConfirmationOnOwner
             NavigationOpening opening = NavigationOpenings[i];
             Component? target = null;
             opening.Box?.TryGetTarget(out target);
-            if (ReferenceEquals(target, box) || (target == null && !Patches.ConfirmationRescue.IsCurrentNavigationOpening(opening.Request)))
+            if (ReferenceEquals(target, box) || (target == null && !global::GloomhavenVR.WorldUI.Patches.ConfirmationRescue.IsCurrentNavigationOpening(opening.Request)))
                 NavigationOpenings.RemoveAt(i);
         }
     }
@@ -128,9 +152,27 @@ internal static partial class ConfirmationOnOwner
     internal static void NativeOutcome(Component box, string method)
     {
         if (!Requests.TryGetValue(box, out Request? request)) return;
+        if (box.GetType().Name == "UIMultiplayerConfirmationBox"
+            && (method == "OnConfirm" && Read(box, "_onConfirmClickedCallback") == null
+                || method == "OnSecondConfirm" && Read(box, "_onAlternativeConfirmClickedCallback") == null)) return;
         request.Retired = true;
         if (method == "OnConfirm" || method == "OnConfirmClick" || method == "OnSecondConfirm"
-            || method == "OnCancel" || method == "OnBackClick") request.PendingNativeOutcome = true;
+            || method == "OnCancel" || method == "OnBackClick"
+            || method == "Hide" && box.GetType().Name == "UIEnhancementConfirmationBox"
+                && box.GetComponent<UIWindow>() is UIWindow window && window.IsOpen) request.PendingNativeOutcome = true;
+    }
+
+    internal static void NativeTweenFinishing(UIWindow window)
+    {
+        if (window.IsOpen) return;
+        for (int i = 0; i < NavigationOpenings.Count; i++)
+        {
+            NavigationOpening opening = NavigationOpenings[i];
+            if (opening.Box != null && opening.Box.TryGetTarget(out Component? box) && box != null
+                && ReferenceEquals(box.GetComponent<UIWindow>(), window)
+                && Requests.TryGetValue(box, out Request? current) && ReferenceEquals(current, opening.Request))
+                current.PendingNativeOutcome = false; // before native Hidden listeners/reentrant navigation
+        }
     }
 
     // Called immediately before the actual stfld, after native permission/authority
@@ -139,8 +181,9 @@ internal static partial class ConfirmationOnOwner
     {
         object? identity = CharacterIdentity(next);
         bool changed = !Equals(CharacterIdentity(Read(owner, field)), identity);
+        if (changed && Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
         DeclineForNavigation(request => ReferenceEquals(request.Source, owner)
-                && (changed || !Equals(request.Origin.Character, identity))
+                && (changed || !Equals(request.Origin.SourceField(field), identity))
             || ReferenceEquals(request.Origin.Party, owner)
                 && !Equals(request.Origin.PartyCharacter, identity)
             || owner.GetType().Name == "NewPartyCharacterUI" && request.Origin.Party != null
@@ -148,10 +191,59 @@ internal static partial class ConfirmationOnOwner
                 && !Equals(request.Origin.PartyCharacter, identity), "character");
     }
 
+    internal static void BeforeInventoryClose(Component equipment)
+    {
+        if (Read(equipment, "partyInventory") is Component inventory) BeforeProducerDeparture(inventory);
+    }
+
+    internal sealed class InventoryRefresh
+    {
+        internal readonly Component Box;
+        internal readonly Request Request;
+        internal readonly Component Selection;
+        internal readonly object? Item;
+        internal InventoryRefresh(Component box, Request request, Component selection)
+        { Box = box; Request = request; Selection = selection; Item = SlotItem(selection); }
+    }
+
+    private static object? SlotItem(Component slot) => AccessTools.Property(slot.GetType(), "Item")?.GetValue(slot, null) ?? Read(slot, "Item");
+
+    internal static InventoryRefresh? BeforeInventoryRefresh(Component owner, object character, object slotType, int slotNum)
+    {
+        for (int i = 0; i < NavigationOpenings.Count; i++)
+        {
+            NavigationOpening opening = NavigationOpenings[i];
+            Request request = opening.Request;
+            if (!request.Retired && ReferenceEquals(request.Source, owner)
+                && Equals(request.Origin.SourceField("character"), CharacterIdentity(character))
+                && Equals(request.Origin.SourceField("slotType"), slotType)
+                && Equals(request.Origin.SourceField("slotNum"), slotNum)
+                && opening.Box != null && opening.Box.TryGetTarget(out Component? box) && box != null
+                && Requests.TryGetValue(box, out Request? current) && ReferenceEquals(request, current)
+                && Read(owner, "selectedItemToCofirmSwitch") is Component selection && selection != null)
+                return new InventoryRefresh(box, request, selection);
+        }
+        return null;
+    }
+
+    internal static void AfterInventoryRefresh(Component owner, InventoryRefresh? refresh)
+    {
+        if (refresh == null || refresh.Request.Retired || refresh.Selection == null
+            || !Requests.TryGetValue(refresh.Box, out Request? current) || !ReferenceEquals(current, refresh.Request)
+            || Read(owner, "selectedItemToCofirmSwitch") != null || ForeignOwner(refresh.Box)) return;
+        // Native Display clears this UI-only pointer even for resetOpen:false on
+        // the same slot. Preserve its original No's focus target for that exact
+        // live opening; no actor, equipment, choice or callback is replaced.
+        AccessTools.Field(owner.GetType(), "selectedItemToCofirmSwitch")?.SetValue(owner, refresh.Selection);
+        if (!ReferenceEquals(refresh.Item, SlotItem(refresh.Selection)))
+            DeclineForNavigation(request => ReferenceEquals(request, refresh.Request), "replaced item source");
+    }
+
     internal static void BeforePartyPage(Component owner, string page, bool selected)
     {
         bool same = string.Equals(Read(owner, "displayActive")?.ToString(), page, StringComparison.Ordinal);
         if (selected == same) return;
+        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
         DeclineForNavigation(request => ReferenceEquals(request.Origin.Party, owner), "page");
     }
 
@@ -159,12 +251,30 @@ internal static partial class ConfirmationOnOwner
     {
         Component? menu = FindMenu(option);
         if (menu == null) return;
+        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(menu);
         DeclineForNavigation(request => ReferenceEquals(request.Origin.Menu, menu), "menu");
     }
 
-    internal static void BeforeProducerDeparture(Component owner) => DeclineForNavigation(
-        request => ReferenceEquals(request.Source, owner)
+    internal static void BeforeProducerDeparture(Component owner)
+    {
+        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
+        DeclineForNavigation(request => ReferenceEquals(request.Source, owner)
             || (request.Source != null && request.Source.transform.IsChildOf(owner.transform)), "page");
+    }
+
+    internal static void BeforeUserWindowClose(UIWindow window)
+    {
+        DeclineForNavigation(request => ReferenceEquals(request.Window, window)
+            || request.Origin.Party != null && ReferenceEquals(request.Origin.Party.GetComponent<UIWindow>(), window)
+            || request.Origin.Menu != null && ReferenceEquals(request.Origin.Menu.GetComponent<UIWindow>(), window), "source window");
+    }
+
+    internal static void AfterNativeShow(Component? box)
+    {
+        if (ReferenceEquals(box, null) || NativeShowDepth != 0) return;
+        if (Requests.TryGetValue(box, out Request? request) && request.Deferred && !request.Origin.IsCurrent)
+            DeclineForNavigation(candidate => ReferenceEquals(candidate, request), "deferred origin");
+    }
 
     private static void DeclineForNavigation(Predicate<Request> departs, string reason)
     {
@@ -182,7 +292,7 @@ internal static partial class ConfirmationOnOwner
             Request? current = null;
             if (ReferenceEquals(box, null))
             {
-                if (!Patches.ConfirmationRescue.IsCurrentNavigationOpening(request)) continue;
+                if (!global::GloomhavenVR.WorldUI.Patches.ConfirmationRescue.IsCurrentNavigationOpening(request)) continue;
             }
             else if (!Requests.TryGetValue(box, out current) || !ReferenceEquals(request, current)) continue;
             if (box != null && ForeignOwner(box)) continue;
@@ -193,13 +303,15 @@ internal static partial class ConfirmationOnOwner
                 {
                     request.PendingNativeOutcome = false;
                     chosen.StartAlphaTween(0f, 0f, ignoreTimeScale: true);
+                    ReportNavigation(request, "completed its chosen native outcome", reason);
                 }
                 continue; // finish the already chosen native result; never turn Yes into No
             }
             request.Retired = true; // before any native event or reentrant navigation
             try
             {
-                if (Patches.ConfirmationRescue.DeclineForNavigation(box, request)) continue;
+                if (global::GloomhavenVR.WorldUI.Patches.ConfirmationRescue.DeclineForNavigation(box, request))
+                { ReportNavigation(request, "declined its original fallback", reason); continue; }
                 if (box == null) continue;
                 UIWindow? window = box.GetComponent<UIWindow>();
                 if (window == null || (!window.IsOpen && !window.IsVisible)) continue;
@@ -224,6 +336,7 @@ internal static partial class ConfirmationOnOwner
                     request.PendingNativeOutcome = false;
                     window.StartAlphaTween(0f, 0f, ignoreTimeScale: true);
                 }
+                ReportNavigation(request, "declined its original request", reason);
             }
             catch (Exception ex)
             {
@@ -274,7 +387,15 @@ internal static class ConfirmationNavigationCatalog
         foreach (MethodBase method in Methods("UIMultiplayerMerchantSlot", "OnReportHotkeyClicked")) yield return method;
         foreach (MethodBase method in Methods("CardsHandManager", "DiscardActiveAbilityCard")) yield return method;
         foreach (MethodBase method in Methods("UIMapMultiplayerController", "OnAttemptRetirement")) yield return method;
+        foreach (MethodBase method in Methods("UITempleWindow", "OnSelectedSlot")) yield return method;
+        foreach (MethodBase method in Methods("UINewEnhancementWindow", "ConfirmBuy", "ConfirmSell")) yield return method;
     }
+}
+
+[HarmonyPatch(typeof(UIWindow), "OnTweenFinished")]
+internal static class ConfirmationNativeTweenOutcomePatch
+{
+    private static void Prefix(UIWindow __instance) => ConfirmationOnOwner.NativeTweenFinishing(__instance);
 }
 
 [HarmonyPatch]
@@ -291,9 +412,10 @@ internal static class ConfirmationAdditionalOriginPatch
         ConfirmationOnOwner.NativeShowDepth++;
         ConfirmationOnOwner.Record(__instance);
     }
-    private static Exception? Finalizer(Exception? __exception)
+    private static Exception? Finalizer(Exception? __exception, Component __instance)
     {
         ConfirmationOnOwner.NativeShowDepth--;
+        ConfirmationOnOwner.AfterNativeShow(__instance);
         return __exception;
     }
 }
@@ -345,4 +467,14 @@ internal static class ConfirmationProducerDeparturePatch
             foreach (MethodBase method in ConfirmationNavigationCatalog.Methods(type, "Cancel", "Close", "OnCloseButton")) yield return method;
     }
     private static void Prefix(Component __instance) => ConfirmationOnOwner.BeforeProducerDeparture(__instance);
+}
+
+[HarmonyPatch]
+internal static class ConfirmationInventoryRefreshPatch
+{
+    private static IEnumerable<MethodBase> TargetMethods() => ConfirmationNavigationCatalog.Methods("UIPartyItemInventoryDisplay", "Display");
+    private static void Prefix(Component __instance, object __0, object __2, int __3, out ConfirmationOnOwner.InventoryRefresh? __state) =>
+        __state = ConfirmationOnOwner.BeforeInventoryRefresh(__instance, __0, __2, __3);
+    private static void Postfix(Component __instance, ConfirmationOnOwner.InventoryRefresh? __state) =>
+        ConfirmationOnOwner.AfterInventoryRefresh(__instance, __state);
 }

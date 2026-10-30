@@ -16,6 +16,7 @@ internal static partial class ConfirmationOnOwner
         internal readonly Component Source;
         internal readonly UIWindow? Window;
         internal readonly NavigationOrigin Origin;
+        internal readonly bool Deferred;
         internal bool Retired;
         internal bool PendingNativeOutcome;
         internal bool ReportedFailure;
@@ -23,13 +24,16 @@ internal static partial class ConfirmationOnOwner
         {
             Source = source;
             Window = source.GetComponentInParent<UIWindow>();
-            Origin = new NavigationOrigin(source);
+            Origin = CurrentDeferredOrigin != null && ReferenceEquals(CurrentDeferredOrigin.Source, source)
+                ? CurrentDeferredOrigin : new NavigationOrigin(source);
+            Deferred = ReferenceEquals(Origin, CurrentDeferredOrigin);
         }
     }
 
     private static ConditionalWeakTable<Component, Request> Requests = new();
     internal static Component? CurrentScope;
     internal static int NativeShowDepth;
+    internal static NavigationOrigin? CurrentDeferredOrigin;
 
     internal static Component? Begin(Component source)
     {
@@ -50,9 +54,18 @@ internal static partial class ConfirmationOnOwner
         Requests.Remove(box);
         if (CurrentScope != null)
         {
-            var request = new Request(CurrentScope);
-            Requests.Add(box, request);
-            NavigationOpenings.Add(new NavigationOpening(box, request));
+            try
+            {
+                var request = new Request(CurrentScope);
+                Requests.Add(box, request);
+                NavigationOpenings.Add(new NavigationOpening(box, request));
+            }
+            catch (Exception ex)
+            {
+                if (_navigationFailures++ < 4)
+                    GloomhavenVR.Core.VRLog.Alert("WorldUI", "CONFIRMATION NAVIGATION: could not record native producer context ("
+                        + ex.GetType().Name + "); retaining original native continuation.");
+            }
         }
     }
 }
@@ -119,14 +132,16 @@ internal static class ConfirmationRequestOriginPatch
         yield return AccessTools.DeclaredMethod(typeof(UIConfirmationBoxManager), "ShowCancelActiveAbility");
     }
 
-    private static void Prefix(UIConfirmationBoxManager __instance)
+    private static void Prefix(UIConfirmationBoxManager __instance, out Component? __state)
     {
         ConfirmationOnOwner.NativeShowDepth++;
+        __state = __instance.CurrentBox;
         ConfirmationOnOwner.Record(__instance);
     }
-    private static Exception? Finalizer(Exception? __exception)
+    private static Exception? Finalizer(Exception? __exception, Component? __state)
     {
         ConfirmationOnOwner.NativeShowDepth--;
+        ConfirmationOnOwner.AfterNativeShow(__state);
         return __exception;
     }
 }
@@ -141,9 +156,10 @@ internal static class ItemConfirmationRequestOriginPatch
         ConfirmationOnOwner.NativeShowDepth++;
         ConfirmationOnOwner.Record(__instance);
     }
-    private static Exception? Finalizer(Exception? __exception)
+    private static Exception? Finalizer(Exception? __exception, UIItemConfirmationBox __instance)
     {
         ConfirmationOnOwner.NativeShowDepth--;
+        ConfirmationOnOwner.AfterNativeShow(__instance);
         return __exception;
     }
 }
@@ -184,16 +200,18 @@ internal static class DeferredConfirmationProducerScopePatch
         }
     }
 
-    private static void Prefix(object __instance, out Component? __state)
+    private static void Prefix(object __instance, out Tuple<Component?, ConfirmationOnOwner.NavigationOrigin?> __state)
     {
-        __state = ConfirmationOnOwner.CurrentScope;
+        __state = Tuple.Create(ConfirmationOnOwner.CurrentScope, ConfirmationOnOwner.CurrentDeferredOrigin);
         ConfirmationOnOwner.CurrentScope = Owners.TryGetValue(__instance.GetType(), out FieldInfo? field)
             ? field.GetValue(__instance) as Component : null;
+        ConfirmationOnOwner.CurrentDeferredOrigin = ConfirmationOnOwner.DeferredOrigin(__instance);
     }
 
-    private static Exception? Finalizer(Exception? __exception, Component? __state)
+    private static Exception? Finalizer(Exception? __exception, Tuple<Component?, ConfirmationOnOwner.NavigationOrigin?> __state)
     {
-        ConfirmationOnOwner.CurrentScope = __state;
+        ConfirmationOnOwner.CurrentScope = __state.Item1;
+        ConfirmationOnOwner.CurrentDeferredOrigin = __state.Item2;
         return __exception;
     }
 }

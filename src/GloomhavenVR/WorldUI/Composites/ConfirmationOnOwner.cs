@@ -350,6 +350,8 @@ internal static partial class ConfirmationOnOwner
         Requests = new System.Runtime.CompilerServices.ConditionalWeakTable<Component, Request>();
         NavigationOpenings.Clear();
         NativeShowDepth = 0;
+        _navigationReports = 0;
         CurrentScope = null;
+        CurrentDeferredOrigin = null;
     }
 }
