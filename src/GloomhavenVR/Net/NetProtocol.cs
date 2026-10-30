@@ -632,7 +632,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 748;
+    public const ushort ModBuild = 749;
+
+    // ModBuild749 — original More Cards hover receiver on raised rows.
+    // Hardware748/8fa accepts physical depth picking but the preview opens only
+    // at the row edge. Native CardHolder blocks inner-card raycasts; the row's
+    // own ExtendedButton owns MouseEnter/MouseExit and permits locked browsing.
+    // Bind only that exact native selectable as the raised row's input owner,
+    // including its original registered Canvas after nested-card adoption.
+    // Keep the physical hit, native permission/press/drag, ordinary card input,
+    // detached previews, actor state, capture quality and wire grammar intact.
 
     // ModBuild748 — native menu depth picking and complete story transitions.
     // Hardware747/c0 accepts complete Further Ability Cards but its native offset
