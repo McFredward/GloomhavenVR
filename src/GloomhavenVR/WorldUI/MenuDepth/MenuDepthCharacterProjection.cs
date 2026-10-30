@@ -1,4 +1,6 @@
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
 
@@ -14,6 +16,63 @@ internal static class MenuDepthCharacterProjection
     // One2.4-unit frame retains those proportions and leaves room above the tall
     // body; the native Height field is an overhead-UI estimate, not a fit metric.
     private const float CommonSpan = 2.4f;
+    private static readonly FieldInfo? CreatorName = typeof(UICharacterCreatorWindow).GetField("nameStep", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? CreatorQuest = typeof(UICharacterCreatorWindow).GetField("personalQuestStep", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? QuestHelp = typeof(UICharacterCreatorPersonalQuestStep).GetField("helpText", BindingFlags.Instance | BindingFlags.NonPublic);
+
+    // Build752: the shared preview survives creation's page changes, but its
+    // centred cabinet frame puts the actor in the native keyboard. Reserve the
+    // side of that exact keyboard, and lift the slightly smaller quest preview
+    // above that page's authored help line. Only the private presentation frame
+    // changes: original UI/actors, native ground pivot and ordinary previews stay.
+    private static void CreationLayout(RectTransform rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan)
+    {
+        fit = rectangle.rect; scale = 1f; ground = float.NegativeInfinity; horizontalSpan = CommonSpan;
+        UICharacterCreatorWindow? creator = rectangle.GetComponentInParent<UICharacterCreatorWindow>(true);
+        if (creator == null) return;
+        Component? quest = CreatorQuest?.GetValue(creator) as Component;
+        if (Open(quest))
+        {
+            scale = .88f;
+            Component? help = QuestHelp?.GetValue(quest) as Component;
+            if (help?.transform is RectTransform text)
+                ground = InGraphic(rectangle, text).yMax + fit.height * .03f;
+            return;
+        }
+        Component? name = CreatorName?.GetValue(creator) as Component;
+        if (!Open(name)) return;
+        UIKeyboard? keyboard = name!.GetComponentInChildren<UIKeyboard>(true);
+        if (keyboard == null || !(keyboard.transform is RectTransform keys)) return;
+        Rect occupied = InGraphic(rectangle, keys);
+        float padding = fit.width * .05f;
+        float left = occupied.xMin - padding - fit.xMin;
+        float right = fit.xMax - occupied.xMax - padding;
+        if (Mathf.Max(left, right) <= fit.width * .08f) return;
+        // Build753: fitting a square2.4-unit frame into this upright strip made
+        // every hero tiny. Use one stable3:5 portrait metric for all name-page
+        // actors, retaining native relative heights and the vertical frame.
+        // Prefer the left strip when equally free: the authored long scythe
+        // points away from the keyboard, while the positive-X bear still fits.
+        // This is not an animated equipment envelope or per-character autofit.
+        horizontalSpan = CommonSpan * .6f;
+        if (left >= right) fit.xMax = occupied.xMin - padding;
+        else fit.xMin = occupied.xMax + padding;
+    }
+
+    private static bool Open(Component? step)
+        => step != null && step.gameObject.activeInHierarchy && step.GetComponent<UIWindow>() is UIWindow window && window.IsOpen;
+
+    private static Rect InGraphic(RectTransform graphic, RectTransform other)
+    {
+        Rect rect = other.rect;
+        Matrix4x4 frame = graphic.worldToLocalMatrix * other.localToWorldMatrix;
+        Vector3 a = frame.MultiplyPoint3x4(new Vector3(rect.xMin, rect.yMin));
+        Vector3 b = frame.MultiplyPoint3x4(new Vector3(rect.xMin, rect.yMax));
+        Vector3 c = frame.MultiplyPoint3x4(new Vector3(rect.xMax, rect.yMin));
+        Vector3 d = frame.MultiplyPoint3x4(new Vector3(rect.xMax, rect.yMax));
+        return Rect.MinMaxRect(Mathf.Min(a.x, b.x, c.x, d.x), Mathf.Min(a.y, b.y, c.y, d.y),
+            Mathf.Max(a.x, b.x, c.x, d.x), Mathf.Max(a.y, b.y, c.y, d.y));
+    }
 
     internal readonly struct View
     {
@@ -97,14 +156,24 @@ internal static class MenuDepthCharacterProjection
         // Character3D.models[0] is the original main actor, before companions.
         // Remove only its native camera-fit translation. Keep the complete scene's
         // authored scale, facing, equipment, companion offsets and animation.
-        float nativePerUnit = Mathf.Max(CommonSpan / (physicalWidth * .82f), CommonSpan / (physicalHeight * .75f));
+        CreationLayout(rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan);
+        float fitWidth = fit.width == rect.width ? physicalWidth : physicalWidth * fit.width / rect.width;
+        float fitHeight = fit.height == rect.height ? physicalHeight : physicalHeight * fit.height / rect.height;
+        float nativePerUnit = Mathf.Max(horizontalSpan / (fitWidth * .82f), CommonSpan / (fitHeight * .75f)) / scale;
+        Vector2 fitCenter = fit.center;
+        if (!float.IsNegativeInfinity(ground))
+            fitCenter.y = Mathf.Max(fitCenter.y, ground + CommonSpan * .5f / (nativePerUnit * rectangle.TransformVector(Vector3.up).magnitude));
+        Vector3 presentationCenter = rectangle.TransformPoint(new Vector3(fitCenter.x, fitCenter.y));
+        Vector3 presentationOffset = presentationCenter - physicalCenter;
         Vector3 croppedCenter = source.transform.TransformPoint(stableMainOrigin) + up * (CommonSpan * .5f);
         float u = (uv.center.x - viewport.x) / viewport.width;
         float v = (uv.center.y - viewport.y) / viewport.height;
         float width = physicalWidth * nativePerUnit * viewport.width / uv.width;
         float height = physicalHeight * nativePerUnit * viewport.height / uv.height;
-        Vector3 center = croppedCenter - right * ((u - .5f) * width) - up * ((v - .5f) * height);
-        Vector3 position = croppedCenter + (right * Vector3.Dot(relativeEye, physicalRight)
+        Vector3 apertureCenter = croppedCenter - (right * Vector3.Dot(presentationOffset, physicalRight)
+            + up * Vector3.Dot(presentationOffset, physicalUp)) * nativePerUnit;
+        Vector3 center = apertureCenter - right * ((u - .5f) * width) - up * ((v - .5f) * height);
+        Vector3 position = apertureCenter + (right * Vector3.Dot(relativeEye, physicalRight)
             + up * Vector3.Dot(relativeEye, physicalUp) + forward * Vector3.Dot(relativeEye, physicalForward)) * nativePerUnit;
         bool reversed = signedDistance < 0f;
         Vector3 facing = reversed ? -forward : forward;
@@ -133,7 +202,7 @@ internal static class MenuDepthCharacterProjection
         physicalFrame.SetColumn(0, new Vector4(physicalRight.x, physicalRight.y, physicalRight.z, 0f) / nativePerUnit);
         physicalFrame.SetColumn(1, new Vector4(physicalUp.x, physicalUp.y, physicalUp.z, 0f) / nativePerUnit);
         physicalFrame.SetColumn(2, new Vector4(physicalForward.x, physicalForward.y, physicalForward.z, 0f) / nativePerUnit);
-        physicalFrame.SetColumn(3, new Vector4(physicalCenter.x, physicalCenter.y, physicalCenter.z, 1f));
+        physicalFrame.SetColumn(3, new Vector4(presentationCenter.x, presentationCenter.y, presentationCenter.z, 1f));
         result = new View(position, Quaternion.LookRotation(facing, up), view,
             Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far), near, far, reversed,
             rectangle.worldToLocalMatrix * physicalFrame * nativeFrame, nativeFrame.GetRow(2));

@@ -1,5 +1,117 @@
-**Release1.2.2 candidate, 2026-10-30 — hardware accepted; publication in progress.**
+**Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
 
+The maintainer requests a hotfix and a link to the 1.2.2 release notes. The initially
+requested fourth component cannot be offered by the published 1.2.2 updater: its
+comparison ignores revision and regards 1.2.2.1 as equal. The maintainer explicitly
+selects 1.2.3 to preserve automatic updates. Sixteen source-bound assertions against
+exact tagged 1.2.2 parser code verify the normal 1.2.3 tag/archive and offer predicate.
+The candidate's parser is byte-identical to that published source. Four-component
+code/tooling research stays private and unintegrated; no runtime/helper change or
+new ModBuild is needed. Current dev already names 1.2.3/753.
+
+English-only highlights label this a hotfix, describe only the creation preview
+repairs since 1.2.2, link that release's full notes and retain complete-archive/VR
+peer update instructions. Eight content/render checks pass. Class R reuses the
+qualified 750 complete268/306739 closure plus 751/752/753 affected proof, source16,
+strict and exact compiled/input bindings. All 1,768 strict inputs remain exact;
+this candidate changes only allowlisted highlights and status. A fresh local
+GhvrReleaseBuild=true Release build passes 0W0E in 18.41s, with version 1.2.3 and
+IsDevBuild=false. The hosted release freshly builds/packages the exact reviewed
+main merge, verifies upload and records its immutable tag before the dev bump.
+
+Full hosted sourceCI41106858134 on c4677f990 succeeds, including the trusted
+Full checks [6f914b44427d0f20d390c26a90ee95aaa715176d] job and all four runtime
+shards. Only the reviewed notes/status descendant proceeds to publication. User authorizes release after 753 delivery and accepts
+752's quest page; no new 753 Windows/headset result is inferred. Existing defaults
+and known issues stay with the 1.2.2 notes. All three preparation workers are clean,
+process/FD audited and retired after verified whole-debug archival; discarded
+research and actual executed compatibility/content evidence remain separate.
+
+**Larger naming preview, Build753, 2026-10-30 — validated for dev.**
+
+The maintainer accepts752's personal-quest preview but finds the naming figure
+too small. The narrow naming strip had used the full2.4-unit vertical frame for
+its width too. Only naming now uses a stable3:5 upright frame, common to every
+actor, with five-percent keyboard padding and a left-side tie preference.
+The final tall witness is175 rather than117 head pixels, about50% larger.
+Quest/default branches and their matrix construction retain752 behavior; native
+actor/UI transforms, relative heights, rotation and capture quality stay intact.
+
+Class B, minimal selection: final desktop3 passes67 assertions/two compiling
+controls through the actual converted-window coordinator and final head pixels.
+Eight states cover short/tall defaults, four name witnesses including a1.72-unit
+wide body and positive-offset companion, and both accepted quest frames. The
+complete rendered name silhouette clears an independently projected keyboard
+quad by at least4.83 screen pixels. Quest's independent complete world matrix
+matches at0.1mm world-coordinate tolerance; naming leaves the keyboard ray free. Head
+cases take3.15s. Two selected native-character variants pass292 assertions/one
+control, including front/rear/stereo/oblique common-scale evidence. Aggregate:
+359 assertions/three controls across five variants, not a complete runtime gate.
+
+The first quest oracle used excessively strict native UI-unit rounding; its
+failure remains. More importantly, the initial plane-only proof
+passed63 assertions but manual final-image inspection found a companion covering
+roughly9 pixels of the keyboard edge. That proof is superseded: the final repair
+increases naming padding from3% to5% and adds a direct final-pixel clearance gate.
+The existing per-character-scale control also had a stale752 replacement target;
+its current formula is repaired and its exact intended failure is verified.
+
+Final strict Debug/Release zero warnings/errors17.91/18.27s, source16/16 PASS17.4s.
+The earlier strict/source/compiled results remain, superseded after the bounded
+padding repair. Final compiled scope: one behavior type, nine exact build-only
+consumers, no new/removed types,32 resources exact752. All1,768 strict inputs and
+62 final desktop inputs bind exactly. Native-character retains32/33 exact inputs;
+only the unused naming padding differs, after its creator-absent early return.
+That explicitly bounded path reuses its292 assertions without another run.
+Inherited752 strict sources retain1,766/1,768; only build stamp/projection differ.
+Reuse qualified750 full268/306739 and752 closures for unchanged systems. Surfaces
+remain670/267/4839. Imported art is not an animation envelope; original rear
+aperture clipping remains, and no Windows/native-art/XR/headset proof is claimed.
+Canonical cleanup, empty FD/cwd audits and a verified whole-worker archive retain
+all results, source pins,41 selected artifacts and earlier failures. Worker is
+retired. Push dev; Windows builds its archive. No release publication or local ZIP.
+
+**Character creation preview layout, Build752, 2026-10-30 — validated for dev.**
+
+The name and personal-quest pages retain one shared native preview rectangle.
+Its ordinary centered cabinet fit obstructs the keyboard and lower quest copy.
+Only these exact creator pages now fit the private presentation beside the actual
+keyboard, or at 88% scale with its ground above the authored quest help line.
+Native UI and actor transforms remain untouched; ordinary previews, proportions,
+rotation, all seven shared projection callers, capture quality and cadence stay.
+
+Class B, explicitly minimal tests: two selected desktop variants pass 39 positive
+assertions and one compiling old-frame control through the actual converted-window
+coordinator and final head pixels. Short/tall bodies clear the keyboard and its
+laser ray. Quest feet clear the lower line by 32.4 native pixels; the tall body
+measures 671.2 rather than 762.8 pixels. Default framing matches an independent
+original metric. Measured Unity cases take 2.19s. Three unchanged character,
+rotation and laser consumers receive explicit native type/page input ports and
+compile cleanly; these compilation-only checks are not runtime passes.
+
+Four initial synthetic-photo attempts fail the unchanged default pixel oracle:
+the first engaged photograph retains its cached mono batch. One initial warmup
+retires that fixture photograph; later page transitions are tested immediately.
+Two rotation compile attempts expose the wrong boundary/missing IsOpen input,
+then pass after correcting the integrated port. All original failures remain.
+
+Fresh strict Debug/Release: zero warnings/errors, 18.53/18.04s; source 16/16 pass
+in 16.9s after strict cleanup. Compiled scope is one behavior type, nine exact
+build/version consumers and six exact release-version identities from the bot's
+1.2.3 dev bump; no added/removed types and 32 resources unchanged from751.
+All 1,768 strict inputs, 62 runtime inputs and declared consumer/native inputs
+bind to the final candidate. Inherited751 strict sources retain 1,765/1,768 exact;
+only project version, build stamp and this projection differ. Reuse qualified750
+full268/306739 evidence and751 closures for unchanged code; no full matrix rerun.
+Surfaces remain 670/267/4839. No Windows/native-art/headset acceptance is claimed.
+Per-run canonical cleanup and an empty process FD/cwd audit precede verified
+whole-worker evidence archival and retirement. Windows builds the dev archive.
+
+**Release1.2.2, 2026-10-30 — published.**
+
+Release workflow41094374980 published v1.2.2 from main7f6888707 after trusted
+fullCI41086730880. The archive and public asset were verified; dev now retains
+release ancestry at e8a73cd4a with the automated1.2.3 version increment.
 The maintainer confirms the751 test successful and authorizes release1.2.2.
 Only fresh local751/b881 logs are supplied; remote750 remains historical.
 Local review finds0BepInEx Error/Fatal and0oldcard-plane hand failures. Four NREs

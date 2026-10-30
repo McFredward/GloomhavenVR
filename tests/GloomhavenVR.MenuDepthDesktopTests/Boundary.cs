@@ -158,3 +158,21 @@ namespace GloomhavenVR.WorldUI
         internal void HideForFixture() { _visible = false; ReleaseStack(); }
     }
 }
+
+namespace UnityEngine.UI { public sealed class UIWindow : UnityEngine.MonoBehaviour { public bool IsOpen; } }
+
+
+// Native creator ancestry, private serialized links and current page state are
+// fixture inputs. Projection/layout and the final rendering execute production.
+public sealed class UICharacterCreatorWindow : UnityEngine.MonoBehaviour
+{
+    private UnityEngine.Component? nameStep, personalQuestStep;
+    public void BindCreationPages(UnityEngine.Component name, UnityEngine.Component quest)
+    { nameStep = name; personalQuestStep = quest; }
+}
+public sealed class UICharacterCreatorPersonalQuestStep : UnityEngine.MonoBehaviour
+{
+    private UnityEngine.Component? helpText;
+    public void BindHelp(UnityEngine.Component help) => helpText = help;
+}
+public sealed class UIKeyboard : UnityEngine.MonoBehaviour { }
