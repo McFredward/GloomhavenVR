@@ -44,7 +44,7 @@ internal static class MenuDepthCharacterProjection
         UIKeyboard? keyboard = name!.GetComponentInChildren<UIKeyboard>(true);
         if (keyboard == null || !(keyboard.transform is RectTransform keys)) return;
         Rect occupied = InGraphic(rectangle, keys);
-        float padding = fit.width * .03f;
+        float padding = fit.width * .05f;
         float left = occupied.xMin - padding - fit.xMin;
         float right = fit.xMax - occupied.xMax - padding;
         if (Mathf.Max(left, right) <= fit.width * .08f) return;
