@@ -1,3 +1,47 @@
+**Larger naming preview, Build753, 2026-10-30 — validated for dev.**
+
+The maintainer accepts752's personal-quest preview but finds the naming figure
+too small. The narrow naming strip had used the full2.4-unit vertical frame for
+its width too. Only naming now uses a stable3:5 upright frame, common to every
+actor, with five-percent keyboard padding and a left-side tie preference.
+The final tall witness is175 rather than117 head pixels, about50% larger.
+Quest/default branches and their matrix construction retain752 behavior; native
+actor/UI transforms, relative heights, rotation and capture quality stay intact.
+
+Class B, minimal selection: final desktop3 passes67 assertions/two compiling
+controls through the actual converted-window coordinator and final head pixels.
+Eight states cover short/tall defaults, four name witnesses including a1.72-unit
+wide body and positive-offset companion, and both accepted quest frames. The
+complete rendered name silhouette clears an independently projected keyboard
+quad by at least4.83 screen pixels. Quest's independent complete world matrix
+matches at0.1mm world-coordinate tolerance; naming leaves the keyboard ray free. Head
+cases take3.15s. Two selected native-character variants pass292 assertions/one
+control, including front/rear/stereo/oblique common-scale evidence. Aggregate:
+359 assertions/three controls across five variants, not a complete runtime gate.
+
+The first quest oracle used excessively strict native UI-unit rounding; its
+failure remains. More importantly, the initial plane-only proof
+passed63 assertions but manual final-image inspection found a companion covering
+roughly9 pixels of the keyboard edge. That proof is superseded: the final repair
+increases naming padding from3% to5% and adds a direct final-pixel clearance gate.
+The existing per-character-scale control also had a stale752 replacement target;
+its current formula is repaired and its exact intended failure is verified.
+
+Final strict Debug/Release zero warnings/errors17.91/18.27s, source16/16 PASS17.4s.
+The earlier strict/source/compiled results remain, superseded after the bounded
+padding repair. Final compiled scope: one behavior type, nine exact build-only
+consumers, no new/removed types,32 resources exact752. All1,768 strict inputs and
+62 final desktop inputs bind exactly. Native-character retains32/33 exact inputs;
+only the unused naming padding differs, after its creator-absent early return.
+That explicitly bounded path reuses its292 assertions without another run.
+Inherited752 strict sources retain1,766/1,768; only build stamp/projection differ.
+Reuse qualified750 full268/306739 and752 closures for unchanged systems. Surfaces
+remain670/267/4839. Imported art is not an animation envelope; original rear
+aperture clipping remains, and no Windows/native-art/XR/headset proof is claimed.
+Canonical cleanup, empty FD/cwd audits and a verified whole-worker archive retain
+all results, source pins,41 selected artifacts and earlier failures. Worker is
+retired. Push dev; Windows builds its archive. No release publication or local ZIP.
+
 **Character creation preview layout, Build752, 2026-10-30 — validated for dev.**
 
 The name and personal-quest pages retain one shared native preview rectangle.
