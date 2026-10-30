@@ -146,7 +146,11 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     public Graphic Graphic => Printed() ?? _backgrounds[0];
     public Transform RayRoot => _card!;
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
-    public bool IsReady => _configured && isActiveAndEnabled && _owner != null && _owner.gameObject.activeInHierarchy
+    // Build751 paired Player.log: the source registry can retain this managed
+    // wrapper after Unity destroyed its component. Interface references do not
+    // apply Unity's fake-null test; querying isActiveAndEnabled then throws and
+    // aborts the hand tick before both the story pointer and its laser grab bar.
+    public bool IsReady => this != null && _configured && isActiveAndEnabled && _owner != null && _owner.gameObject.activeInHierarchy
         && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Printed() != null && Eligible();
 
     internal void Configure(MonoBehaviour owner, RectTransform card, IReadOnlyList<Graphic> backgrounds, Transform? window)
