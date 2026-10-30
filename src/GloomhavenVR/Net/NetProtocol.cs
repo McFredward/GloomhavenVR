@@ -632,7 +632,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 752;
+    public const ushort ModBuild = 753;
+
+    // ModBuild753 — useful naming-page character size beside the keyboard.
+    // Hardware review accepts752's quest page but the narrow naming strip
+    // applies the full2.4-unit vertical frame to its horizontal fit too, making
+    // the figure needlessly small. Use a stable upright width metric only for
+    // the name page; retain keyboard clearance, native relative body heights,
+    // the accepted quest/default frames, actor/UI transforms and capture quality.
+    // No head-dependent fitting, animation-sized scaling or wire grammar change.
 
     // ModBuild752 — unobstructed character creation previews.
     // The name and personal-quest steps share the creator's original RawImage;
