@@ -1,5 +1,8 @@
-**Release1.2.2 candidate, 2026-10-30 — hardware accepted; publication in progress.**
+**Release1.2.2, 2026-10-30 — published.**
 
+Release workflow41094374980 published v1.2.2 from main7f6888707 after trusted
+fullCI41086730880. The archive and public asset were verified; dev now retains
+release ancestry at e8a73cd4a with the automated1.2.3 version increment.
 The maintainer confirms the751 test successful and authorizes release1.2.2.
 Only fresh local751/b881 logs are supplied; remote750 remains historical.
 Local review finds0BepInEx Error/Fatal and0oldcard-plane hand failures. Four NREs
