@@ -116,7 +116,7 @@ def main():
         'navigation-natural-outcome-replayed': ('ConfirmationOnOwner.Navigation.cs',
             'current.PendingNativeOutcome = false; // before native Hidden listeners/reentrant navigation',
             '_ = current; // Causal control: naturally completed outcome remains pending.',
-            'naturally completed native confirmation is never replayed by later navigation'),
+            'naturally completed enhancement purchase is never invoked again by later navigation'),
         'navigation-refresh-focus-lost': ('ConfirmationOnOwner.Navigation.cs',
             'AccessTools.Field(owner.GetType(), "selectedItemToCofirmSwitch")?.SetValue(owner, refresh.Selection);',
             '_ = refresh.Selection; // Causal control: lost same-slot original selection.',
