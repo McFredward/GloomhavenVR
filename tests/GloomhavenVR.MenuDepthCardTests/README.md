@@ -165,3 +165,17 @@ complete first card followed by a vertical mask cut after adoption. Normal hover
 item/card relief and native level-up hover/won-card introduction cases stay in the
 same containing suite. No network branch changes; multiplayer headset/native
 D3D11 acceptance remains a hardware check.
+
+Build748 measures the actual native inventory's left border and the original
+Full's fitted right extent/pivot, leaving 24 native pixels of spacing. The card
+must occupy that left gap and leave the original hovered Mini title readable.
+The fixture uses the audited 368px inventory width. Every ordinary first/steady
+picture independently checks the complete card and the hovered row's ink extent.
+Four additional pictures retain the original tilted pool row before the existing
+source-bound Tooltip flatten kernel runs; complete Full edges/title are checked
+there too. The kernel runs only on the original row after Full has been raised,
+and must leave Full's pose unchanged. This explicitly supplies the unchanged
+surrounding flat-window coordinator input; it does not add a product row writer.
+The lost-pool-plane control still fails before this context step could repair it.
+A further compiled control restores the old Mini-relative offset and must fail
+the left-gap preview raster. Existing controls and native callback/pool tests stay.
