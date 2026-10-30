@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using GloomhavenVR.Core;
@@ -26,12 +27,14 @@ internal static partial class ConfirmationOnOwner
     internal sealed class NavigationOrigin
     {
         internal readonly Component Source;
-        private readonly int _sourceGeneration, _partyGeneration, _menuGeneration;
+        private readonly int _sourceGeneration, _partyGeneration, _menuGeneration, _outerMenuGeneration, _windowGeneration;
+        private readonly UIWindow? _window;
         internal readonly Component? Party;
         internal readonly object? Character;
         internal readonly object? PartyCharacter;
         internal readonly object? Page;
         internal readonly Component? Menu;
+        internal readonly Component? OuterMenu;
         private readonly Dictionary<string, object?> _sourceFields = new();
         internal NavigationOrigin(Component source)
         {
@@ -41,22 +44,31 @@ internal static partial class ConfirmationOnOwner
             PartyCharacter = CharacterIdentity(Read(Party, "selectedCharacter"));
             Page = Read(Party, "displayActive");
             Menu = FindMenu(source);
+            OuterMenu = FindOuterMenu(source);
+            _window = source.GetComponentInParent<UIWindow>();
             foreach (string field in new[] { "characterData", "character", "selectedCharacter", "selectedCard", "mode",
                 "slotType", "slotNum", "currentSelection", "player", "characterID", "characterName", "m_CurrentSlotIndex" })
                 _sourceFields[field] = CharacterIdentity(Read(source, field));
             _sourceGeneration = Generation(source);
             _partyGeneration = Generation(Party);
             _menuGeneration = Generation(Menu);
+            _outerMenuGeneration = Generation(OuterMenu);
+            _windowGeneration = Generation(_window);
         }
         internal object? SourceField(string field) => _sourceFields.TryGetValue(field, out object? value) ? value : null;
         internal bool IsCurrent => Source != null && _sourceGeneration == Generation(Source)
             && _partyGeneration == Generation(Party) && _menuGeneration == Generation(Menu)
+            && _outerMenuGeneration == Generation(OuterMenu) && _windowGeneration == Generation(_window)
+            && (ReferenceEquals(_window, null) || _window != null)
             && Equals(Character, CharacterIdentity(Read(Source, IdentityField(Source.GetType()))))
             && (Party == null || Equals(PartyCharacter, CharacterIdentity(Read(Party, "selectedCharacter")))
                 && Equals(Page, Read(Party, "displayActive")));
     }
 
     private static readonly List<NavigationOpening> NavigationOpenings = new(4);
+    // Native navigation remains meaningful in the manual flat-screen and outside
+    // seated capture admission. Disabling conversion/teardown cannot choose No.
+    private static bool NavigationActive => WorldUIConfig.ConversionActive;
     private static int _navigationFailures;
     private static int _navigationReports;
     private static void ReportNavigation(Request request, string outcome, string reason)
@@ -132,6 +144,32 @@ internal static partial class ConfirmationOnOwner
         return null;
     }
 
+    private static Component? FindOuterMenu(Component source)
+    {
+        Component? menu = FindMenu(source);
+        // Native Options.Show receives the exact opening button's Deselect action
+        // from ESCMenu or MainOptionOptions. Conversion may separate the roots;
+        // the original delegate target preserves that authored relationship.
+        if (menu != null && IsNative(menu.GetType(), "UIOptionsWindow")
+            && Read(menu, "m_OnHidden") is Delegate hidden && hidden.Target is Component button && button != null)
+            return FindMenu(button);
+        if (!IsNative(source.GetType(), "UIMultiplayerEscSubmenu")) return null;
+        // ESCMenu binds this exact listener before showing the multiplayer menu.
+        // Read only that original UnityEvent's actual runtime target. No static
+        // singleton, selected/focused window or arbitrary event delegate is an owner.
+        object? onHide = AccessTools.Property(source.GetType(), "OnHide")?.GetValue(source, null);
+        if (Read(Read(onHide, "m_Calls"), "m_RuntimeCalls") is not IEnumerable callbacks) return null;
+        Component? owner = null;
+        foreach (object callback in callbacks)
+            if (Read(callback, "Delegate") is Delegate handler && handler.Method.Name == "OnHideOptionWindow"
+                && handler.Target is Component target && target != null && IsNative(target.GetType(), "ESCMenu"))
+            {
+                if (owner != null && !ReferenceEquals(owner, target)) return null;
+                owner = target;
+            }
+        return owner;
+    }
+
     private static void ForgetNavigationOpening(Component box)
     {
         for (int i = NavigationOpenings.Count - 1; i >= 0; i--)
@@ -181,7 +219,7 @@ internal static partial class ConfirmationOnOwner
     {
         object? identity = CharacterIdentity(next);
         bool changed = !Equals(CharacterIdentity(Read(owner, field)), identity);
-        if (changed && Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
+        if (changed && NavigationActive && NativeShowDepth == 0) AdvanceGeneration(owner);
         DeclineForNavigation(request => ReferenceEquals(request.Source, owner)
                 && (changed || !Equals(request.Origin.SourceField(field), identity))
             || ReferenceEquals(request.Origin.Party, owner)
@@ -210,6 +248,7 @@ internal static partial class ConfirmationOnOwner
 
     internal static InventoryRefresh? BeforeInventoryRefresh(Component owner, object character, object slotType, int slotNum)
     {
+        if (!NavigationActive) return null;
         for (int i = 0; i < NavigationOpenings.Count; i++)
         {
             NavigationOpening opening = NavigationOpenings[i];
@@ -228,7 +267,7 @@ internal static partial class ConfirmationOnOwner
 
     internal static void AfterInventoryRefresh(Component owner, InventoryRefresh? refresh)
     {
-        if (refresh == null || refresh.Request.Retired || refresh.Selection == null
+        if (!NavigationActive || refresh == null || refresh.Request.Retired || refresh.Selection == null
             || !Requests.TryGetValue(refresh.Box, out Request? current) || !ReferenceEquals(current, refresh.Request)
             || Read(owner, "selectedItemToCofirmSwitch") != null || ForeignOwner(refresh.Box)) return;
         // Native Display clears this UI-only pointer even for resetOpen:false on
@@ -243,7 +282,7 @@ internal static partial class ConfirmationOnOwner
     {
         bool same = string.Equals(Read(owner, "displayActive")?.ToString(), page, StringComparison.Ordinal);
         if (selected == same) return;
-        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
+        if (NavigationActive && NativeShowDepth == 0) AdvanceGeneration(owner);
         DeclineForNavigation(request => ReferenceEquals(request.Origin.Party, owner), "page");
     }
 
@@ -251,22 +290,25 @@ internal static partial class ConfirmationOnOwner
     {
         Component? menu = FindMenu(option);
         if (menu == null) return;
-        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(menu);
-        DeclineForNavigation(request => ReferenceEquals(request.Origin.Menu, menu), "menu");
+        if (NavigationActive && NativeShowDepth == 0) AdvanceGeneration(menu);
+        DeclineForNavigation(request => ReferenceEquals(request.Origin.Menu, menu)
+            || ReferenceEquals(request.Origin.OuterMenu, menu), "menu");
     }
 
     internal static void BeforeProducerDeparture(Component owner)
     {
-        if (Enabled && NativeShowDepth == 0) AdvanceGeneration(owner);
+        if (NavigationActive && NativeShowDepth == 0) AdvanceGeneration(owner);
         DeclineForNavigation(request => ReferenceEquals(request.Source, owner)
             || (request.Source != null && request.Source.transform.IsChildOf(owner.transform)), "page");
     }
 
     internal static void BeforeUserWindowClose(UIWindow window)
     {
+        if (NavigationActive && NativeShowDepth == 0) AdvanceGeneration(window);
         DeclineForNavigation(request => ReferenceEquals(request.Window, window)
             || request.Origin.Party != null && ReferenceEquals(request.Origin.Party.GetComponent<UIWindow>(), window)
-            || request.Origin.Menu != null && ReferenceEquals(request.Origin.Menu.GetComponent<UIWindow>(), window), "source window");
+            || request.Origin.Menu != null && ReferenceEquals(request.Origin.Menu.GetComponent<UIWindow>(), window)
+            || request.Origin.OuterMenu != null && ReferenceEquals(request.Origin.OuterMenu.GetComponent<UIWindow>(), window), "source window");
     }
 
     internal static void AfterNativeShow(Component? box)
@@ -278,7 +320,7 @@ internal static partial class ConfirmationOnOwner
 
     private static void DeclineForNavigation(Predicate<Request> departs, string reason)
     {
-        if (!Enabled || NativeShowDepth != 0) return;
+        if (!NavigationActive || NativeShowDepth != 0) return;
         // Native decline can synchronously navigate or open a replacement. A
         // snapshot plus request identity prevents cancelling that new opening.
         NavigationOpening[] pending = NavigationOpenings.ToArray();
