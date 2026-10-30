@@ -10,7 +10,9 @@ internal sealed class TownServiceTerrainContact : IDisposable
     // ring reaches its relief: shipping triangles sit 8–58 mm below the fixed soles.
     // Bed only those local contacts, once, rather than publishing another actor Y,
     // sinking feet into the cellar or enlarging the entire forest by almost 3x.
-    private const float FlatRadius = .24f, BlendRadius = .45f;
+    // Shipping sole-covering triangles reach 0.298 m from the nearest sole.
+    // Their three vertices must all be flat; blending one leaves an interpolated gap.
+    private const float FlatRadius = .31f, BlendRadius = .45f;
     private readonly MeshFilter _filter;
     private readonly Mesh _original, _owned;
     private bool _disposed;
