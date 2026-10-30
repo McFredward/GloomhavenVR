@@ -64,6 +64,9 @@ def main():
     for signature in ("public void ShowConfirmation(BoxConfirmationType boxConfirmationType", "private void OnCancel()", "private void OnConfirm()", "public void Hide()", "private void ResetConfirmationBox()", "private void OnHidden()"):
         native_item += method(item, signature) + "\n"
     native_item += "}\n"
+    navigation_spec = importlib.util.spec_from_file_location('navigation750_inputs', fixture/'navigation750_inputs.py')
+    navigation_tools = importlib.util.module_from_spec(navigation_spec); navigation_spec.loader.exec_module(navigation_tools)
+    navigation, navigation_provenance = navigation_tools.inputs(root, runtime, env, method, native_window, native_item)
     path = "src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs"
     source = (root/path).read_text()
     old = subprocess.run(["git", "show", "bf3444cb5:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
@@ -90,7 +93,9 @@ def main():
         ("item-stale-provenance", source.replace("        _itemBox = box;\n        ItemSeat.RequestedAs = null;", "        _itemBox = box;"), "unknown request on replacement cannot inherit old merchant provenance"),
         ("item-without-ownership", source.replace("if (window != null && TownServicePresentation.OwnsWindow(window))", "if (window != null && !ReferenceEquals(window, window))", 1), "item ownership leaves native presentation pose and layer untouched"),
         ("item-prefix-guarded-fault", observation_fault, ""),
-        ("item-prefix-unguarded-fault", unguarded_fault, "observation failure leaves native Show continuation intact")]
+        ("item-prefix-unguarded-fault", unguarded_fault, "observation failure leaves native Show continuation intact"),
+        ("navigation-production", source, ""),
+        ("navigation-published749", source, "native Class Toggle declines the old Perks request before character mutation")]
     if any(before == source for name, before, expected in variants if name in ("without-host-hide", "slow-host-cancel")):
         raise RuntimeError("Host cancellation control binding drift")
     if any(before == source for name, before, expected in variants if name.startswith("item-") and expected and name != "item-published669"):
@@ -121,17 +126,17 @@ def main():
         hashes={}; cases=[]
         for name, seat, expected in variants:
             build=run/name; production=build/"production"; production.mkdir(parents=True)
-            sources={"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"NativeItemMethods.cs":native_item,"TownServiceWindowMask.cs":mask_source}
+            sources = dict(navigation) if name.startswith('navigation-') else {"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"NativeItemMethods.cs":native_item,"TownServiceWindowMask.cs":mask_source}
             hashes[name]={filename:hashlib.sha256(value.encode()).hexdigest() for filename,value in sources.items()}
             for filename,value in sources.items(): (production/filename).write_text(value)
-            shutil.copyfile(fixture/"Confirmation.csproj",build/"Confirmation.csproj")
+            shutil.copyfile(fixture/("Navigation750.csproj" if name.startswith('navigation-') else "Confirmation.csproj"),build/"Confirmation.csproj")
             assembly="Confirmation657_"+name.replace("-","_")
             result=subprocess.run([str(Path.home()/".dotnet/dotnet"),"build",str(build/"Confirmation.csproj"),"-c","Debug","--nologo","--verbosity","quiet",
                 "-p:CaseName="+assembly,"-p:FixtureDir="+str(fixture),"-p:ProductionDir="+str(production),
                 "-p:UnityManaged="+str(args.unity.parent/"Data/Managed"),"-p:GameManaged="+str(managed.resolve()),"-p:HarmonyPath="+str(dependencies[0])],capture_output=True,text=True,env=env)
             (build/"build.log").write_text(result.stdout+result.stderr)
             if result.returncode: raise SystemExit(result.stdout+result.stderr+"\nCompilation failure is not a causal pass")
-            binary=build/"bin/Debug/netstandard2.1"/(assembly+".dll")
+            binary=build/("bin/Debug/net472" if name.startswith('navigation-') else "bin/Debug/netstandard2.1")/(assembly+".dll")
             executed=run/"executed-assemblies";executed.mkdir(exist_ok=True)
             retained=executed/binary.name;shutil.copyfile(binary,retained)
             cases.append({"name":name,"dll":str(retained),"expected":expected,"sha256":hashlib.sha256(retained.read_bytes()).hexdigest()})
@@ -139,13 +144,14 @@ def main():
         manifest_path=run/"manifest.json";manifest_path.write_text(json.dumps(manifest,indent=2)+"\n")
         (run/"source-hashes.json").write_text(json.dumps(hashes,indent=2)+"\n")
         (run/"native-provenance.json").write_text(json.dumps(provenance,indent=2)+"\n")
+        (run/'navigation-native-provenance.json').write_text(json.dumps(navigation_provenance,indent=2)+'\n')
         (run/"fixture-hashes.json").write_text(json.dumps({str(p.relative_to(fixture)):hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.rglob("*") if p.is_file()},indent=2)+"\n")
         print("Evidence: "+str(run),flush=True)
         # Native Unity scripts and Harmony detour caches share type names. Each item
         # variant therefore receives a fresh process with only its own patched DLL.
         # The original enhancement variants retain their unchanged shared-process proof.
-        groups = [("enhancement", [entry for entry in cases if not entry["name"].startswith("item-")])]
-        groups += [(entry["name"], [entry]) for entry in cases if entry["name"].startswith("item-")]
+        groups = [("enhancement", [entry for entry in cases if not entry["name"].startswith(("item-", "navigation-"))])]
+        groups += [(entry["name"], [entry]) for entry in cases if entry["name"].startswith(("item-", "navigation-"))]
         reports=[]; failed=False
         for group, entries in groups:
             if not entries: continue

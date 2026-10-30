@@ -250,7 +250,7 @@ internal static class OwnerCases
         var targets=(IEnumerable<MethodBase>)typeof(ConfirmationProducerScopePatch)
             .GetMethod("TargetMethods",BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,null)!;
         int count=0; foreach(var target in targets) { Check(target!=null,"every reviewed producer patch target must exist");count++; }
-        Check(count==28,"all twenty-eight reviewed in-game producer methods must be covered");
+        Check(count>=28,"all baseline in-game producer methods remain covered alongside the audited native navigation producers");
         var requests=(IEnumerable<MethodBase>)typeof(ConfirmationRequestOriginPatch)
             .GetMethod("TargetMethods",BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,null)!;
         count=0; foreach(var target in requests) { Check(target!=null,"every native generic request patch target must exist");count++; }

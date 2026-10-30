@@ -10,7 +10,7 @@ root,dialog=map(Path,sys.argv[1:]);out=root/'.planning/debug/dialog-surface';out
 run=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(run),flush=True)
 log=run/'console.log';log.write_text('Evidence: '+str(run)+'\n');status=1
 world=root/'src/GloomhavenVR/WorldUI';fixture=root/'tests/GloomhavenVR.DialogSurfaceTests'
-files={'DialogSource':dialog,'OwnerSource':world/'Composites/ConfirmationOnOwner.cs','OriginSource':world/'Composites/ConfirmationOnOwner.Origins.cs','LayerSource':world/'Composites/MovedSubtreeLayers.cs'}
+files={'DialogSource':dialog,'OwnerSource':world/'Composites/ConfirmationOnOwner.cs','OriginSource':world/'Composites/ConfirmationOnOwner.Origins.cs','NavigationSource':world/'Composites/ConfirmationOnOwner.Navigation.cs','LayerSource':world/'Composites/MovedSubtreeLayers.cs'}
 originals={key:path.read_text() for key,path in files.items()}
 bindings={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (*files.values(),*fixture.glob('*.cs'),*fixture.glob('*.csproj'))}
 (run/'source-bindings.json').write_text(json.dumps(bindings,indent=2)+'\n')

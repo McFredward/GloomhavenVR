@@ -15,16 +15,21 @@ internal static partial class ConfirmationOnOwner
     {
         internal readonly Component Source;
         internal readonly UIWindow? Window;
+        internal readonly NavigationOrigin Origin;
+        internal bool Retired;
+        internal bool PendingNativeOutcome;
         internal bool ReportedFailure;
         internal Request(Component source)
         {
             Source = source;
             Window = source.GetComponentInParent<UIWindow>();
+            Origin = new NavigationOrigin(source);
         }
     }
 
     private static ConditionalWeakTable<Component, Request> Requests = new();
     internal static Component? CurrentScope;
+    internal static int NativeShowDepth;
 
     internal static Component? Begin(Component source)
     {
@@ -36,13 +41,19 @@ internal static partial class ConfirmationOnOwner
     internal static void Record(UIConfirmationBoxManager manager)
     {
         ConfirmationBox? box = manager.CurrentBox;
-        if (box != null) Record(box);
+        if (!ReferenceEquals(box, null)) Record(box);
     }
 
     internal static void Record(Component box)
     {
+        ForgetNavigationOpening(box);
         Requests.Remove(box);
-        if (CurrentScope != null) Requests.Add(box, new Request(CurrentScope));
+        if (CurrentScope != null)
+        {
+            var request = new Request(CurrentScope);
+            Requests.Add(box, request);
+            NavigationOpenings.Add(new NavigationOpening(box, request));
+        }
     }
 }
 
@@ -83,6 +94,7 @@ internal static class ConfirmationProducerScopePatch
         foreach (MethodInfo method in typeof(PersistentAbilitiesUI).GetMethods(
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             if (method.Name == "OnCancelActiveAbility") yield return method;
+        foreach (MethodBase method in ConfirmationNavigationCatalog.Producers()) yield return method;
     }
 
     private static void Prefix(Component __instance, out Component? __state) =>
@@ -107,7 +119,16 @@ internal static class ConfirmationRequestOriginPatch
         yield return AccessTools.DeclaredMethod(typeof(UIConfirmationBoxManager), "ShowCancelActiveAbility");
     }
 
-    private static void Prefix(UIConfirmationBoxManager __instance) => ConfirmationOnOwner.Record(__instance);
+    private static void Prefix(UIConfirmationBoxManager __instance)
+    {
+        ConfirmationOnOwner.NativeShowDepth++;
+        ConfirmationOnOwner.Record(__instance);
+    }
+    private static Exception? Finalizer(Exception? __exception)
+    {
+        ConfirmationOnOwner.NativeShowDepth--;
+        return __exception;
+    }
 }
 
 // Item binding/equipment and shop confirmations use a different original native
@@ -115,7 +136,16 @@ internal static class ConfirmationRequestOriginPatch
 [HarmonyPatch(typeof(UIItemConfirmationBox), "ShowConfirmation")]
 internal static class ItemConfirmationRequestOriginPatch
 {
-    private static void Prefix(UIItemConfirmationBox __instance) => ConfirmationOnOwner.Record(__instance);
+    private static void Prefix(UIItemConfirmationBox __instance)
+    {
+        ConfirmationOnOwner.NativeShowDepth++;
+        ConfirmationOnOwner.Record(__instance);
+    }
+    private static Exception? Finalizer(Exception? __exception)
+    {
+        ConfirmationOnOwner.NativeShowDepth--;
+        return __exception;
+    }
 }
 
 /// <summary>

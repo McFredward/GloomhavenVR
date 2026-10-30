@@ -103,6 +103,9 @@ internal static class ConfirmationRescue
 
     /// <summary>The mod-owned stand-in. One instance: two confirmations can never be pending.</summary>
     private static readonly VersionDialog Dialog = new();
+    private static object? _navigationOpening;
+    private static object? _outcomeToken;
+    private static UnityAction? _navigationCancel;
 
     /// <summary>Serialized members of <c>ConfirmationBox</c> that its show path dereferences.
     /// Every one of them is a <c>UnityEngine.Object</c>, so ONE test — Unity's overloaded
@@ -137,7 +140,26 @@ internal static class ConfirmationRescue
     }
 
     /// <summary>Module shutdown / hot reload: the stand-in must never outlive the mod.</summary>
-    internal static void Reset() => Dialog.Close();
+    internal static void Reset()
+    {
+        _outcomeToken = _navigationOpening = null;
+        _navigationCancel = null;
+        Dialog.Close();
+    }
+
+    internal static bool IsCurrentNavigationOpening(object opening) =>
+        ReferenceEquals(_navigationOpening, opening) && _outcomeToken != null;
+
+    internal static bool DeclineForNavigation(Component? box, object opening)
+    {
+        if (!IsCurrentNavigationOpening(opening)) return false;
+        UnityAction? cancel = _navigationCancel;
+        // The fallback owns this original No action. Invalidate its old Yes/No
+        // closures and close only its own panel before dispatching native No.
+        Reset();
+        Run(cancel, "cancel");
+        return true;
+    }
 
     /// <summary>
     /// Name the FIRST dead member of a confirmation box, or null when it is usable. Naming the
@@ -215,9 +237,13 @@ internal static class ConfirmationRescue
                 return true;
             }
 
+            object token = new();
+            _outcomeToken = token;
+            _navigationOpening = ConfirmationOnOwner.CaptureRescueOpening(box);
+            _navigationCancel = onCancel;
             Dialog.Show(head, body, yes, no,
-                () => Run(onConfirm, "confirm"),
-                () => Run(onCancel, "cancel"));
+                () => Complete(token, box, onConfirm, "confirm"),
+                () => Complete(token, box, onCancel, "cancel"));
 
             // HW-VERIFY: THE LINE THAT DECIDES THE NEXT HARDWARE ROUND. If it appears, the game's
             // confirmation box was broken and the mod put a working one up in its place.
@@ -237,6 +263,14 @@ internal static class ConfirmationRescue
                 + $"{e.GetType().Name}: {e.Message}. Falling through to the game's own path.");
             return false;
         }
+    }
+
+    private static void Complete(object token, ConfirmationBox? box, UnityAction? action, string which)
+    {
+        if (!ReferenceEquals(_outcomeToken, token)) return;
+        Reset();
+        if (!ReferenceEquals(box, null)) ConfirmationOnOwner.NativeOutcome(box);
+        Run(action, which);
     }
 
     private static void Run(UnityAction? action, string which)

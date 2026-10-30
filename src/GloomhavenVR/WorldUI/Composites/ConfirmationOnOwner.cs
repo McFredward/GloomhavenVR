@@ -348,6 +348,8 @@ internal static partial class ConfirmationOnOwner
     {
         for (int i = Seats.Count - 1; i >= 0; i--) ReleaseAt(i);
         Requests = new System.Runtime.CompilerServices.ConditionalWeakTable<Component, Request>();
+        NavigationOpenings.Clear();
+        NativeShowDepth = 0;
         CurrentScope = null;
     }
 }

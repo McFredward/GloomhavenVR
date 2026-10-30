@@ -29,6 +29,8 @@ FILES = {
     'MovedSubtreeLayers.cs': 'Composites/MovedSubtreeLayers.cs',
     'ConfirmationOnOwner.cs': 'Composites/ConfirmationOnOwner.cs',
     'ConfirmationOnOwner.Origins.cs': 'Composites/ConfirmationOnOwner.Origins.cs',
+    'ConfirmationOnOwner.Navigation.cs': 'Composites/ConfirmationOnOwner.Navigation.cs',
+    'ConfirmationOnOwner.Identity.cs': 'Composites/ConfirmationOnOwner.Identity.cs',
     'AnnouncementContinue.cs': 'Modal/AnnouncementContinue.cs',
     'AnnouncementContinueView.cs': 'Modal/AnnouncementContinueView.cs',
     'DialogSurface.cs': 'Surfaces/DialogSurface.cs',

@@ -36,12 +36,14 @@ internal sealed class UIConfirmationBoxManager
 }
 internal sealed class ConfirmationBox : Component
 {
+    internal void Hide() => IsOpen = false;
     internal bool IsOpen { get => Window.IsOpen; set { Window.IsOpen = value; Window.IsVisible = value; } }
     internal readonly UIWindow Window;
     internal ConfirmationBox() { Window = gameObject.AddComponent<UIWindow>(); Window.IsOpen = Window.IsVisible = false; }
 }
 internal sealed class UILevelUpWindow : Component { private void ConfirmSelectCard() { } }
 internal sealed class UIResetLevelUpWindow : Component { private void ResetAbilities() { } }
+internal sealed class NewPartyDisplayUI : Component { internal static NewPartyDisplayUI? PartyDisplay=null; }
 internal sealed class UIItemConfirmationBox : Component
 {
     internal bool IsActive=false;
@@ -100,6 +102,7 @@ namespace UnityEngine
         internal Transform transform => this is Transform t ? t : gameObject.transform;
         internal string name => gameObject.name;
         internal T? GetComponent<T>() where T : class => gameObject.GetComponent<T>();
+        internal T[] GetComponents<T>() where T : class => gameObject.GetComponents<T>();
         internal T? GetComponentInParent<T>() where T : class
         { for (Transform? t = transform; t != null; t = t.parent) if (t.GetComponent<T>() is T value) return value; return null; }
     }
@@ -118,6 +121,7 @@ namespace UnityEngine
         { var go = new GameObject(transform: component as Transform); component.Owner = go; if (!go._components.Contains(component)) go._components.Add(component); return go; }
         internal T AddComponent<T>() where T : Component, new() { var c = new T { Owner = this }; _components.Add(c); return c; }
         internal T? GetComponent<T>() where T : class => _components.OfType<T>().FirstOrDefault();
+        internal T[] GetComponents<T>() where T : class => _components.OfType<T>().ToArray();
         internal void Remove(Component c) => _components.Remove(c);
     }
     internal struct Vector2
@@ -173,7 +177,7 @@ namespace UnityEngine
 }
 namespace UnityEngine.UI
 {
-    internal sealed class UIWindow : Component { internal bool IsOpen=true, IsVisible=true; }
+    internal sealed class UIWindow : Component { internal bool IsOpen=true, IsVisible=true; internal void StartAlphaTween(float target,float seconds,bool ignoreTimeScale){IsVisible=target>0;} }
     internal sealed class GraphicRaycaster { internal bool enabled = true; }
     internal sealed class LayoutElement : Component { internal bool ignoreLayout; }
 }
@@ -182,8 +186,18 @@ namespace HarmonyLib
     [AttributeUsage(AttributeTargets.Class)] internal sealed class HarmonyPatch : Attribute { internal HarmonyPatch() { } internal HarmonyPatch(Type type,string method) { } }
     internal static class AccessTools
     {
+        internal static FieldInfo? Field(Type type,string name) => type.GetField(name,BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic);
+        internal static PropertyInfo? Property(Type type,string name) => type.GetProperty(name,BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic);
         internal static MethodInfo DeclaredMethod(Type type, string name) => type.GetMethod(name, BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly)
             ?? throw new InvalidOperationException(type.Name+"."+name);
+    }
+}
+namespace GloomhavenVR.WorldUI.Patches
+{
+    internal static class ConfirmationRescue
+    {
+        internal static bool IsCurrentNavigationOpening(object opening)=>false;
+        internal static bool DeclineForNavigation(Component? box,object opening)=>false;
     }
 }
 namespace GloomhavenVR.Core
