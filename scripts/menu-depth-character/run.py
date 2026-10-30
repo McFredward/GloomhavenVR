@@ -92,6 +92,8 @@ internal static class MenuDepthCharacterRotation
             for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py'),
                          ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'] if path.is_file()}
+    # Runtime guards still fault at the original render seam on every fixture
+    # frame, while keeping subsequent receipt code reachable to the C# compiler.
     variants = [
         ('shadowless737', '', '', '', 'Shadowless737', ''),
         ('preview-shadows-lost737', 'MenuDepthCharacterSource.cs',
@@ -111,7 +113,7 @@ internal static class MenuDepthCharacterRotation
          '            if (root != null) { /* injected: detached native companion is omitted */ }', 'Shadowless737',
          'fresh pooled renderers and original detached preview actors are suppressed and restored'),
         ('preview-shadow-throw737', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
-         '            throw new InvalidOperationException("injected shadow render failure");', 'ShadowThrow737', ''),
+         '            if (Time.frameCount >= 0) throw new InvalidOperationException("injected shadow render failure");\n            _camera.Render();', 'ShadowThrow737', ''),
         ('bounds-cost729', '', '', '', 'BoundsCost729', ''),
         ('bounds-fast-path-lost729', 'MenuDepthCharacterSource.cs',
          'if (cuttingPlanes == 0)', 'if (cuttingPlanes < 0)', 'BoundsCost729',
@@ -173,7 +175,7 @@ internal static class MenuDepthCharacterRotation
          '/* exact native plane depth is classified by floating point noise */','AutomaticHead',
          'automatic native stencil and rectangle masks clip the original preview'),
         ('automatic-head-failure725', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
-         '            throw new InvalidOperationException("injected automatic head failure");', 'AutomaticHeadFailure', ''),
+         '            if (Time.frameCount >= 0) throw new InvalidOperationException("injected automatic head failure");\n            _camera.Render();', 'AutomaticHeadFailure', ''),
         ('late-head-texture-loan725', 'MenuDepthSources.cs',
          'Canvas.preWillRenderCanvases += PrimeDirectSources;', '/* injected: Canvas batches retain the native mono sampler */', 'AutomaticHead',
          'automatic head final raster contains both native preview landmarks'),
@@ -207,7 +209,7 @@ internal static class MenuDepthCharacterRotation
         ('common-cabinet726', '', '', '', 'CommonCabinet726', ''),
         ('desktop-cabinet726', '', '', '', 'DesktopCabinet726', ''),
         ('rear-throwing-render726', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
-         '            throw new InvalidOperationException("injected rear native render failure");', 'RearThrow726', ''),
+         '            if (Time.frameCount >= 0) throw new InvalidOperationException("injected rear native render failure");\n            _camera.Render();', 'RearThrow726', ''),
         ('per-character-scale726', 'MenuDepthCharacterProjection.cs',
          'float nativePerUnit = Mathf.Max(CommonSpan / (physicalWidth * .82f), CommonSpan / (physicalHeight * .75f));',
          'float nativePerUnit = Mathf.Max(CommonSpan / (physicalWidth * .82f), CommonSpan / (physicalHeight * .75f)) * (stableMainOrigin.y < -.8f ? 1.7f : 1f);', 'CommonCabinet726',
@@ -256,7 +258,7 @@ internal static class MenuDepthCharacterRotation
          '        if (this == null) return;', '        /* destroyed component enters native graphic getter */', 'DestroyedSurface736',
          'destroyed native preview effects retire without accessing their destroyed Unity component'),
         ('throwing-render', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
-         '            throw new InvalidOperationException("injected native render failure");', 'ThrowingRender', ''),
+         '            if (Time.frameCount >= 0) throw new InvalidOperationException("injected native render failure");\n            _camera.Render();', 'ThrowingRender', ''),
         ('fixed-mono-view', 'MenuDepthCharacterProjection.cs', 'Vector3 relativeEye = eye - physicalCenter;',
          'Vector3 relativeEye = -physicalForward * (.5f * Mathf.Sqrt(physicalWidth * physicalHeight * source.projectionMatrix.m00 * source.projectionMatrix.m11));', 'Run',
          'each recorded eye renders the native model from its own physical window-relative viewpoint'),

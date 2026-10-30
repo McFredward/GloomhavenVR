@@ -49,6 +49,19 @@ internal sealed class DesktopFaultSource : IMenuDepthSource
     { if (eye.Right) throw new InvalidOperationException("injected right-eye native content failure"); }
     public void AfterCapture() => Restores++;
 }
+namespace GloomhavenVR.Cards
+{
+    // This final-head fixture supplies original sprites without an atlas bake
+    // and issues no spatial ray queries. Keep alpha binding in that explicit
+    // no-replacement/no-cached-atlas context; all real graphic/render kernels
+    // remain active. A missing receipt does not stand in for sampled alpha.
+    internal static class CardFaceMipBake
+    {
+        internal static Sprite OriginalFor(Sprite sprite) => sprite;
+        internal static bool TryGetCachedAtlasPixels(Texture2D texture, out Color32[]? pixels)
+        { pixels = null; return false; }
+    }
+}
 namespace GloomhavenVR.Core
 {
     // Timing is an explicit boundary here; the head compositor, source leases
