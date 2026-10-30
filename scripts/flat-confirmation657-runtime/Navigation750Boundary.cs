@@ -8,10 +8,10 @@ using UnityEngine.UI;
 // Only surrounding session/artwork/navigation services are ports. The installed
 // game's UIWindow, generic/item Show/No/Yes, Perks producer and party selection/
 // page methods are extracted verbatim and pinned separately by the runner.
-public class Singleton<T> where T:class { public static T? Instance;public static bool IsInitialized=>Instance!=null; }
+public class Singleton<T> where T:class { public static T Instance=null!;public static bool IsInitialized=>Instance!=null; }
 public static class InputManager { public static bool GamePadInUse;public static void SkipNextSubmitAction(){} }
 public static class AudioControllerUtils { public static void PlaySound(string? _){} }
-public static class FFSNetwork {public static bool IsOnline=false,IsHost=false,IsClient=false;}
+public static class FFSNetwork {public static bool IsOnline=false,IsHost=false,IsClient=false,IsStartingUp=false;}
 public enum ActionPhaseType {None,MapHQ}
 public static class ActionProcessor {public static ActionPhaseType CurrentPhase=ActionPhaseType.None;}
 public static class PlayerRegistry {public static readonly List<object> JoiningPlayers=new();public static bool OtherClientsAreJoining=false;public static PlayersChangedEvent? OnPlayerLeft;}
@@ -21,7 +21,7 @@ public enum EscapeKeyAction { None,Toggle }
 public static class UIWindowManager { public static void RegisterEscapable(UIWindow _){} public static void UnregisterEscapable(UIWindow _){} }
 public static class Probe750
 {
- public static bool Enabled=true,Foreign,Reject;
+ public static bool Enabled=true,Foreign,Reject,ManualScreen;
  public static int Confirmed,Cancelled,Releases;
  public static readonly List<string> Events=new();
 }
@@ -50,11 +50,33 @@ public class UIButtonExtended:ExtendedButton { }
 public sealed class Label {public string text="";public Color color;}
 public sealed class TextLocalizedListener {public void SetTextKey(string _){} }
 public sealed class Hotkey {public void Initialize(object? _){}public void Deinitialize(){} }
-public sealed class ControllerInputAreaLocal {public bool IsFocused=true;public int Enables,Destroys;public void Enable(){Enables++;}public void Destroy(){Destroys++;} }
+public sealed class ControllerInputAreaLocal {public bool IsFocused=true,Active;public int Enables,Destroys;public void Enable(){Enables++;Active=true;}public void Destroy(){Destroys++;Active=false;} }
 public sealed class GUIAnimator {public void Play(){} }
 public sealed class PanelHotkeyContainer {public void SetActiveHotkey(string _,bool value){} }
 public sealed class VerticalPointerUI {public void PointAt(RectTransform _){} }
-public sealed class Navigation750State {public int Switches,Removes;public void SwitchToState(object? _){Switches++;}public void RemoveLast(object? _){Removes++;}public void Enter(object? _){}public void ToNonMenuPreviousState(){}public void SetFilter(object? _){}public void ToPreviousState(){} }
+public partial class Navigation750State:Code.State.IStateProvider
+{
+ public int Switches,Removes,Enters;private readonly List<Code.State.IState> _stateHistory=new(){new NativeState750("root")};
+ private Code.State.IStateFilter? _stateFilter;public event Action<Code.State.IState>? EventStateChanged;
+ public int HistoryCount=>_stateHistory.Count;
+ public void SwitchToState(Code.State.IState? state){Switches++;NativeSwitchToState(state!);}
+ public void RemoveLast(Code.State.IState? state){Removes++;NativeRemoveLast(state!);}
+ public void Enter(object? _){Enters++;}public void ToNonMenuPreviousState(){}public void SetFilter(object? filter){_stateFilter=filter as Code.State.IStateFilter;}public void ToPreviousState(){}
+}
+namespace Code.State
+{
+ public interface IStateProvider { }
+ public interface IState {void Enter<TPayload>(IStateProvider provider,TPayload? payload=default)where TPayload:class;void Exit<TPayload>(IStateProvider provider,TPayload? payload=default)where TPayload:class;}
+ public interface IStateFilter {bool IsValid(IState state);}
+}
+public sealed class NativeState750:Code.State.IState
+{
+ private readonly string _name;public int Enters,Exits;public NativeState750(string name){_name=name;}
+ public void Enter<TPayload>(Code.State.IStateProvider provider,TPayload? payload=default)where TPayload:class{Enters++;}
+ public void Exit<TPayload>(Code.State.IStateProvider provider,TPayload? payload=default)where TPayload:class{Exits++;}
+ public override string ToString()=>_name;
+}
+public static class LogUtils {public static void Log(string text){} }
 namespace Script.GUI.SMNavigation.States.CampaignMapStates {public enum CampaignMapStateTag {EnhancmentConfirmation}}
 public sealed class SkipFrameKeyActionHandlerBlocker {public void Run(){} }
 public enum SpecialStateTag {Lock}
@@ -98,7 +120,8 @@ public sealed class MapChoreographer {public bool IsChoosingLinkedQuestOption()=
 public sealed class UILoadoutManager {public bool InLoadout()=>false;}
 public sealed class MapParty750 {public bool HasIntroduced(string concept)=>true;public void MarkIntroDone(string _){} }
 public enum EIntroductionConcept {PerksPanel}
-public sealed class SaveData {public static readonly SaveData Instance=new();public void SaveCurrentAdventureData(){} }
+public sealed class SaveData {public static readonly SaveData Instance=new();public GlobalSave750 Global=new();public void SaveCurrentAdventureData(){} }
+public sealed class GlobalSave750 {public bool EpicLogin=false;}
 public partial class NewPartyDisplayUI:MonoBehaviour
 {
  public enum DisplayType {NONE,INVENTORY,CARDS,PERKS,CHARACTER_SELECTOR,LEVELUP,BATTLE_GOALS}
@@ -140,7 +163,7 @@ public partial class ConfirmationBox:MonoBehaviour
  private TextLocalizedListener cancelButtonText=new(),confirmButtonText=new(),headerText=new();
  private GameObject primaryContent=null!,secondaryGeneralContent=null!,secondaryContent=null!,reportContent=null!,header=null!;
  private Label primaryContentText=new(),secondaryGeneralContentText=new(),secondaryContentFirstText=new(),secondaryContentSecondText=new();
- private ControllerInputAreaLocal controllerArea=new();private object? _uiState;private bool usingAdventureStartConfirmation,_resetAfterAction,isPCVersion=true;
+ private ControllerInputAreaLocal controllerArea=new();private Code.State.IState _uiState=new NativeState750("confirmation");private bool usingAdventureStartConfirmation,_resetAfterAction,isPCVersion=true;
  private INavigationOperation? _onHideNavigation;private Hotkey congirmHotkey=new(),cancelHotkey=new(),_reportHotkey=new();
  private readonly List<Action> _onConfirmActions=new(),_onCancelActions=new(),_onReportActions=new();private event Action? onHidden;
  private Color HeaderTextColor=>Color.white;private Color MessageTextColor=>Color.white;
@@ -212,13 +235,20 @@ namespace GLOOM.MainMenu
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour {private void OnSelectedCharacter(){} }
 public partial class UIOptionsWindow:MonoBehaviour
 {
- private ToggleGroup m_ToggleGroup=null!;private void AskLogOut(){}public void Hide()=>GetComponent<UIWindow>().Hide();private void CloseWindows(){}
- public void Bind(){m_ToggleGroup=gameObject.AddComponent<ToggleGroup>();}
+ private ToggleGroup m_ToggleGroup=null!;private UIWindow m_Window=null!;private ControllerInputAreaLocal m_ControllerArea=new();private VerticalPointerUI m_VerticalPointer=new();private Action? m_OnHidden;
+ private UIMenuOption m_EpicStoreOption=null!;private EpicLogin750 epicLoginService=new();public int LogOuts,LogOutNos;
+ public void Hide()=>GetComponent<UIWindow>().Hide();private void CloseWindows(){}
+ private void LogOut(){LogOuts++;}
+ public void Bind(){m_ToggleGroup=gameObject.AddComponent<ToggleGroup>();m_Window=GetComponent<UIWindow>();m_Window.onHidden.AddListener(OnHidden);var go=new GameObject("native logout option",typeof(RectTransform),typeof(UIMenuOption));go.transform.SetParent(transform,false);m_EpicStoreOption=go.GetComponent<UIMenuOption>();m_EpicStoreOption.Init(AskLogOut,()=>LogOutNos++);}
+ public void AskLogout()=>m_EpicStoreOption.Select();
 }
+public sealed class EpicLogin750 {public bool IsSigningOut()=>false;}
 public partial class UIMenuOption:MonoBehaviour
 {
- protected bool isSelected;private GUIAnimator selectAnimation=new();private Frame750? _frame;private Action? onSelected;
+ protected bool isSelected;private GUIAnimator selectAnimation=new();private Frame750? _frame;private Action? onSelected,onDeselected;
  public bool IsSelected=>isSelected;private void SetSelected(bool isSelected)=>this.isSelected=isSelected;public void Bind(Action selected)=>onSelected=selected;
+ public void Init(Action selected,Action? deselected=null){onSelected=selected;onDeselected=deselected;}
+ private void CancelSelectedAnimation(){}
 }
 public sealed class Frame750 {public void Activate(){}public void Deactivate(){} }
 public partial class UITempleWindow:MonoBehaviour
@@ -230,7 +260,7 @@ public sealed class TempleShop750 {public void Refresh(ICharacterService _){} }
 public sealed class NetworkPlayer {public int PlayerID;public bool IsClient=true;public string Username="native-player",PlatformName="fixture";public Sprite? Avatar;}
 public delegate void PlayersChangedEvent(NetworkPlayer player);
 public sealed class KeyActionHandler {public bool HasBlockers=true;}
-public sealed class PlatformLayer {public static readonly PlatformLayer Instance=new();public PlatformImages750 PlayerPlatformImageController=new();}
+public sealed class PlatformLayer {public static readonly PlatformLayer Instance=new();public PlatformImages750 PlayerPlatformImageController=new();public bool IsConsole=false;}
 public sealed class PlatformImages750 {public Sprite? GetPlayerPlatformImage(string name)=>null;}
 public partial class UIMultiplayerConfirmationBox:MonoBehaviour
 {
@@ -271,9 +301,20 @@ public partial class UICampaignAdventurePartyAssemblyWindow:UIAdventurePartyAsse
  private void DeleteCharacter(CMapCharacter value)=>Probe750.Events.Add("deleted:"+value.CharacterName);
  [MethodImpl(MethodImplOptions.NoInlining)]public void RaiseDelete()=>ConfirmDeleteCharacter();
 }
-internal sealed class ESCMenu:MonoBehaviour {private void LoadMainMenu(){}private void ExitGame(){}public void Hide(){} }
+public partial class ESCMenu:MonoBehaviour
+{
+ private ToggleGroup toggleGroup=null!;private void LoadMainMenu(){}private void ExitGame(){}public void Hide(){}
+ public void Bind(){toggleGroup=gameObject.AddComponent<ToggleGroup>();}
+ public UnityAction HideOptionListener()=>OnHideOptionWindow;
+}
 internal sealed class UIMapEscMenu:MonoBehaviour {private void TurnOffTutorial(){} }
-internal sealed class UIMultiplayerEscSubmenu:MonoBehaviour {private void ShowConfirmationBoxToEndSession(){} }
+public partial class UIMultiplayerEscSubmenu:MonoBehaviour
+{
+ private UIWindow window=null!;private GameObject epicPanel=null!;private ControllerInputAreaLocal controllerArea=new();public UIWindow Window=>window;public UnityEvent OnHide=>Window.onHidden;
+ public int EndSessions;public void EndSession(){EndSessions++;}public void Bind(){window=GetComponent<UIWindow>();epicPanel=new GameObject("native epic panel");}
+ public void AskEndSession()=>ShowConfirmationBoxToEndSession();
+}
+public enum MainStateTag {MultiplayerOnlineContainer}
 internal sealed class UIScenarioEscMenu:MonoBehaviour {private void QuitDungeon(){}private void RestartScenario(){}private void QueueRestartRound(){}private void RestartTurn(){}private void SkipMission(){}private void SkipTutorial(){} }
 internal sealed class UIShopItemInventory:MonoBehaviour {private void OnSelectedItemSell(){}private void OnSelectedItemBuy(){} }
 internal sealed class LevelEditorMainMenu:MonoBehaviour {private void OnPlaySelectedFilePressed(){} }
@@ -289,10 +330,11 @@ namespace GloomhavenVR.WorldUI
 {
  internal static partial class ConfirmationOnOwner
  {
-  private static bool Enabled=>Probe750.Enabled;private static bool ForeignOwner(Component box)=>Probe750.Foreign;
+  private static bool Enabled=>Probe750.Enabled&&!Probe750.ManualScreen;private static bool ForeignOwner(Component box)=>Probe750.Foreign;
   private static void Release(Component box){Probe750.Releases++;}
  }
  internal static class CanvasConversion {internal static Camera? WorldCamera;}
+ internal static class WorldUIConfig {internal static bool ConversionActive=>Probe750.Enabled;}
 }
 namespace GloomhavenVR.Net
 {

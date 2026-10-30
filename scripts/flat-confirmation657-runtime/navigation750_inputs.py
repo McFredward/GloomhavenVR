@@ -58,8 +58,8 @@ def inputs(root, runtime, env, method, native_window, native_item, native_enhanc
         for signature in signatures: selections += method(native[name], signature) + '\n'
         selections += '}\n'
     for owner, signatures in (
-        ('UIMenuOption', ('public virtual void Select()',)),
-        ('UIOptionsWindow', ('public void Cancel()',)),
+        ('UIMenuOption', ('public virtual void Select()', 'public virtual void Deselect()')),
+        ('UIOptionsWindow', ('public void Cancel()', 'public void Show(', 'private void OnHidden()', 'private void AskLogOut()')),
         ('UIAdventureCharacterConfirmationBox', ('public virtual void ShowConfirmationBox(', 'private void OnBackClick()', 'private void OnConfirmClick()', 'private void OnTransitionComplete(')),
         ('UIAdventurePartyAssemblyWindow', ('public CMapCharacter SelectedCharacter',)),
         ('UICampaignAdventurePartyAssemblyWindow', ('private void ConfirmDeleteCharacter()',)),
@@ -67,11 +67,29 @@ def inputs(root, runtime, env, method, native_window, native_item, native_enhanc
         selections += 'public partial class ' + owner + ' {\n'
         for signature in signatures: selections += method(native[owner], signature) + '\n'
         selections += '}\n'
+    for owner, signatures in (
+        ('ESCMenu', ('private void OnHideOptionWindow()',)),
+        ('UIMultiplayerEscSubmenu', ('public void Show()', 'public void Hide()', 'private void ShowConfirmationBoxToEndSession()', 'private void CancelEndSession()')),
+    ):
+        native[owner] = subprocess.run([str(__import__('pathlib').Path.home()/'.dotnet/tools/ilspycmd'), '-t', owner, str(runtime)],
+            check=True, capture_output=True, text=True, env=env).stdout
+        selections += 'public partial class ' + owner + '{\n'
+        for signature in signatures: selections += method(native[owner], signature) + '\n'
+        selections += '}\n'
+    native['Code.State.StateMachine'] = subprocess.run([str(__import__('pathlib').Path.home()/'.dotnet/tools/ilspycmd'), '-t', 'Code.State.StateMachine', str(runtime)],
+        check=True, capture_output=True, text=True, env=env).stdout
+    state = prefix + 'using Code.State;public partial class Navigation750State {\n'
+    state += method(native['Code.State.StateMachine'], 'public IState CurrentState') + '\n'
+    state += method(native['Code.State.StateMachine'], 'public void SwitchToState(IState newState)').replace(
+        'public void SwitchToState(IState newState)', 'private void NativeSwitchToState(IState newState)', 1) + '\n'
+    state += method(native['Code.State.StateMachine'], 'public void RemoveLast(IState state)').replace(
+        'public void RemoveLast(IState state)', 'private void NativeRemoveLast(IState state)', 1) + '\n}\n'
     world = root / 'src/GloomhavenVR/WorldUI'
     sources = {
         'NativeWindowMethods.cs': native_window, 'NativeItemMethods.cs': native_item,
         'NativeEnhancement750.cs': native_enhancement,
         'NativeGeneric750.cs': generic, 'NativeSelections750.cs': selections,
+        'NativeStateHistory750.cs': state,
         'ConfirmationOnOwner.Origins.cs': (world/'Composites/ConfirmationOnOwner.Origins.cs').read_text(),
         'ConfirmationOnOwner.Navigation.cs': (world/'Composites/ConfirmationOnOwner.Navigation.cs').read_text(),
         'ConfirmationOnOwner.Identity.cs': (world/'Composites/ConfirmationOnOwner.Identity.cs').read_text(),

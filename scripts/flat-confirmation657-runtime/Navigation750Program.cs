@@ -20,7 +20,7 @@ public static class ConfirmationProgram
  private static void PressEnhancementYes(UIEnhancementConfirmationBox box)=>AccessTools.DeclaredMethod(typeof(UIEnhancementConfirmationBox),"OnConfirm").Invoke(box,null);
  public static int RunNavigation(string variant)
  {
-  checks=0;InputManager.GamePadInUse=variant=="navigation-gamepad";Probe750.Confirmed=Probe750.Cancelled=0;Probe750.Events.Clear();Probe750.Enabled=true;Probe750.Foreign=Probe750.Reject=false;
+  checks=0;InputManager.GamePadInUse=variant.Contains("gamepad");Probe750.Confirmed=Probe750.Cancelled=0;Probe750.Events.Clear();Probe750.Enabled=true;Probe750.Foreign=Probe750.Reject=Probe750.ManualScreen=false;
   Singleton<UINavigation>.Instance=new();Singleton<MapChoreographer>.Instance=new();Singleton<UILoadoutManager>.Instance=new();Singleton<UIResetLevelUpWindow>.Instance=Window("reset-owner").gameObject.AddComponent<UIResetLevelUpWindow>();
   var harmony=new Harmony("navigation750."+variant);
   foreach(Type patch in new[]{typeof(ConfirmationProducerScopePatch),typeof(ConfirmationRequestOriginPatch),typeof(ItemConfirmationRequestOriginPatch)})harmony.PatchAll(patch);
@@ -54,6 +54,9 @@ public static class ConfirmationProgram
    Check(Probe750.Events.LastIndexOf("cancel:B")<Probe750.Events.LastIndexOf("cards:B"),"same-character Perks No completes before native Cards page continuation");
    party.displayActive=NewPartyDisplayUI.DisplayType.PERKS;Raise(perks,manager);before=Probe750.Cancelled;party.ClosePerks(b);
    Check(Probe750.Cancelled==before+1&&!box.IsOpen&&party.ActiveDisplay==NewPartyDisplayUI.DisplayType.NONE,"closing only the active native Perks tab declines its pending original decision");
+   party.displayActive=NewPartyDisplayUI.DisplayType.PERKS;Probe750.ManualScreen=true;Raise(perks,manager);before=Probe750.Cancelled;party.Cards(b);
+   Check(Probe750.Cancelled==before+1&&!box.IsOpen&&party.ActiveDisplay==NewPartyDisplayUI.DisplayType.CARDS,
+    "manual flat-screen same-character Perks to Cards retains native navigation No semantics");Probe750.ManualScreen=false;
    // No-change refresh, another window, modal dimming and presentation teardown are controls.
    party.displayActive=NewPartyDisplayUI.DisplayType.PERKS;Raise(perks,manager);before=Probe750.Cancelled;
    party.Choose(b);perks.Display(b.Data,(RectTransform)b.transform,true);
@@ -107,6 +110,11 @@ public static class ConfirmationProgram
    int deferredYes=0;var pending=dlc.Warning(()=>deferredYes++);Check(pending.MoveNext(),"original native DLC confirmation yields before opening");
    var nextOption=Window("another options page").gameObject.AddComponent<UIMenuOption>();nextOption.transform.SetParent(options.transform,false);nextOption.Bind(()=>{});nextOption.Select();
    Check(!pending.MoveNext()&&!box.IsOpen&&deferredYes==0,"deferred native request from a departed page declines on arrival instead of confirming the new context");
+   var closeStepWindow=Window("standalone deferred source before explicit close");closeStepWindow.Show(true);
+   var closeStep=closeStepWindow.gameObject.AddComponent<GLOOM.MainMenu.UICreateGameDLCStep>();var beforeCloseWork=closeStep.Warning(()=>deferredYes++);
+   Check(beforeCloseWork.MoveNext()&&!box.IsOpen,"native delayed work starts before any confirmation request exists");
+   ConfirmationOnOwner.BeforeUserWindowClose(closeStepWindow);closeStepWindow.Hide(true);
+   Check(!beforeCloseWork.MoveNext()&&!box.IsOpen&&deferredYes==0,"explicit source-window close invalidates a native delayed request even before its original Show");
    // The actual original item No closure reads the old selected item to restore
    // focus. It must execute before same-character inventory subpage reuse.
    var inventoryWindow=Window("native equipment inventory");var inventory=inventoryWindow.gameObject.AddComponent<UIPartyItemInventoryDisplay>();inventory.Bind();
@@ -145,6 +153,8 @@ public static class ConfirmationProgram
    Check(baselineYes==1&&baselineNo==1,"unchanged native generic Yes baseline runs onHidden No before its original Yes callback");
    int oldNo=0,oldYes=0,newNo=0,newYes=0,shows=0,hides=0;
    var area=(ControllerInputAreaLocal)AccessTools.Field(typeof(ConfirmationBox),"controllerArea").GetValue(box);
+   var stateMachine=Singleton<UINavigation>.Instance!.StateMachine;var originalState=stateMachine.CurrentState;int originalHistory=stateMachine.HistoryCount;
+   var requestedState=(Code.State.IState)AccessTools.Field(typeof(ConfirmationBox),"_uiState").GetValue(box);
    int enables=area.Enables,destroys=area.Destroys,switches=Singleton<UINavigation>.Instance!.StateMachine.Switches,removes=Singleton<UINavigation>.Instance.StateMachine.Removes;
    dialog.OnShow+=()=>shows++;dialog.OnHide+=()=>hides++;
    previous=ConfirmationOnOwner.Begin(perks);
@@ -156,11 +166,15 @@ public static class ConfirmationProgram
    perks.Display(b.Data,(RectTransform)b.transform,true);
    Check(oldNo==1&&oldYes==0&&newNo==0&&newYes==0&&box.IsRequested&&box.IsOpen&&dialog.IsVisible,
     "reentrant native replacement remains open after the exact old Hide tail finishes");
-   Check(shows==2&&hides==1&&area.Enables==enables+2&&area.Destroys==destroys+1&&Singleton<UINavigation>.Instance.StateMachine.Switches==switches+2,
+   Check(shows==2&&hides==1&&area.Enables==enables+2&&area.Destroys==destroys+1&&Singleton<UINavigation>.Instance.StateMachine.Switches==switches+2+(InputManager.GamePadInUse?1:0),
     "reentrant replacement emits one original Show and controller-enable per actual opening without duplicate native navigation");
+   Check(area.Active&&(!InputManager.GamePadInUse||ReferenceEquals(stateMachine.CurrentState,requestedState)&&stateMachine.HistoryCount==originalHistory+1),
+    "reentrant native gamepad opening restores its exact original state history and enabled input");
    PressYes(box);
    Check(newYes==1&&newNo==baselineNo&&oldNo==1&&oldYes==0&&hides==2&&area.Destroys==destroys+2&&Singleton<UINavigation>.Instance.StateMachine.Removes==removes+2,
     "reentrant replacement preserves original callback baseline and hides each native opening once");
+   Check(!area.Active&&ReferenceEquals(stateMachine.CurrentState,originalState)&&stateMachine.HistoryCount==originalHistory,
+    "new native gamepad Yes removes only its exact restored history entry and disables the retired controller");
    var mpWindow=Window("native multiplayer confirmation");var mp=mpWindow.gameObject.AddComponent<UIMultiplayerConfirmationBox>();
    mp.Bind(Button<ExtendedButton>("Kick",mp.transform),Button<ExtendedButton>("Report",mp.transform),Button<ExtendedButton>("No",mp.transform));
    var assignWindow=Window("native player selection");var assign=assignWindow.gameObject.AddComponent<UIMultiplayerSelectPlayerScreen>();
@@ -180,6 +194,25 @@ public static class ConfirmationProgram
    Check(mpYes==2&&mpNo==1,"naturally completed multiplayer Yes is never replayed by a later selection");
    assign.SetSelected(playerA);assign.AskRemove(playerA);mpWindow.FinishTransition();mp.Confirm();assign.SetSelected(playerB);assign.SetSelected(playerA);
    Check(Probe750.Events.FindAll(value=>value=="removed-player:1").Count==1&&!Probe750.Events.Contains("removed-player:2"),"original native removal callback keeps its permitted target and runs exactly once");
+   // Keep the original Options and its opening button in separate roots, as
+   // independent conversion does. The authored callback, not focus, links them.
+   var outerWindow=Window("actual ESC menu owner");var outer=outerWindow.gameObject.AddComponent<ESCMenu>();outer.Bind();outerWindow.Show(true);
+   var openingButton=Window("original ESC Options entry").gameObject.AddComponent<UIMenuOption>();openingButton.transform.SetParent(outer.transform,false);openingButton.Bind(()=>{});openingButton.Select();
+   var externalOptionsWindow=Window("separately converted native Options");var externalOptions=externalOptionsWindow.gameObject.AddComponent<UIOptionsWindow>();externalOptions.Bind();
+   externalOptions.Show((RectTransform)openingButton.transform,openingButton.Deselect);externalOptionsWindow.FinishTransition();externalOptions.AskLogout();dialog.FinishTransition();
+   var otherOuterButton=Window("actual other ESC page").gameObject.AddComponent<UIMenuOption>();otherOuterButton.transform.SetParent(outer.transform,false);otherOuterButton.Bind(()=>{});otherOuterButton.Select();
+   Check(!box.IsOpen&&externalOptions.LogOutNos==1&&externalOptions.LogOuts==0,
+    "native Options logout declines through the authored outer ESC opening button before another outer page opens");
+   var mpEscWindow=Window("separately converted multiplayer ESC submenu");var mpEsc=mpEscWindow.gameObject.AddComponent<UIMultiplayerEscSubmenu>();mpEsc.Bind();
+   mpEsc.OnHide.AddListener(outer.HideOptionListener());mpEsc.Show();mpEscWindow.FinishTransition();
+   var wrongEsc=Window("unrelated currently registered ESC").gameObject.AddComponent<ESCMenu>();wrongEsc.Bind();Singleton<ESCMenu>.Instance=wrongEsc;
+   var wrongOption=Window("unrelated ESC page").gameObject.AddComponent<UIMenuOption>();wrongOption.transform.SetParent(wrongEsc.transform,false);wrongOption.Bind(()=>{});
+   UIConfirmationBoxManager.MainMenuInstance=manager;FFSNetwork.IsOnline=true;int entered=stateMachine.Enters;mpEsc.AskEndSession();dialog.FinishTransition();wrongOption.Select();
+   Check(box.IsOpen&&mpEsc.EndSessions==0&&stateMachine.Enters==entered,
+    "unrelated static ESC and its selection never replace the exact original multiplayer menu event owner");
+   var actualOther=Window("new page in original ESC owner").gameObject.AddComponent<UIMenuOption>();actualOther.transform.SetParent(outer.transform,false);actualOther.Bind(()=>{});actualOther.Select();
+   Check(!box.IsOpen&&mpEsc.EndSessions==0&&stateMachine.Enters==entered+1,
+    "native multiplayer ESC confirmation declines through its actual UnityEvent owner without ending the session");FFSNetwork.IsOnline=false;
    // Execute the existing production rescue as well: destroyed/native-null boxes
    // must not leave a separate stale Yes closure after their page has departed.
    GloomhavenVR.WorldUI.CanvasConversion.WorldCamera=Window("fallback camera").gameObject.AddComponent<Camera>();
