@@ -38,6 +38,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private readonly Dictionary<Renderer, RayMesh> _rayMeshes = new();
     private object? _rayIdentity, _headBoundsIdentity;
     private readonly Dictionary<Renderer, RayWitness> _rayWitnesses = new();
+    private readonly List<RayWitness> _rayWitnessCandidates = new(2);
     private readonly HashSet<Renderer> _rayMembers = new(), _rayPending = new();
     private object? _rayRenderedIdentity, _rayWitnessIdentity;
     private int _rayRenderedFrame = -1;
@@ -491,7 +492,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private sealed class RayMesh : IDisposable
     {
         private Mesh? _source, _baked;
-        private int _frame = -1;
+        private int _frame = -1, _vertexCount, _submeshCount;
+        private uint _indexCount;
         private readonly List<Vector3> _vertices = new();
         private readonly List<int> _triangles = new(), _submesh = new();
         internal bool Refused;
@@ -503,8 +505,13 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             Mesh? source = renderer is SkinnedMeshRenderer skin ? skin.sharedMesh
                 : renderer.GetComponent<MeshFilter>()?.sharedMesh;
             if (source == null || source.vertexCount == 0) return false;
-            bool changed = source != _source;
-            if (changed) { _source = source; _frame = -1; _triangles.Clear(); Refused = false; }
+            uint indexCount = 0;
+            for (int s = 0; s < source.subMeshCount; s++) indexCount += source.GetIndexCount(s);
+            bool changed = source != _source || source.vertexCount != _vertexCount
+                || source.subMeshCount != _submeshCount || indexCount != _indexCount;
+            if (changed)
+            { _source = source; _vertexCount = source.vertexCount; _submeshCount = source.subMeshCount;
+                _indexCount = indexCount; _frame = -1; _triangles.Clear(); Refused = false; }
             if (Refused) return false;
             Mesh readable = source;
             if (renderer is SkinnedMeshRenderer skinned)
@@ -512,7 +519,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
                 _baked ??= new Mesh { name = "GloomhavenVR.MenuDepthRaySkin", hideFlags = HideFlags.HideAndDontSave };
                 if (_frame != Time.frameCount)
                 {
-                    skinned.BakeMesh(_baked); bakes++;
+                    skinned.BakeMesh(_baked, false); bakes++;
                     _baked.GetVertices(_vertices); _frame = Time.frameCount;
                 }
                 readable = _baked;
@@ -797,7 +804,12 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             if (renderer != null && (renderer is MeshRenderer || renderer is SkinnedMeshRenderer)
                 && !_rayWitnesses.ContainsKey(renderer))
             {
-                RayWitness witness = renderer.GetComponent<RayWitness>() ?? renderer.gameObject.AddComponent<RayWitness>();
+                _rayWitnessCandidates.Clear(); renderer.GetComponents(_rayWitnessCandidates);
+                RayWitness? witness = null;
+                for (int w = 0; w < _rayWitnessCandidates.Count; w++)
+                    if (_rayWitnessCandidates[w] != null && !_rayWitnessCandidates[w].Retired)
+                    { witness = _rayWitnessCandidates[w]; break; }
+                witness ??= renderer.gameObject.AddComponent<RayWitness>();
                 witness.Bind(this, renderer); _rayWitnesses.Add(renderer, witness);
             }
             if (renderer == null || (renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off
@@ -971,6 +983,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private sealed class RayWitness : MonoBehaviour
     {
         private readonly List<(MenuDepthCharacterSource Source, Renderer Renderer)> _owners = new(1);
+        internal bool Retired { get; private set; }
         internal void Bind(MenuDepthCharacterSource source, Renderer renderer)
         {
             for (int i = 0; i < _owners.Count; i++)
@@ -981,7 +994,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         {
             for (int i = _owners.Count-1; i >= 0; i--)
                 if (ReferenceEquals(_owners[i].Source, source)) _owners.RemoveAt(i);
-            if (_owners.Count == 0) Object.Destroy(this);
+            if (_owners.Count == 0) { Retired = true; Object.Destroy(this); }
         }
         private void OnWillRenderObject()
         {

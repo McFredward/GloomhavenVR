@@ -194,11 +194,12 @@ internal static class MenuDepthSources
         Camera camera = host.worldCamera != null ? host.worldCamera : Camera.main;
         bool any = false;
         float epsilon = host.transform.TransformVector(Vector3.forward).magnitude * .05f;
+        Vector3 hostPosition = host.transform.position, hostForward = host.transform.forward;
         for (int i = 0; i < graphics.Count; i++)
         {
             Graphic graphic = graphics[i];
-            if (!Visible(graphic) || Mathf.Abs(Vector3.Dot(graphic.transform.position-host.transform.position,
-                host.transform.forward)) <= epsilon) continue;
+            if (graphic == null || Mathf.Abs(Vector3.Dot(graphic.transform.position-hostPosition,
+                hostForward)) <= epsilon || !Visible(graphic)) continue;
             bool spatial = false;
             for (int s = 0; s < Sources.Count; s++)
                 if (Sources[s] is IMenuDepthRaycastSource source && source.IsReady
@@ -213,7 +214,10 @@ internal static class MenuDepthSources
             Vector3 local = localOrigin+localDirection*distance;
             if (!graphic.rectTransform.rect.Contains(new Vector2(local.x,local.y))
                 || !RayVisible(graphic,RectTransformUtility.WorldToScreenPoint(camera,point),camera)) continue;
-            hit = new MenuDepthRayHit(graphic,point,point,distance,preferGraphic:true);
+            Transform root = graphic.transform;
+            while (root.parent != null && root.parent != host.transform
+                && Mathf.Abs(Vector3.Dot(root.parent.position-hostPosition,hostForward)) > epsilon) root=root.parent;
+            hit = new MenuDepthRayHit(graphic,point,point,distance,preferGraphic:true,nativeRoot:root);
             maxDistance=distance;any=true;
         }
         return any;

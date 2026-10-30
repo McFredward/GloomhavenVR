@@ -86,7 +86,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
         if (!(distance > 1e-6f) || !(distance < maxDistance)) return false;
         Vector3 local = localOrigin + localDirection * distance;
         if (!_card.rect.Contains(new Vector2(local.x, local.y))) return false;
-        bool ink = false;
+        Graphic? ink = null;
         for (int i = 0; i < _depthSurfaces.Count; i++)
         {
             var surface = _depthSurfaces[i];
@@ -94,12 +94,12 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
                 || surface.Image.canvasRenderer.GetInheritedAlpha() <= 0f) continue;
             Matrix4x4 relative = _card.worldToLocalMatrix * surface.Image.transform.localToWorldMatrix;
             if (!surface.Surface.RayContainsLocal(relative.inverse.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)))) continue;
-            ink = true; break;
+            ink = surface.Image; break;
         }
-        if (!ink) return false;
+        if (ink == null) return false;
         Matrix4x4 original = plane == this ? native : native * root.worldToLocalMatrix * _card.localToWorldMatrix;
-        hit = new MenuDepthRayHit(Graphic, origin + direction * distance,
-            original.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)), distance, nativeRoot: _card);
+        hit = new MenuDepthRayHit(ink, origin + direction * distance,
+            original.MultiplyPoint3x4(new Vector3(local.x, local.y, 0f)), distance, preferGraphic: true, nativeRoot: _card);
         return true;
     }
 

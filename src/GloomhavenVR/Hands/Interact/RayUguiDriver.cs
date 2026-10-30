@@ -378,7 +378,7 @@ internal sealed class RayUguiDriver
         bool hit = nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
             || (bestDepth.Graphic != null
                 ? _pointer.TryRaycastSurface(_canvas, screenPos, bestDepth.Graphic, bestDepth.PreferGraphic,
-                    bestDepth.WorldPoint, bestDepth.Distance, out top)
+                    bestDepth.WorldPoint, bestDepth.Distance, out top, nativeRoot: bestDepth.NativeRoot)
                 : _pointer.TryRaycast(_canvas, screenPos, out top));
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
@@ -604,7 +604,7 @@ internal sealed class RayUguiDriver
         RaycastResult top;
         bool hit = depthHit.Graphic != null
             ? _pointer.TryRaycastSurface(canvas, screenPos, depthHit.Graphic, depthHit.PreferGraphic,
-                depthHit.WorldPoint, depthHit.Distance, out top)
+                depthHit.WorldPoint, depthHit.Distance, out top, nativeRoot: depthHit.NativeRoot)
             : _pointer.TryRaycast(canvas, screenPos, out top);
         _pointer.SetHovered(hit ? top.gameObject : null);
 

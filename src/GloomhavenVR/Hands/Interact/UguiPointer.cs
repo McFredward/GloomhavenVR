@@ -277,13 +277,14 @@ internal sealed class UguiPointer
 
     /// <summary>A physical foreground supplies geometry, never permission or a synthetic callback.</summary>
     internal bool TryRaycastSurface(Canvas canvas, Vector2 screenPos, Graphic surface, bool preferSurface,
-        Vector3 physicalPoint, float physicalDistance, out RaycastResult topHit)
+        Vector3 physicalPoint, float physicalDistance, out RaycastResult topHit, Transform? nativeRoot = null)
     {
         topHit = default;
         GraphicRaycaster host = canvas != null ? canvas.GetComponent<GraphicRaycaster>() : null!;
         if (host == null || !host.isActiveAndEnabled) return false;
         bool any = false;
         PointerEventData data = GetData(); data.position = screenPos;
+        Transform root = nativeRoot != null ? nativeRoot : surface.transform;
         // A real 3D portrait can cover a flat button which sorts above its old
         // mono RawImage. Select the portrait only if the ORIGINAL raycaster
         // itself returns that exact graphic: locks, CanvasGroup/mask/reversed
@@ -298,11 +299,11 @@ internal sealed class UguiPointer
             {
                 _hits.Clear(); original.Raycast(data, _hits);
                 for (int i = 0; i < _hits.Count; i++)
-                    if (ReferenceEquals(_hits[i].gameObject, surface.gameObject))
+                    if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
                     { topHit = _hits[i]; any = true; break; }
             }
         }
-        if (!any) any = TryRaycast(canvas!, screenPos, out topHit);
+        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);
         if (any)
         {
             topHit.worldPosition = physicalPoint; topHit.distance = physicalDistance;
