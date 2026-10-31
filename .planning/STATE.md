@@ -1,3 +1,18 @@
+**Quest754 rebase onto published1.2.3, 2026-10-31 — validation in progress.**
+
+The maintainer explicitly approves exact `v1.2.3/b87477f8a` (Build753). The
+actual consolidated Quest delta is rebased from finalized742 onto that tag;
+public743 ancestry is retained for a normal non-force feature push. Package
+version1.2.3 and the release's naming/quest preview, input and shared window
+repairs are included with existing Quest adapters. Build754 is reserved. This
+approval does not permit future automatic rebases or alter dev/main.
+
+Class C integration: complete local/source/golden guard plus strict and actual
+Android/AOT checks; independent minimal-update and source parity qualification.
+No local APK/ZIP and no new hardware acceptance claim. Preserve unchanged game
+and resource data wherever qualified; cleanup follows every owned test run.
+See QUEST-V1.2.3-INTEGRATION.md and ignored quest-v1.2.3-rebase-20261031 evidence.
+
 **Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
 
 The maintainer requests a hotfix and a link to the 1.2.2 release notes. The initially

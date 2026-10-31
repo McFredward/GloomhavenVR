@@ -1,21 +1,10 @@
 # Planning index
 
-Updated 2026-10-30: Build753 enlarges the naming preview by about50% with a stable
-upright frame beside the keyboard. Final rendered silhouette clearance includes
-a wide body and companion; the accepted752 quest/default framing stays intact.
-Class B selects five variants, strict/source/compiled checks and explicitly bound
-750/752 reuse. STATE.md and ignored menu753 evidence retain the initial pixel
-obstruction, corrected proof, cleanup and hardware limits. Release1.2.2 is
-published; dev's version is1.2.3. Windows builds its archive from dev. Passive
-map stalls remain open in MP746-PERFORMANCE.md.
-Updated 2026-10-29: Quest743 integrates finalized dev742 with qualified Android
-resources and minimal updates. Future Quest rebases require the maintainer's
-prior dev test and explicit go. The earlier741 test-coverage overstatement is
-explicitly corrected. Build742 keeps confirmations on their exact producer,
-restores whole-character-window antialiasing with3D, and introduces the movable
-world main menu with post-intro surroundings and central-height arrival. See
-STATE.md for complete aggregate verification, measured storage and hardware limits.
-Windows builds its archive.
+Updated2026-10-31: Quest754 rebases onto the maintainer-approved published1.2.3
+(Build753) while preserving Android adapters and minimal updates. Validation is
+in progress; no new hardware acceptance is inferred. Future Quest rebases still
+require explicit maintainer approval. The upstream release and its exact native
+character creation/input/window repairs remain the source of shared behavior.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -31,6 +20,7 @@ status; it is not the player manual.
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
 | [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
+| [QUEST-V1.2.3-INTEGRATION.md](QUEST-V1.2.3-INTEGRATION.md) | Exact approved release1.2.3 rebase, Quest754 validation and source-only update scope |
 | [QUEST-DEV742-INTEGRATION.md](QUEST-DEV742-INTEGRATION.md) | Quest743 Android head resolve, exact dev742 rebase, minimal updates, material restoration and source-bound final aggregate validation |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
 | [QUEST-DEV740-INTEGRATION.md](QUEST-DEV740-INTEGRATION.md) | Coordinated Quest741 rebase, original Android sky, compact update classification and complete aggregate validation |
