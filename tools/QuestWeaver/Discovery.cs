@@ -34,6 +34,20 @@ internal sealed record StaticPatchDefinition(TypeDefinition PatchClass, MethodDe
     // Capture the complete qualified body once. A later record copy which
     // redirects Target must not silently certify that different method.
     internal string TargetFingerprint { get; } = NativeMovieBoundary.Fingerprint(Target);
+    internal int ReplacementCalls { get; } = 1;
+    internal IReadOnlyList<StaticPatchSite> AdditionalSites { get; } = Array.Empty<StaticPatchSite>();
+
+    internal StaticPatchDefinition(TypeDefinition patchClass, MethodDefinition target, string removedPatch,
+        MethodDefinition replacement, int replacementCalls, IEnumerable<StaticPatchSite> additionalSites)
+        : this(patchClass, target, removedPatch, replacement)
+    {
+        ReplacementCalls = replacementCalls;
+        AdditionalSites = Array.AsReadOnly(additionalSites.ToArray());
+    }
+}
+internal sealed record StaticPatchSite(MethodDefinition Target, MethodDefinition Replacement, int Calls)
+{
+    internal string Fingerprint { get; } = NativeMovieBoundary.Fingerprint(Target);
 }
 internal sealed record FieldHelper(MethodDefinition Caller, Instruction Call, Instruction Name, FieldDefinition Field, GenericInstanceMethod Factory);
 

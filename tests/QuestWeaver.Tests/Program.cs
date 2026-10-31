@@ -220,6 +220,7 @@ try
     context.Unload();
     HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
     RuntimeRegistrationTests.RunFixture(Path.Combine(temp, "runtime-registration"), Check, fixtureDir);
+    NativeConfirmationBoundaryTests.RunFixture(fixtureDir, Path.Combine(temp, "confirmation-boundary"), Check);
     if (args.Length == 1 && args[0] == "--weaver-core-only")
     {
         TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);

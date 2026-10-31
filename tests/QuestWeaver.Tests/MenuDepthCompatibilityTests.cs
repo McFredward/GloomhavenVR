@@ -15,13 +15,16 @@ internal static class MenuDepthCompatibilityTests
             .ToDictionary(path => path, Hash);
         using (Discovery model = Discovery.Load(modPath, managed))
         {
-            // Conversion must leave the finalized dev742 head-raster pipeline
-            // intact, including the explicit cropped projection, native SDF
-            // units and permission filtering before sample colors are mixed.
-            string[] headTypes = { "MenuDepthEye", "MenuDepthNativeUiScope", "MenuDepthHeadRaster",
-                "MenuDepthHeadRaster/FilterLease", "MenuDepthDisplay", "MenuDepthSources", "MenuDepthCharacterProjection" };
-            var originalHeadMethods = headTypes.SelectMany(name => Discovery.AllTypes(model.Mod.MainModule)
-                    .Single(t => t.FullName == menu + name).Methods).Where(m => m.HasBody)
+            // Capture the complete current menu-depth pipeline, including new
+            // character creation framing and mesh-backed pointer presentation.
+            // Only the four explicitly qualified factory/selector/path bodies
+            // may change during conversion.
+            var originalHeadMethods = Discovery.AllTypes(model.Mod.MainModule)
+                .Where(t => t.FullName.StartsWith(menu, StringComparison.Ordinal)).SelectMany(t => t.Methods)
+                .Where(m => m.HasBody && !(m.DeclaringType.Name == "MenuDepthCharacters" && m.Name == "CreateHiddenReader")
+                    && !(m.DeclaringType.Name == "MenuDepthCharacterSource" && m.Name == "CreateOriginalReader")
+                    && !(m.DeclaringType.Name == "MenuDepthCatalogue" && m.Name == "get_DirectoryPath")
+                    && !(m.DeclaringType.Name == "MenuDepthLifecycleObserver" && m.Name == "Targets"))
                 .ToDictionary(m => m.FullName, NativeMovieBoundary.Fingerprint);
             var originalClosures = new[] { "MenuDepthCharacters", "MenuDepthCharacterSource" }.ToDictionary(name => name,
                 name => model.Mod.MainModule.GetType(menu + name).NestedTypes.Where(t => t.Name.Contains("DisplayClass", StringComparison.Ordinal))
@@ -82,7 +85,8 @@ internal static class MenuDepthCompatibilityTests
             var wovenHeadMethods = Discovery.AllTypes(woven.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody)
                 .ToDictionary(m => m.FullName, NativeMovieBoundary.Fingerprint);
             check(originalHeadMethods.All(pair => wovenHeadMethods.TryGetValue(pair.Key, out string? hash) && hash == pair.Value),
-                "AOT conversion changed a complete dev742 head-raster method body.");
+                "AOT conversion changed a complete current menu-depth method body.");
+            Console.WriteLine("Current menu-depth method bodies preserved: " + originalHeadMethods.Count);
             XElement links = XElement.Load(Path.Combine(output, "link.xml"));
             check(links.Elements("assembly").Any(a => (string?)a.Attribute("fullname") == "GH.Runtime"
                 && a.Elements("type").Any(t => (string?)t.Attribute("fullname") == "Character3DDisplayManager"
@@ -114,10 +118,10 @@ internal static class MenuDepthCompatibilityTests
                 .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
             closure.Fields.Single(f => f.Name == "field").IsStatic = true;
         });
-        Negative("original-reader generated closure identity", a => {
+        Negative("stale Quest743 original-reader generated closure identity", a => {
             TypeDefinition closure = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes
                 .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
-            closure.Name = "<>c__DisplayClass83_0";
+            closure.Name = "<>c__DisplayClass85_0";
         });
         Negative("readonly closure semantics", a => {
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacters").NestedTypes.SelectMany(t => t.Methods)

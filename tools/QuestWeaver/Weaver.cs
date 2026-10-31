@@ -38,9 +38,16 @@ internal sealed class Weaver
                 || p.Target.IsStatic || !model.Loaded.Contains(p.Target.Module.Assembly)
                 || p.Replacement.DeclaringType == null || !p.Replacement.DeclaringType.Methods.Contains(p.Replacement)
                 || p.Replacement.Module != model.Mod.MainModule
+                || p.ReplacementCalls <= 0
                 || p.Target.Body.Instructions.Count(i => i.OpCode == OpCodes.Call && i.Operand is MethodReference call
-                    && Discovery.MethodKey(call) == Discovery.MethodKey(p.Replacement)) != 1
-                || NativeMovieBoundary.Fingerprint(p.Target) != p.TargetFingerprint))
+                    && Discovery.MethodKey(call) == Discovery.MethodKey(p.Replacement)) != p.ReplacementCalls
+                || NativeMovieBoundary.Fingerprint(p.Target) != p.TargetFingerprint
+                || p.AdditionalSites.Any(s => s.Calls <= 0 || !s.Target.HasBody || s.Target.IsStatic
+                    || !s.Target.DeclaringType.Methods.Contains(s.Target) || !model.Loaded.Contains(s.Target.Module.Assembly)
+                    || s.Replacement.Module != model.Mod.MainModule || !s.Replacement.DeclaringType.Methods.Contains(s.Replacement)
+                    || s.Target.Body.Instructions.Count(i => i.OpCode == OpCodes.Call && i.Operand is MethodReference call
+                        && Discovery.MethodKey(call) == Discovery.MethodKey(s.Replacement)) != s.Calls
+                    || NativeMovieBoundary.Fingerprint(s.Target) != s.Fingerprint)))
             throw new InvalidDataException("Static Quest registration proof is outside its reviewed empty-class/target closure.");
         var protectedSnapshots = model.Loaded.Distinct().ToDictionary(a => a, ProtectedTypes.Snapshot);
         var slots = allHooks.Select((h, i) => (h, i)).ToDictionary(x => x.h, x => x.i);

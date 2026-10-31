@@ -39,10 +39,10 @@ internal static class RuntimeRegistrationTests
             }
             runtime.Unpatch(owner);
             foreach (string name in movieClasses) runtime.PatchAll(new Owner("replacement-movie-owner"), runtime.Mod.GetType(name)!);
-            check(statics.Length == 2 && movieClasses.Order().SequenceEqual(statics.Select(row => row[0]).Order()),
+            check(movieClasses.Order().SequenceEqual(statics.Where(row => movieClasses.Contains(row[0])).Select(row => row[0]).Order()),
                 "The two qualified movie classes lack their exact paired static registration proof.");
             using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GH.Runtime.dll"));
-            foreach (string[] row in statics)
+            foreach (string[] row in statics.Where(row => movieClasses.Contains(row[0])))
             {
                 check(row.Length == 3 && row[2].StartsWith(mod.Name.Name + "/" + row[0] + "::Transpiler(", StringComparison.Ordinal),
                     "Static registration proof lost its exact removed desktop patch identity.");
