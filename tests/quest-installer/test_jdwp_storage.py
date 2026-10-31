@@ -45,6 +45,28 @@ def reply(identity=2, payload=b"", error=0):
     return struct.pack(">IIBH", 11 + len(payload), identity, 0x80, error) + payload
 
 
+def wait_for_fixture_stop(process, start, *, timeout=5):
+    """Observe the same actual child stopped; kill(SIGSTOP) only requests it."""
+    deadline = time.monotonic() + timeout
+    states, observations = set(), 0
+    while True:
+        if process.poll() is not None:
+            raise AssertionError("Fixture JVM exited before its requested stop")
+        raw = Path("/proc/" + str(process.pid) + "/stat").read_text()
+        values = raw.rsplit(") ", 1)[1].split()
+        if raw.split(" ", 1)[0] != str(process.pid) or values[19] != start:
+            raise AssertionError("Fixture actual PID/starttime changed before stop")
+        states.add(values[0])
+        observations += 1
+        if values[0] == "T":
+            return {"pid": str(process.pid), "starttime": start,
+                    "states": sorted(states), "observations": observations}
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError("Fixture JVM did not reach observed stopped state T")
+        time.sleep(min(0.01, remaining))
+
+
 class ProtocolTests(unittest.TestCase):
     def test_reader_rejects_truncated_or_extra_fields(self):
         for data in (b"", b"\0\0\0\x03ab"):
@@ -660,8 +682,12 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
             time.sleep(0.02)
         else:
             self.fail("Fixture JVM did not reach its debugger-wait stack")
-        os.kill(self.process.pid, signal.SIGSTOP)
         self.start = Path("/proc/" + str(self.process.pid) + "/stat").read_text().rsplit(") ", 1)[1].split()[19]
+        # The real JVM can still be R/S immediately after kill returns. Capture
+        # identity before requesting the stop, then observe T before the exact
+        # constructor guard; never treat signal submission as acknowledgement.
+        os.kill(self.process.pid, signal.SIGSTOP)
+        self.stop_observation = wait_for_fixture_stop(self.process, self.start)
 
     def reap(self):
         if self.process.poll() is None:
@@ -684,6 +710,8 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
                 "processReaped": self.process.poll() is not None, "processExitCode": self.process.returncode,
                 "gameplayMarkerExists": (self.home / "game").exists(), "cleanup": cleanup,
                 "fixturePhase": self.phase, "debugWaitMarkerExists": (self.home / "wait").exists(),
+                "stopObservation": getattr(self, "stop_observation", None),
+                "stopObservationControl": getattr(self, "stop_observation_control", None),
                 "androidUidAndPathAdapted": True, "realJdwpProtocolAndRuntimeExec": True,
                 "nativeBinderDelayAdapted": not self.phase.endswith("wait")}, indent=2))
 
@@ -705,6 +733,10 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
                 if "-KILL" in args or "force-stop" in args:
                     if process.poll() is None:
                         process.kill()
+                    # Finish this fixture-owned command before emulating the
+                    # ADB completion; submitting SIGKILL alone still races the
+                    # unchanged production termination confirmation.
+                    process.wait(timeout=10)
                     return ""
                 if kwargs.get("input_text", "").strip() == "set -eu\nid -u":
                     return "10061"
@@ -731,6 +763,65 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
             app = LocalAppCommand(Adb(), "LOCAL", "FIXTURE", identity or (str(process.pid), "10061", start))
         self.addCleanup(app.close, suppress=True)
         return app, local_string
+
+    def continue_fixture(self):
+        os.kill(self.process.pid, signal.SIGCONT)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            values = Path("/proc/" + str(self.process.pid) + "/stat").read_text().rsplit(") ", 1)[1].split()
+            self.assertEqual(values[19], self.start)
+            if values[0] != "T":
+                return values[0]
+            time.sleep(0.01)
+        self.fail("Fixture JVM did not continue for stop-observation control")
+
+    def test_actual_stop_observation_waits_before_unchanged_constructor_guard(self):
+        running = self.continue_fixture()
+        # Keep this actual VM running until the observer has seen it: the old
+        # fixture constructor must refuse it before any socket/Java invocation.
+        with mock.patch.object(bridge.AppCommand, "close"), \
+                mock.patch.object(socket, "create_connection", side_effect=AssertionError("running VM attached")) as connection:
+            with self.assertRaisesRegex(bridge.StorageError, "Fixture actual PID/starttime changed"):
+                self.fixture()
+        connection.assert_not_called()
+        self.assertIsNone(self.process.poll())
+        actual_sleep = time.sleep
+
+        def deliver_stop_after_running_observation(delay):
+            os.kill(self.process.pid, signal.SIGSTOP)
+            actual_sleep(delay)
+
+        # Delivery occurs only after a real non-T /proc observation. A fixed
+        # pause or accepting the running state cannot satisfy this control.
+        with mock.patch.object(time, "sleep", side_effect=deliver_stop_after_running_observation) as delivery:
+            observed = wait_for_fixture_stop(self.process, self.start)
+        self.assertGreaterEqual(delivery.call_count, 1)
+        self.assertGreaterEqual(observed["observations"], 2)
+        self.assertIn("T", observed["states"])
+        self.assertTrue(set(observed["states"]) - {"T"})
+        self.stop_observation_control = {"runningState": running, "oldConstructorRefusedBeforeAttach": True,
+                                         "delayedActualSignal": observed}
+        app, local_string = self.fixture()
+        with mock.patch.object(bridge, "_string", side_effect=local_string):
+            self.assertEqual(app.shell("printf 'observed stop'", timeout=20), "observed stop")
+        app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_stop_observation_rejects_changed_identity_timeout_and_exit(self):
+        with self.assertRaisesRegex(AssertionError, "PID/starttime changed"):
+            wait_for_fixture_stop(self.process, str(int(self.start) + 1))
+        running = self.continue_fixture()
+        with self.assertRaisesRegex(AssertionError, "did not reach observed stopped state T"):
+            wait_for_fixture_stop(self.process, self.start, timeout=0)
+        self.assertIsNone(self.process.poll())
+        self.process.kill()
+        self.process.wait(timeout=10)
+        with self.assertRaisesRegex(AssertionError, "exited before its requested stop"):
+            wait_for_fixture_stop(self.process, self.start)
+        self.assertFalse((self.home / "game").exists())
+        self.stop_observation_control = {"runningState": running, "changedStarttimeRefused": True,
+                                         "undeliveredStopTimedOut": True, "exitedChildRefused": True}
 
     def test_actual_event_invocation_shell_nul_and_no_gameplay(self):
         app, local_string = self.fixture()
