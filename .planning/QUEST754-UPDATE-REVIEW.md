@@ -9,12 +9,13 @@ process or original-game conversion is needed by this qualification.
 
 Use the actual published Quest743 tip
 `7ecf6aaeae253b7d952ab4fcb7e80b78717519be`, not the older741 source. The retained
-743 classification manifest was captured at `d5bfc7a8cd`, before its final
-integration. Reconstruct eight final source rows from immutable published Git
-objects, including the menu/Weaver/Editor completion, and reuse the remaining
-rows only where their Git objects and declared authoring-link targets agree.
-The original manifest's SHA256 is checked against its retained report before
-reuse. The evidence preserves both reconstructed and original manifests.
+743 classification manifest carries HEAD stamp `d5bfc7a8cd`; its measured rows
+already bind the then-dirty final review source. Freshly read eight published
+Git blobs where that HEAD stamp differs, including menu/Weaver/Editor completion,
+and verify the other rows through unchanged Git objects and declared authoring
+link targets. Every row equals the retained manifest. This closes published Git
+provenance and changes no source/manifest content. The original manifest's SHA256
+is checked against its retained report; all historical evidence stays unchanged.
 
 On initial integrated Quest754 `d578327c9`, the real requirements classifier
 selects `compact-code`:82 changed code/compiler input rows, zero payload, native
