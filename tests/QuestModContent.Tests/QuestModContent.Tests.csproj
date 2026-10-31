@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants>$(DefineConstants);GHVR_QUEST_STARTUP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestContentHash.cs" Link="QuestContentHash.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameContent.cs" Link="QuestGameContent.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameArchiveDelivery.cs" Link="QuestGameArchiveDelivery.cs" />
+  </ItemGroup>
+</Project>

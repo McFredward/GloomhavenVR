@@ -63,6 +63,7 @@ internal static class PingNameTag_Patch
         {
             if (!VRSession.IsRunning || element == null)
                 return;
+            QuestPingStreams.OnPingShown(__instance);
             PingNameTag.OnPingShown(element, player, __instance);
         }
         catch (Exception e)
@@ -561,6 +562,7 @@ internal sealed class PingNameTag : MonoBehaviour
     /// <summary>Hot-reload hygiene (BoardModule.Shutdown): destroy live tags, clear statics.</summary>
     internal static void Reset()
     {
+        QuestPingStreams.ResetAll();
         for (int i = Live.Count - 1; i >= 0; i--)
         {
             PingNameTag t = Live[i];

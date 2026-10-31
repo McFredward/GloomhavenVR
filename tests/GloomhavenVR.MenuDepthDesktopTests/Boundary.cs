@@ -104,6 +104,8 @@ namespace GloomhavenVR.Core
         internal static void Install() => throw new NotSupportedException("Explicit built-in Camera.Render fallback");
         internal static void Subscribe(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull installation");
         internal static void Unsubscribe(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull installation");
+        internal static void SubscribeUnavailable(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull installation");
+        internal static void UnsubscribeUnavailable(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull installation");
     }
 }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
@@ -117,6 +119,9 @@ namespace GloomhavenVR.WorldUI
     internal static class NativeMovieCameraPlane
     {
         internal static void RestoreAll() { }
+        // The source calls this during every stack census. This fixture has no
+        // VideoPlayer; it supplies no movie plane or movie capture ownership.
+        internal static void RefreshQuestMovie() { }
         internal static void BeforeRender(Camera camera) => throw new Exception("Unexpected movie");
         internal static void AfterRender(Camera camera) { }
     }
@@ -146,6 +151,11 @@ namespace GloomhavenVR.WorldUI
         private static bool IsPreMenuScene() => false;
         private void TickSplitLifecycle() { } // Existing split is supplied before capture ownership begins.
         private void TickNoUiWatchdog() { } // Both original UI cameras are live in this fixture.
+        // Quest's bounded producer receipt observes its Android menu handoff.
+        // It does not provide a UI draw, projection, raster, texture or readiness
+        // decision to this ordinary desktop/head-pixel coordinator proof.
+        private void ObserveQuestMenuProducer(Camera camera) { }
+        private void ReleaseQuestMenuReceipt() { }
         internal FlatScreen(Transform screen, RenderTexture background, RenderTexture ui, Material material)
         { _quad = screen.gameObject; _rt = background; _uiRt = ui; _glassMaterial = material; _visible = _splitRouting = true; }
         internal void Begin() => CaptureStack();

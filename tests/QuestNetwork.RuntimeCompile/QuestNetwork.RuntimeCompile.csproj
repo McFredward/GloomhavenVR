@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameNetwork.cs" Link="QuestGameNetwork.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameNetwork.Aot.cs" Link="QuestGameNetwork.Aot.cs" />
+    <Reference Include="GloomhavenVR"><HintPath>$(QuestNetworkPluginsRoot)/QuestGame/GloomhavenVR.dll</HintPath></Reference>
+    <Reference Include="GH.Runtime"><HintPath>$(QuestNetworkPluginsRoot)/GH.Runtime.dll</HintPath></Reference>
+    <Reference Include="GH.Shared"><HintPath>$(QuestNetworkPluginsRoot)/GH.Shared.dll</HintPath></Reference>
+    <Reference Include="PhotonVoice"><HintPath>$(QuestNetworkPluginsRoot)/PhotonVoice.dll</HintPath></Reference>
+    <Reference Include="PhotonVoice.API"><HintPath>$(QuestNetworkPluginsRoot)/PhotonVoice.API.dll</HintPath></Reference>
+    <Reference Include="Photon3Unity3D"><HintPath>$(QuestNetworkPluginsRoot)/Photon3Unity3D.dll</HintPath></Reference>
+    <Reference Include="bolt"><HintPath>$(QuestNetworkPluginsRoot)/bolt.dll</HintPath></Reference>
+    <Reference Include="bolt.user"><HintPath>$(QuestNetworkPluginsRoot)/bolt.user.dll</HintPath></Reference>
+    <Reference Include="udpkit"><HintPath>$(QuestNetworkPluginsRoot)/udpkit.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManagedRoot)/UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(UnityManagedRoot)/UnityEngine.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(UnityManagedRoot)/UnityEngine.AudioModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.AndroidJNIModule"><HintPath>$(UnityManagedRoot)/UnityEngine.AndroidJNIModule.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

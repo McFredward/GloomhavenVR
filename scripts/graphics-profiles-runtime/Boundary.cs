@@ -81,6 +81,9 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Core
 {
+    // Only the host-platform signal is a fixture boundary. The production
+    // shared default selector and full profile action are compiled unchanged.
+    internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal static class ModuleConfig
     {
         internal static readonly Dictionary<string, BepInEx.Configuration.ConfigFile> Files = new();
@@ -97,5 +100,9 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR
 {
-    internal static class FrameLaunchOptIn { internal static bool MarkerExists(string path) => false; }
+    internal static class FrameLaunchOptIn
+    {
+        internal static bool MarkerPresent;
+        internal static bool MarkerExists(string path) => MarkerPresent;
+    }
 }

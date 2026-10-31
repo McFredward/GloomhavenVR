@@ -74,7 +74,27 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal static class FlatScreen { internal static Renderer? OpaqueBackdrop => null; }
+    internal sealed partial class FlatScreen
+    {
+        internal static Renderer? OpaqueBackdrop => null;
+        private sealed class CapturedCamera
+        {
+            internal FlatScreen Owner = null!;
+            internal bool IsUi;
+        }
+        private static readonly Dictionary<Camera, CapturedCamera> CapturedSet = new Dictionary<Camera, CapturedCamera>();
+        private RenderTexture? _rt, _uiRt;
+        private bool _splitRouting;
+        // The captured membership/routing and actual native target predicate are
+        // production fragments. This seam only supplies a host's explicit inputs.
+        internal void Capture(Camera camera, RenderTexture target, bool ui = false,
+                              bool split = false, RenderTexture? glass = null)
+        {
+            _rt = target; _uiRt = glass; _splitRouting = split;
+            CapturedSet[camera] = new CapturedCamera { Owner = this, IsUi = ui };
+        }
+        internal static void ResetCaptures() { CapturedSet.Clear(); DesktopScrubTarget = null; }
+    }
 }
 namespace GloomhavenVR.Core.SteamLink
 {

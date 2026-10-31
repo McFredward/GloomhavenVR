@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "unityVersion": "2021.3.5f1",
+  "target": "Android",
+  "graphicsApi": "Vulkan",
+  "shaderName": "GloomhavenVR/QuestLoadingSpinner",
+  "assetPath": "assets/questloading/questloadingspinner.shader",
+  "bundleName": "ghvr-quest-loading.bundle",
+  "bundleBytes": 16936,
+  "bundleSha256": "9bcb74cf6f90f03dee60a1e8d159d3efee2781011f40e9c836ed1e2bd11f408a",
+  "resource": "GloomhavenVR.QuestLoading.spinner.bundle",
+  "sourceSha256": "d3f8e82fe07d1d63f78acf976f38ed959e1d3dd52c825f7a2c6d09187415d490",
+  "sourcePins": {
+    "src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader": "d3f8e82fe07d1d63f78acf976f38ed959e1d3dd52c825f7a2c6d09187415d490",
+    "src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader.meta": "ddcd5b2c3dcb76ecf6ca29ba0ee579d73f9b0e9d7fdb6088c83eca8779e6fa67",
+    "scripts/quest-loading-shader/Editor/QuestLoadingShaderBuilder.cs": "51ef2b791d07dc5ccceb5296f628a5ad7a55ccc3807768c9ce2f5186392b526c",
+    "scripts/quest-loading-shader/verify_bundle.py": "e29f4b6729ef718f04f7833fdf28b836ce537f20b2384509ae397bdb2aa532f6",
+    "scripts/build-quest-loading-shader.py": "83015bc77008564d27a843b00edf528e1db4a4e773f7c2b7229c9d14ee0fd3de"
+  },
+  "typeTreesEnabled": true,
+  "chunkBasedCompression": true,
+  "colorSpace": "Linear",
+  "stereoRenderingPath": "MultiPass",
+  "limits": "Serialized Android target and compiled Vulkan program metadata only; no Android GPU/XR pixel acceptance."
+}

@@ -52,3 +52,13 @@ an empty hook `issues` array does not resolve them. Output validation compares p
 game type signatures and semantic IL before/after serialization. ScenarioRuleLibrary and
 Photon Bolt assemblies are not emitted. The executable fixture uses the real HarmonyX
 2.7 API and covers N -> N+1 changed behavior/new patches without builder edits.
+# Offline original startup
+
+`standalone --standalone-target startup --managed DIR --profile JSON --output EMPTY_DIR`
+generates an explicitly menu-only platform adapter. `--overrides WOVEN_DIR` retains
+the earlier static hooks; optional `--bepinex REAL_DLL --mod CURRENT_MOD_DLL`
+generates an original configuration/logging lifecycle closure. Deploy replacement
+game assemblies in-place with their existing Unity GUIDs. The report's
+`startupAdapterComplete` never implies `fullGameReady`, mod activation, procedural
+generation or EOS authentication. See `.planning/QUEST3-STARTUP-RUNTIME.md` for
+the runtime/resource contract and remaining gates.

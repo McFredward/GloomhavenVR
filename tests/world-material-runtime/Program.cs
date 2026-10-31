@@ -159,12 +159,19 @@ public static partial class WorldMaterialProgram
         LateChanges(host,source,first,second,camera);
         RenewedRefusals(host,source,first,second,camera);
         CameraMasks(host,room,source,first,second,camera);
+        QuestCameraBoundary(host, source, first, second, camera);
         PerformanceWalls(host,room,source,first,second,camera);
         bool prepared=false;WorldMaterialBudget.ConfigureAssetPreparation(()=>{prepared=true;return false;});Center(camera);
         Check(prepared&&source.sharedMaterial==first,"cold asset preparation refusal keeps native source materials valid");WorldMaterialBudget.ConfigureAssetPreparation(()=>true);
         WorldMaterialBudget.BeforeNativeRendererWrite(source);BundleShaders.Missing=true;
         PerfConfig.WorldMaterialQualityMode=0;Tick(host);PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);Center(camera);
         Check(source.sharedMaterial==first,"unavailable shader retains valid native original fallback");BundleShaders.Missing=false;
+        Check(!Shader.Find("Fixture/UnavailableWorld").isSupported,"actual foreign-API fixture shader is unsupported on the current device");
+        BundleShaders.Unsupported=true;
+        PerfConfig.WorldMaterialQualityMode=0;Tick(host);PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);Center(camera);Center(camera);
+        Check(source.sharedMaterial==first&&VRLog.Messages.Count(m=>m.Contains("World material shader unsupported"))==1,
+            "resolved unsupported world shader keeps original native slots and one bounded failure report");
+        BundleShaders.Unsupported=false;
         // An explicit option transition retries asset resolution after unavailable content.
         PerfConfig.WorldMaterialQualityMode=0;Tick(host);PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);Center(camera);
         VRSession.IsRunning=false;Tick(host);Check(source.sharedMaterial==first,"VR teardown boundary restores native shader and source slots");VRSession.IsRunning=true;

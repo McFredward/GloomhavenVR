@@ -15,7 +15,13 @@ COUNTER = ROOT / 'src/GloomhavenVR/Core/Perf/PerfMonitor.Counters.cs'
 monitor = (ROOT / 'src/GloomhavenVR/Core/Perf/PerfMonitor.cs').read_text()
 sample = monitor[monitor.index('private static void Sample()'):monitor.index('private static void SampleGpuTime()')]
 assert sample.index('ObserveFigureMeasurement(now, splitOn)') < sample.index('record: true'), 'Production Sample must gate before rolling a mixed frame'
-assert 'AppendFigureMeasurement(sb);\n        VRLog.Info(Scope0, sb.ToString());\n        LogSteps' in monitor, 'Complete FRAME must carry its latched state before summary emission'
+summary_shapes = (
+    'AppendFigureMeasurement(sb);\n        VRLog.Info(Scope0, sb.ToString());\n        LogSteps',
+    'AppendFigureMeasurement(sb);\n        string retainedSummary = sb.ToString();\n'
+    '        QuestPerformanceEvidence.RetainTiming(retainedSummary);\n'
+    '        VRLog.Info(Scope0, retainedSummary);\n        LogSteps',
+)
+assert any(shape in monitor for shape in summary_shapes), 'Complete FRAME must carry its latched state before summary emission'
 assert 'FigureMeasurement.Clear();' in monitor, 'Shutdown must clear the lifetime'
 assert '!_figureBoundarySummary || PerfFrameSplit.NativeProbeComplete' in monitor, 'Boundary SPLIT must gate incomplete native capture'
 assert 'if (includeNativeCapture)\n            PerfNativeLoopProbe.LogSummary' in monitor, 'Native callback summary must use the same completed-capture gate'

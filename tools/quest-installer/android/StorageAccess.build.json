@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "mainClass": "dev.gloomhavenvr.tools.StorageAccess",
+  "sourceSha256": "9919e5a3dfafa1361bfc4f46010fb07bdb5d405af02699e204fb66f338af82ab",
+  "dexSha256": "97baf97dd8cad56d6ceacb7e3dbfe786a83055918b9a4160409430585af358c0",
+  "dexBytes": 8988,
+  "javaTarget": 8,
+  "minAndroidApi": 30,
+  "jdkVersion": "javac 1.8.0-adoptopenjdk",
+  "d8Version": "D8 2.1.7-r1 (build 4443fac8e25c38e6ecfb5a8b0d212a3fad6f7f63 from go/r8bot (luci-r8-ci-archive-0-ewc5))",
+  "d8JarSha256": "3958eda74eb298337361e974c9b733856eae08795516bf78a0dd16df620e83bc",
+  "android30JarSha256": "96ccfdc84d15fad4e22d76cbb8ef38b150a4b56327957067875ca7e18113a424",
+  "compileArguments": [
+    "javac",
+    "-encoding",
+    "UTF-8",
+    "-source",
+    "8",
+    "-target",
+    "8",
+    "-g:none",
+    "-d",
+    "<classes>",
+    "StorageAccess.java"
+  ],
+  "dexArguments": [
+    "java",
+    "-cp",
+    "<d8.jar>",
+    "com.android.tools.r8.D8",
+    "--release",
+    "--min-api",
+    "30",
+    "--lib",
+    "<android-30/android.jar>",
+    "--output",
+    "<dex>",
+    "<sorted classes/**/*.class>"
+  ],
+  "reproducibility": "Two clean compilations with the recorded tools produced identical DEX bytes. Android hardware execution is unverified."
+}

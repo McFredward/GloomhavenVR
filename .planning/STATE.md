@@ -403,6 +403,39 @@ verified/retired, per-run caches cleaned and evidence/current artifacts retained
 See MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md and ignored menu744/ reports. Windows
 builds the archive; source goes to origin/dev. Quest743 remains a separate lane
 and receives no further rebase authorization from this delivery.
+**Quest743 on finalized dev742, 2026-10-29.**
+
+The already-authorized actual rebase targets `fc74ee79c`, with Quest-only Android
+head-resolve resources and exact readonly-reader85 adaptation. Preserve the native
+producer confirmations, fixed-quality sampling, native SDF metric and world menu.
+The five-shader Android bank executes actual Vulkan load/material/pass checks;
+all four embedded Android bank/provenance resources match the qualified bytes.
+The final AOT pass writes387 targets, protects seven original types, has zero
+gates and passes37/14 plus851 current-mod assertions. Source comparison selects
+compact-code updating with no Campaign/art/figure/audio/movie/Story producer change.
+Small Sky resource repacking takes2.42 seconds from existing APK assets, no Unity.
+Restore the exact seven Quest material values and color when the native2D map
+retains the world-menu material; actual GPU/containing controls qualify this seam.
+
+Complete local invocation:294PASS/1BuilderFAIL over295 scopes in4001.7s; source16
+pass. The Builder failure came from stale pre-Sky recipe fixtures, already missed
+in the earlier741 summary. Correct that historical record explicitly. Test-only
+repair preserves production guards, adds three rejection cases and a Git-independent
+historical producer fixture. Complete pinned Builder continuation:1926 tests,
+1915PASS/11 unchanged optional skips, plus93/93 containing checks. All3986 inputs
+are bound to the integrated root. Final295 coverage is aggregate, not a successful
+new single full invocation. Actual retained fresh goldens pass306431. Final strict
+Debug/Release/metadata/Android builds are0W0E; source, bundle, surface and classified
+compiled review pass. Config670 and no surface removals;44 expected compiled files.
+
+The maintainer's new rule supersedes automatic READY-triggered rebases: finish743,
+then require the maintainer's tested dev version and explicit go before another
+Quest rebase. Agent pings only report status. The PC integrator later relayed that
+Steam restart restored VR without a code change; the earlier process-state cause
+is unproved. No new headset acceptance is claimed for Quest743. Preserve source,
+logs and current artifacts while retiring own worktrees/caches. See
+QUEST-DEV742-INTEGRATION.md and ignored quest-dev742-rebase-20261029/validation-final.json.
+Source delivery remains feature/quest3-standalone; Windows builds its archive.
 
 **Producer confirmations, stable character AA and a world main menu, Build742, 2026-10-29.**
 
@@ -460,6 +493,40 @@ caches and task-private processes/sockets are cleaned while retaining evidence,
 inputs and current artifacts. See MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md and
 ignored menu742/validation-final.json. Source delivery is origin/dev; Windows
 builds the archive. Quest741 receives the final pushed SHA/new resolve API handoff.
+
+**Quest rebase on finalized dev740, Build741, 2026-10-29.**
+
+The dev integrator explicitly marked `35e08359a` ready before the actual rebase.
+Keep Quest on `feature/quest3-standalone`; retain the old published ancestry for a
+normal push. All accepted dev menu depth, quality, hover, confirmation and selected
+environment behavior is included. A separate tiny Android producer supplies the
+original Default sky; existing Quest player data and qualified caches are preferred.
+Only its three shaders need a first PC resource compile. The original Campaign,
+authored banks, figure/audio/movie and Story producers remain unchanged. Actual
+B735-to-B741 classification selects compact-code updating with no art rebuild.
+
+Strict Debug/Release/metadata and final Android managed builds pass 0W0E. Actual
+AOT conversion writes 370 targets, verifies seven protected types and has zero
+gates; menu tests pass 33/13 and current-mod tests 843 assertions. All four embedded
+Android resource files match the qualified producers byte-for-byte. Actual Vulkan
+asset loading, all native mip levels and 432 shader-stage aliases are qualified.
+
+Corrected during743 review: the complete Quest union records291PASS/3FAIL across
+all294 local suites, plus16/16 source gates. The omitted third failure was Builder
+(1917 tests/26 failures/11 skips). Repairs changed only two fixture inputs. Their complete
+guarded Unity continuations pass level-up414/21 and stereo209/21, with all 80 direct
+final-head samples exact. Coverage was consequently293 of294 scopes, with Builder
+still open; the original full294 claim was incorrect. This is not a new successful
+single complete invocation. The complete
+run's fresh retained wire binary passes 306431 actual goldens. Surface/bundle and
+classified compiled comparison pass with no unapproved removals. Earlier stereo
+worker evidence did not bind the combined Quest fixture and is not inherited.
+
+Logs, sources, manifests and actual artifacts remain; owned compiler/Editor/ADB
+processes and regenerable caches are cleaned. See QUEST-DEV740-INTEGRATION.md and
+ignored quest-dev740-rebase-20261028/validation-final.json. Source-only feature
+delivery; the Windows workflow creates the archive. Quest headset appearance,
+motion quality and actual multiplayer still require hardware evidence.
 
 **Selected surroundings across all VR contexts, Build740, 2026-10-29.**
 
@@ -679,6 +746,23 @@ cleanup receipts; three owned worktrees are archived/verified/retired, and only
 the task-private ADB is stopped. See MENU736-HEAD-PITCH-TEXT-AND-MENU-PACING.md
 and ignored menu736/validation-final.json. Actual D3D11/headset acceptance remains open.
 
+**Quest dev734 rebase, Build735, 2026-10-28 — qualified source integration.**
+
+Both concurrent dev integrators explicitly finished before the rebase. The final
+upstream is c0f636c55 (finalized fdbd372e3 plus a separately tested shared town-close
+fixture boundary). Quest retains the 1.2.2/734 shared production source, with
+Android menu shader/AOT/loose Story integration and original conversion/media
+reuse. The actual B717 source comparison selects compact code + supplied Story;
+Campaign, authored art, figure/audio/movie producers remain unchanged.
+
+Class C validation recorded all 292 local suites once: 276 passed, 16 fixture or
+invocation-environment failures. All 16 affected complete suites passed bounded
+reruns; the failed complete invocation remains failed. Source 16/16, golden
+306,431 assertions, strict Debug/Release 0W0E, bundle/public-surface checks and the
+classified private compiled comparison complete aggregate qualification. No new
+full APK/archive or Quest headset acceptance is claimed. Public feature history
+is retained through an ancestry-only merge and normal fast-forward push.
+See QUEST-DEV734-INTEGRATION.md and the input-bound ignored evidence for details.
 **Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
 
 The exact Build729 hardware logs show no depth fallback or pool failure, but 184 outer

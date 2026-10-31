@@ -966,6 +966,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         FieldInfo? field = typeof(Character3DDisplayManager).GetField("character3D", BindingFlags.Instance | BindingFlags.NonPublic);
         if (field == null || field.FieldType.IsValueType) return null;
+        // Android's IL2CPP runtime cannot emit an accessor during this type's
+        // static initialization. Retain the exact original reference through
+        // the cached, read-only native FieldInfo; desktop keeps its fast path.
+        if (Application.platform == RuntimePlatform.Android)
+            return manager => field.GetValue(manager);
         var method = new DynamicMethod("GloomhavenVR_MenuDepth_ReadOriginalCharacter", typeof(object),
             new[] { typeof(Character3DDisplayManager) }, typeof(MenuDepthCharacterSource), true);
         ILGenerator il = method.GetILGenerator(); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, field); il.Emit(OpCodes.Ret);

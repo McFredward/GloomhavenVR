@@ -133,8 +133,8 @@ namespace GloomhavenVR.WorldUI;
 /// shader-independent, keeps the onPreRender hook to pure texture swaps (no mutable
 /// material state to restore on disengage), and costs one extra full-RT blit per
 /// frame — strictly cheaper than the per-camera mirror renders the shift disables
-/// while active. Both per-eye blits run once per frame in the head camera's
-/// pre-render hook, so they copy the freshest available left RT.
+/// while active. Both per-eye blits run once per frame after the source cameras:
+/// at head pre-cull on Quest, before stereo draw setup, and at pre-render on PC.
 ///
 /// Disparity math (real meters, screen-plane geometry): eyes converged on the
 /// screen at distance D see a plane at D+V with on-screen disparity

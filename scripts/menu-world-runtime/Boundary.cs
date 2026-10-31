@@ -337,6 +337,10 @@ namespace GloomhavenVR.WorldUI
         private readonly struct CapturedCamera{internal readonly bool IsUi;internal CapturedCamera(bool ui){IsUi=ui;}}
         private static readonly Dictionary<Camera,CapturedCamera> CapturedSet=new();
         private bool _pokePressing=false;
+        // Desktop fixture port: Quest-only overlay property leases are covered
+        // by the real Quest material factory/Enter/Exit GPU fixture.
+        private void SaveQuestWorldMenuMaterial(Material material){}
+        private void RestoreQuestWorldMenuMaterial(Material? material){}
         private void TickPoke(){}
         private bool TickHandednessSwitch()=>false;
         private void EnrollCamera(Camera camera)=>CapturedSet[camera]=new CapturedCamera(true);

@@ -63,6 +63,10 @@ def main():
         names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs',
                  'MenuDepthProjection.cs', 'MenuDepthDisplay.cs')
         originals = {name: (source / name).read_text() for name in names}
+        quest_copy = ROOT / 'src/GloomhavenVR/Core/QuestTextureCopy.cs'
+        quest_boundary = Path(__file__).parent / 'QuestDesktopBoundary.cs'
+        originals['QuestTextureCopy.cs'] = quest_copy.read_text()
+        originals['QuestDesktopBoundary.cs'] = quest_boundary.read_text()
         originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
         perf_root = ROOT / 'src/GloomhavenVR/Core/Perf'
         monitor = (perf_root / 'PerfMonitor.cs').read_text()
@@ -213,7 +217,7 @@ def main():
              'capture.allowHDR=false;', 'capture.allowHDR=true;',
              'retired spatial presentation returns original mono photograph to final head pixels'),
             ('mono-resolve-lost', 'LegacyHelpers.cs',
-             'Graphics.Blit(e.Rt, e.MipRt);', '/* injected: native mono display retains stale artwork */',
+             'QuestTextureCopy.Copy(e.Rt, e.MipRt);', '/* injected: native mono display retains stale artwork */',
              'retired spatial presentation returns original mono photograph to final head pixels'),
             ('photo-canvas-restore-lost', 'MenuDepthHeadCarrier.cs',
              'if (_photoCanvas != null && !_photoCanvas.enabled) _photoCanvas.enabled = _canvasEnabled;',
@@ -327,7 +331,7 @@ def main():
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         pins = [*(source / name for name in names), *(perf_root / name for name in
                 ('PerfMonitor.cs', 'PerfFrameSplit.cs', 'PerfFrameSplit.CameraPasses.cs', 'PerfFrameSplit.Spike.cs')),
-                legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
+                quest_copy, quest_boundary, legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
                 Path(__file__).parent / 'Workload725.cs', Path(__file__).parent / 'Frame728.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py',

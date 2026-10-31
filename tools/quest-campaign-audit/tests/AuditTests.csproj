@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>QuestWeaver.Tests</AssemblyName><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../QuestWeaver/QuestWeaver.csproj" />
+    <Compile Include="../../../tests/QuestWeaver.Tests/StandaloneOdinTests.cs" Link="StandaloneOdinTests.cs" />
+  </ItemGroup>
+</Project>

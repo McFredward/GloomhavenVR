@@ -81,6 +81,23 @@ def main():
          'Vector3 ground = _camera.transform.TransformPoint(origin);',
          'Vector3 ground = _camera.transform.TransformPoint(origin) + _camera.transform.right * .1f;',
          'integrated Source rotation keeps the actual main ground fixed in the measured native camera view'),
+        ('android-aot', '', '', '', ''),
+        ('android-aot-hidden-emit-lost', 'MenuDepthCharacters.cs',
+         'if (Application.platform == RuntimePlatform.Android)',
+         'if (Application.platform != RuntimePlatform.Android)',
+         'real Characters enrollment registers exactly its native camera target consumer'),
+        ('android-aot-original-emit-lost', 'MenuDepthCharacterSource.cs',
+         'if (Application.platform == RuntimePlatform.Android)',
+         'if (Application.platform != RuntimePlatform.Android)',
+         'Reflection.Emit is forbidden in the selected Android AOT character path'),
+        ('android-aot-hidden-value-lost', 'MenuDepthCharacters.cs',
+         'return manager => (bool)field.GetValue(manager)!;',
+         'return manager => false;',
+         'native hide revokes actual integrated Source readiness'),
+        ('android-aot-original-value-lost', 'MenuDepthCharacterSource.cs',
+         'return manager => field.GetValue(manager);',
+         'return manager => manager;',
+         'real Characters enrollment uses actual Source readiness and original native identity'),
     ]
     if args.case:
         selected = set(args.case); assert selected <= {row[0] for row in cases}
@@ -117,6 +134,15 @@ def main():
                     else:
                         assert code.count(before) == 1, before
                         code = code.replace(before, after, 1)
+                if name.startswith('android-aot') and source_name in ('MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs'):
+                    # Supply the platform observation only. The complete actual
+                    # enrollment/readiness/render path must work while every
+                    # attempted runtime-codegen constructor is rejected, as on
+                    # IL2CPP. No field value or identity is supplied by this port.
+                    assert code.count('Application.platform') == 1, source_name
+                    assert code.count('new DynamicMethod(') == 1, source_name
+                    code = code.replace('Application.platform', 'global::AndroidAotInput.Platform')
+                    code = code.replace('new DynamicMethod(', 'global::AndroidAotInput.RejectEmit(')
                 (production / source_name).write_text(code)
             private_fixture = case / 'fixture'; shutil.copytree(fixture, private_fixture)
             descriptor = case / 'Integrated.csproj'; shutil.copy2(fixture / descriptor.name, descriptor)

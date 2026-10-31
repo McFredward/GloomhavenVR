@@ -84,6 +84,11 @@ def main() -> int:
     default = re.search(r'internal const bool CheatsEnabled\s*=\s*(?:true|false);', source['defaults'])
     assert default, 'Actual Cheats default binding drift'
     defaults = 'namespace GloomhavenVR.Core { internal static class Defaults { ' + default[0] + ' } }\n'
+    # Execute the shared production caption selector against the donor-order
+    # boundary, rather than substituting another selector in the fixture.
+    (project_dir / 'NotePart.cs').write_text('using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\n'
+        + 'internal static partial class VROptionsTab {\n'
+        + method(source['rows'], 'private static T? FindPart<T>(') + '\n}\n')
     originals = {'ui': source['ui'], 'loc': source['loc'], 'page': page, 'cheats': cheats, 'defaults': defaults}
     for key, text in originals.items():
         (run / (key + '.fixture')).write_text(text)
@@ -143,6 +148,9 @@ def main() -> int:
     try:
         execute('production', originals)
         mutations = [
+            ('donor-caption', 'ui', '_videoReviewStatus = FindPart<TMP_Text>(status.transform, "Title");',
+             '_videoReviewStatus = status.GetComponentInChildren<TMP_Text>(true);',
+             'Status repaint binds the authored Title despite inactive donor label ordering'),
             ('wrong-movie', 'ui', 'NativeVideoReview.TryStart(key);', 'NativeVideoReview.TryStart(NativeVideoReview.GetKey(0));',
              'Each movie requests its own exact canonical key'),
             ('lost-first', 'ui', 'int i = 0;', 'int i = 1;',

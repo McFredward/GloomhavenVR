@@ -632,7 +632,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 753;
+    public const ushort ModBuild = 754;
+
+    // ModBuild754 — Quest integration of the maintainer-approved release1.2.3.
+    // Rebase the complete standalone adaptation onto exact v1.2.3/753, retaining
+    // native naming/quest preview framing, depth-aware laser input, world-menu
+    // readiness, fixed capture quality and existing Android presentation seams.
+    // Preserve original gameplay, shared placement/authority and wire grammar.
+    // Keep source-only mod updates scoped to changed code/resources; unchanged
+    // Campaign/art/audio/movie payloads remain reusable. Hardware acceptance is
+    // separate from complete local and Android/AOT integration checks.
+
 
     // ModBuild753 — useful naming-page character size beside the keyboard.
     // Hardware review accepts752's quest page but the narrow naming strip
@@ -776,6 +786,16 @@ internal static class NetProtocol
     // Keep accepted character AA/depth, original widgets, shaders and frame order.
     // Build743 is reserved for the separate Quest standalone development lane.
 
+    // ModBuild743 — Quest integration after finalized dev742.
+    // Preserve native confirmation producers, world-menu readiness/movement,
+    // fixed head sampling, raster projection and original native SDF units.
+    // Compile the independent fifth head-resolve shader for Android alongside
+    // the four existing menu shaders. Retain per-sample permission before color
+    // integration and all existing Quest presentation/input/profile adapters.
+    // Reuse original Campaign, art, figure, audio, movie and Story producers;
+    // qualify only the changed source/resource/native-code update closure.
+    // Source-only feature delivery; actual Quest appearance remains unverified.
+
     // ModBuild742 — confirmations remain on their producer; a real world main menu.
     // Local740 hardware accepts the small level-up prompt but exposes the Perks
     // cross-scene type exclusion. Use the same persistent, shallow foreground
@@ -804,6 +824,19 @@ internal static class NetProtocol
     // Window carries use the unscaled tracking clock through native pause.
     // Keep map/scenario placement, video playback, MR precedence and wire intact.
     // Build741 is reserved for the coordinated Quest standalone development lane.
+
+    // ModBuild741 — Quest integration after finalized dev740.
+    // Preserve the accepted menu depth, character quality, hover, confirmation
+    // and environment behavior, together with all existing Quest presentation,
+    // input, profile and installed-APK update adapters. Qualify the renamed
+    // readonly AOT reader closure without changing its field access semantics.
+    // Supply the original render-only Default sky through an independent Android
+    // resource pair: existing Android player assets are preferred; first PC builds
+    // compile only its three original shaders. Retain all Campaign, authored art,
+    // movie, figure and audio producers. Bind portable resources to the already
+    // qualified APK, publish real shader progress and retain fast-update inputs
+    // while cleaning closed generation caches. Source-only delivery; headset
+    // appearance remains a separate hardware acceptance item.
 
     // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
     // The maintainer extends the environment choice to every VR context, including
@@ -878,6 +911,14 @@ internal static class NetProtocol
     // acceptance item; no lower-quality or capture-rate fallback is introduced.
     // Build735 is already used by the separate Quest standalone branch.
 
+    // ModBuild735 — rebase Quest Standalone onto completed dev734.
+    // Preserve shared absolute window geometry, city/quest authority, stable
+    // complete character-window detail, right-side native hints and preview-only
+    // rotation. Retain Quest input, loading, native FX, mobile profile and local
+    // installed-APK compiler-reference updates. Qualify Android resource bindings
+    // independently of the upstream D3D11 shader bank; preserve compatible game
+    // conversion and separate movie/figure/audio producers. Source-only delivery;
+    // no local full APK or archive, and no unperformed headset acceptance claim.
     // ModBuild734 — complete menu-quality delivery after shared city readiness733.
     // Finish the unpublished732 menu checkpoint on the current integration branch.
     // Fixed actual-head rasters preserve complete native UI/character detail during

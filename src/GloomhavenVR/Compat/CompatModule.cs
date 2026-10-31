@@ -223,7 +223,17 @@ internal sealed class CompatModule : IVRModule
         // quality preferences. Keep their old config keys INERT for persisted profiles.
         names.AddRange(PostProcessingTypes);
         names.Add(VolumetricFogType);
-        names.AddRange(Plugin.DisableComponents.Value
+        // Maintainer ruling, B680: a VR setting must never disable an essential
+        // game element. A free-form type or Behaviour/MonoBehaviour base type can
+        // suppress arbitrary native game lifecycles. Keep its persisted value
+        // intact but inert on Quest, whose built-in reviewed effect exclusions
+        // remain explicit above. Ordinary PC compatibility behavior is unchanged.
+        if (QuestStandalonePlatform.Enabled)
+        {
+            if (!string.IsNullOrWhiteSpace(Plugin.DisableComponents.Value))
+                VRLog.Warn(Name, "Quest ignores the saved free-form DisableComponents setting; native game lifecycles are required. Reviewed built-in stereo effect exclusions remain active.");
+        }
+        else names.AddRange(Plugin.DisableComponents.Value
             .Split(',')
             .Select(n => n.Trim())
             .Where(n => n.Length > 0));
@@ -238,6 +248,8 @@ internal sealed class CompatModule : IVRModule
             else
                 VRLog.Warn(Name, $"Type is not a Behaviour (skipped): {name}");
         }
+
+        QuestProceduralLifecycle.Install(!string.IsNullOrWhiteSpace(Plugin.DisableComponents.Value));
 
         if (_typesToDisable.Count == 0)
         {
@@ -269,6 +281,7 @@ internal sealed class CompatModule : IVRModule
         DoorOpenWatch.Uninstall();
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
+        QuestProceduralLifecycle.Uninstall(); // never re-disables a successfully recovered native engine
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
         WaterTerrainVR.Uninstall();       // clears every property block we wrote — authored material back, bit-for-bit
         CardParticlesOff.Uninstall();     // restores the game's own NoCardsParticles value verbatim

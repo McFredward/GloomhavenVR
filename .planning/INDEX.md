@@ -8,6 +8,14 @@ Class B selects five variants, strict/source/compiled checks and explicitly boun
 obstruction, corrected proof, cleanup and hardware limits. Release1.2.2 is
 published; dev's version is1.2.3. Windows builds its archive from dev. Passive
 map stalls remain open in MP746-PERFORMANCE.md.
+Updated 2026-10-29: Quest743 integrates finalized dev742 with qualified Android
+resources and minimal updates. Future Quest rebases require the maintainer's
+prior dev test and explicit go. The earlier741 test-coverage overstatement is
+explicitly corrected. Build742 keeps confirmations on their exact producer,
+restores whole-character-window antialiasing with3D, and introduces the movable
+world main menu with post-intro surroundings and central-height arrival. See
+STATE.md for complete aggregate verification, measured storage and hardware limits.
+Windows builds its archive.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -23,11 +31,14 @@ status; it is not the player manual.
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
 | [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
+| [QUEST-DEV742-INTEGRATION.md](QUEST-DEV742-INTEGRATION.md) | Quest743 Android head resolve, exact dev742 rebase, minimal updates, material restoration and source-bound final aggregate validation |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
+| [QUEST-DEV740-INTEGRATION.md](QUEST-DEV740-INTEGRATION.md) | Coordinated Quest741 rebase, original Android sky, compact update classification and complete aggregate validation |
 | [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
 | [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
 | [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |
 | [MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md](MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md) | Accepted preview shadows/card relief/level-up list repairs and the latest complete integration checkpoint |
+| [QUEST-DEV-REBASE-20261019.md](QUEST-DEV-REBASE-20261019.md) | Historical Quest current-dev integration, stereo media and minimal-update evidence |
 | [MENU728-DEPTH-CARDS-AND-LEVELUP.md](MENU728-DEPTH-CARDS-AND-LEVELUP.md) | Native source/final-window depth, complete level-up presentation, original raised menu cards and integration evidence |
 | [MENU727-CHARACTER-DEPTH-PREFERENCE.md](MENU727-CHARACTER-DEPTH-PREFERENCE.md) | Default-on local character depth switch, immediate native flat fallback/re-enable, focused verification and Windows-side archive delivery |
 | [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |
