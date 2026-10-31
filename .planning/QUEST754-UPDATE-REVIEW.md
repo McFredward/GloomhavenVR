@@ -1,8 +1,11 @@
 # Quest754 minimal update qualification
 
-This is the focused Builder portion of the Class C integration onto published
-`v1.2.3` / `b87477f8a` / desktop Build753. The integrator owns the complete final
-union gate. No production Builder repair, compatibility alias, APK, ZIP, Unity
+The final integrated candidate `44b23e9f1` selects `compact-code` after all
+Weaver changes:87 genuine code/compiler inputs change, while Campaign, art,
+interop/helper, figures, audio, movies, Story and both small Android resource
+pairs remain reusable. This is the focused Builder portion of the Class C
+integration onto published `v1.2.3` / `b87477f8a` / desktop Build753. The integrator
+owns the complete final union gate. No production Builder repair, compatibility alias, APK, ZIP, Unity
 process or original-game conversion is needed by this qualification.
 
 ## Published B743 boundary
@@ -86,13 +89,41 @@ all cleanup receipts report zero skipped paths. Temporary fixture trees remove
 themselves; source/manifests/results and the small current resource deliverables
 remain. No production Builder/test change was justified by these passes.
 
-## Final integration dependency
+## Final integrated qualification
 
-The source classification above is initial, before the separate AOT lane's
-exact support for new native confirmation transpilers and generated-reader
-closure drift. Requalify the final integrated source manifest after that lane
-lands; a changed Weaver input must remain an ordinary compact native-code input.
-No broad alias or unknown producer normalization is authorized. The complete
-integrated gate and actual Android managed/AOT binding remain the integrator's
-responsibility. CPU/source/serialized-resource validation establishes no Quest
-headset image, GPU behavior, frame pacing or hardware acceptance.
+`quest754-classification-final` freshly executes against the clean integrated
+root `44b23e9f1fd83dfabf5f3f32f83f3ceb55116c3b`, after the AOT lane lands.
+All13 causal controls and the unchanged754 warm baseline pass in3.85 seconds
+including process/cleanup. The additional control mutates a real Weaver native
+adapter; every source control also changes the actual native producer roster.
+The full roster contains4,250 files /2,254,891,816 bytes;87 fresh source rows
+require7,363,833 bytes of hashing. The consumed compact closure is1,454 files /
+60,423,522 bytes. Source/manifest hashes remain in `classification-final/`.
+
+The five genuine additional compiler inputs are
+`CurrentModCompatibility.cs`, `Discovery.cs`, `MenuDepthCompatibility.cs`,
+`NativeConfirmationBoundary.cs` and `Weaver.cs`, all under `tools/QuestWeaver/`.
+Their native transpiler support and exact generated-reader adaptation are not
+normalized away. The compiler recipe above describes unchanged orchestration;
+the changed native producer roster independently requires a newly compiled
+matched code/metadata pair. Its actual compilation duration is not measured by
+this CPU-only update qualification.
+
+All original-game/art/media producer identities and both resource recipes still
+equal published B743. The final candidate retains the complete same54 menu and
+53 Sky producer input rows, so the initial exact Android-pair validation remains
+bound to those unchanged resources. The final native-code update does not need
+shader compilation, Sky repacking or original Campaign/art reconversion.
+
+The196 focused tests above describe the initial containing-module invocation.
+They are not re-labelled as fresh final integrated coverage; the former B743
+1,926-case Builder proof is not claimed unchanged across new Weaver sources.
+The integrator runs the complete final local gate against all current production
+and fixture inputs. The final classifier process was reaped and its cleanup
+receipt records zero removed caches and zero skipped paths. No production
+Builder/test repair or compatibility alias was introduced in this lane.
+
+The final source classifier, initial focused modules and serialized-resource
+proof establish no Quest headset image, GPU behavior, frame pacing or hardware
+acceptance. Actual Android managed/AOT evidence belongs to its separate lane;
+complete integration and any later hardware acceptance remain separate gates.
