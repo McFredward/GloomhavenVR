@@ -1,10 +1,11 @@
 # Planning index
 
-Updated2026-10-31: Quest754 rebases onto the maintainer-approved published1.2.3
-(Build753) while preserving Android adapters and minimal updates. Validation is
-in progress; no new hardware acceptance is inferred. Future Quest rebases still
-require explicit maintainer approval. The upstream release and its exact native
-character creation/input/window repairs remain the source of shared behavior.
+Updated2026-10-31: Quest754 integrates the explicitly approved published1.2.3
+with exact Android confirmation/reader adaptations and reusable existing content.
+Complete aggregate296scope coverage,306,739goldens and strict/resource checks are
+recorded with the two repaired fixture failures. This is source delivery on the
+Quest feature branch; Windows builds/updates. Headset acceptance remains open.
+Future rebases still require the maintainer's explicit go.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

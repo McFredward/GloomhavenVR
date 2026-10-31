@@ -1,17 +1,35 @@
-**Quest754 rebase onto published1.2.3, 2026-10-31 — validation in progress.**
+**Quest754 on published1.2.3, 2026-10-31 — validated for feature delivery.**
 
-The maintainer explicitly approves exact `v1.2.3/b87477f8a` (Build753). The
-actual consolidated Quest delta is rebased from finalized742 onto that tag;
-public743 ancestry is retained for a normal non-force feature push. Package
-version1.2.3 and the release's naming/quest preview, input and shared window
-repairs are included with existing Quest adapters. Build754 is reserved. This
-approval does not permit future automatic rebases or alter dev/main.
+The maintainer explicitly approves exactv1.2.3/b87477f8a (upstream753), and the
+actual consolidated Quest delta is rebased onto that release. Public743 ancestry
+is retained for a normal non-force feature push; dev/main stay untouched. Package
+version1.2.3/QuestBuild754 includes the accepted naming/quest preview and shared
+input/window fixes. Further rebases still require another explicit maintainer go.
 
-Class C integration: complete local/source/golden guard plus strict and actual
-Android/AOT checks; independent minimal-update and source parity qualification.
-No local APK/ZIP and no new hardware acceptance claim. Preserve unchanged game
-and resource data wherever qualified; cleanup follows every owned test run.
-See QUEST-V1.2.3-INTEGRATION.md and ignored quest-v1.2.3-rebase-20261031 evidence.
+Two Android/AOT adaptations preserve the new native confirmation transpilers and
+readonly closure112. Audit701hooks/zero gates; actual weave434targets/seven
+protected originals; menu37/14,containing900,current1,010. Exact Android resource
+pairs remain reusable; final classification is compact-code,87changed inputs,
+60,423,522-byte compiler snapshot. Code/metadata must be regenerated, while
+original game/art/audio/movie/Story producers remain unchanged from Quest743.
+
+ClassC full invocation:294PASS/2fixtureFAIL over296 local scopes in4,280.4s;
+source16/16PASS,13,796 initial tracked inputs stable. Complete bounded laser
+continuation passes23variants/290assertions/19controls; complete installer
+continuation711tests/710PASS/one existing optional skip with23PowerShell checks.
+Both actual JVM signal races are reproduced and repaired only in the fixture;
+production storage guards remain exact. This closes complete aggregate296scope
+coverage, not a new successful single full invocation. Builder1,926tests retains
+11optional skips. Fresh actual wire executable306,739 assertions; bundle/surface
+pass670/276/4,841 with no removals. Strict Debug/Release/metadata0W0E.
+
+Compiled scope:54source-backed runtime types,29added,12exact build/version-only
+files and one exact upstream capacity constant; no removal/unexplained delta.
+All1,840 strict inputs remain exact after the two fixture-only repairs. Evidence
+and failures remain separate; own workers/caches are retired after verified
+archival. No local delivery APK/ZIP or new HMD/native Player acceptance. See
+QUEST-V1.2.3-INTEGRATION.md and the dedicated AOT/parity/update reports. Windows
+builds the next hardware test through the existing feature builder/update flow.
 
 **Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
 
