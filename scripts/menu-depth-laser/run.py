@@ -39,6 +39,7 @@ def main():
         'MenuDepthDisplay.cs','MenuDepthHeadRaster.cs','MenuDepthHeadCarrier.cs','MenuDepthNativeUiScope.cs',
         'MenuDepthHeightfield.cs','MenuDepthGraphic.cs','MenuDepthCardPlane.cs','MenuDepthCharacterSource.cs','MenuDepthCharacterProjection.cs']
     paths=[code/name for name in names]+[ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',
+        ROOT/'src/GloomhavenVR/Core/QuestTextureCopy.cs',
         ROOT/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs',ROOT/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs',
         ROOT/'src/GloomhavenVR/Hands/HoverHaptics.cs',ROOT/'src/GloomhavenVR/Hands/Interact/IPokeable.cs']
     sources={p.name:p.read_text()for p in paths}
