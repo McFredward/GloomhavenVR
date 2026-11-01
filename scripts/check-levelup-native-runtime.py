@@ -59,6 +59,7 @@ def main():
     parser.add_argument('--case', action='append')
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
+    parser.add_argument('--confirmation-placement-only', action='store_true', help='Run only original cropped/root/nested confirmation placement; requires explicit --case selection.')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
@@ -277,6 +278,13 @@ def main():
         if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
         cases.append((name,{key:originals[key].replace(before,after)},expected))
     changes = [
+        ('confirmation-cropped-owner-root', 'ConfirmationOnOwner.cs',
+         'Vector3 mountCenter = ReferenceEquals(seat.Mount, seat.Panel.Target)\n                ? seat.Panel.HostRect.position : seat.Mount.position;',
+         'Vector3 mountCenter = seat.Mount.position;',
+         'whole-window confirmation final pixels stay on fitted visible owner'),
+        ('confirmation-cropped-owner-scale', 'ConfirmationOnOwner.cs',
+         'host.localScale = seat.Mount.lossyScale;', 'host.localScale = seat.Panel.HostRect.lossyScale;',
+         'root and nested confirmations preserve exact accepted visible owner pose through drag and resize'),
         ('card-list-opener-waits-for-open', 'CardListEntry.cs', '&& button.gameObject.activeSelf && reset != null', '&& button.gameObject.activeSelf && reset != null && reset.inventory.GetComponent<UIWindow>().IsOpen', 'native closed-list opener is reachable inside converted character Cards tab before list opens'),
         ('card-list-caption-not-clickable', 'CardListEntry.cs', '_caption.raycastTarget = true;', '_caption.raycastTarget = false;', 'native graphic raycast hits More Cards caption'),
         ('card-list-caption-language-stale', 'CardListEntry.cs', 'Loc.OnChanged += RefreshCaption;', '/* language change subscription omitted */', 'native card-list caption follows German language switch'),
@@ -349,6 +357,9 @@ def main():
         cases.append((name, {file: originals[file].replace(before, after)}, expected))
     if args.card_list_only and (not args.case or any(name != 'production' and not name.startswith('card-list-') for name in args.case)):
         parser.error('--card-list-only requires explicit production/card-list case selection')
+    if args.confirmation_placement_only and (args.card_list_only or args.narrative_only or not args.case
+            or any(name != 'production' and not name.startswith('confirmation-cropped-owner-') for name in args.case)):
+        parser.error('--confirmation-placement-only requires explicit production/confirmation-cropped-owner case selection')
     if args.narrative_only:
         if args.card_list_only: parser.error('Narrative and card-list subsets are separate scopes')
         cases = [case for case in cases if case[0].startswith('narrative-')]
@@ -373,7 +384,7 @@ def main():
         result = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(fixture / 'export_inputs.py'), str(root), str(inputs)], capture_output=True, text=True)
         (run / 'native-export.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCroppedConfirmation754' if args.confirmation_placement_only else 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
         hashes = {}
         for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs', root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()

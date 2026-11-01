@@ -105,7 +105,12 @@ internal sealed class UIPerksInventory:MonoBehaviour { private void OnSelectedPe
 internal sealed class UIPartyItemInventoryDisplay:MonoBehaviour { private void OnItemSelected() { } }
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour { private void OnSelectedCharacter() { } }
 internal sealed class UIOptionsWindow:MonoBehaviour { private void AskLogOut() { } }
-internal sealed class ESCMenu:MonoBehaviour { private void LoadMainMenu() { }private void ExitGame() { } }
+internal sealed class ESCMenu:MonoBehaviour
+{
+    internal UIConfirmationBoxManager? Manager=null;
+    private void LoadMainMenu() { Manager?.ShowGenericConfirmation(); }
+    private void ExitGame() { Manager?.ShowGenericConfirmation(); }
+}
 internal sealed class UIMapEscMenu:MonoBehaviour { private void TurnOffTutorial() { } }
 internal sealed class UIMultiplayerEscSubmenu:MonoBehaviour { private void ShowConfirmationBoxToEndSession() { } }
 internal sealed class UIScenarioEscMenu:MonoBehaviour
