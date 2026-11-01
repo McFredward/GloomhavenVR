@@ -1,3 +1,32 @@
+**Update prompt depth against main-menu chrome, Build755, 2026-11-01.**
+
+The update canvas stayed at sorting order zero while the main-menu rod uses
+its owner's foreground offset. The farther depth-writing rod could therefore
+overpaint the nearer prompt. SelfUpdateDialog now registers its actual physical
+frame with the existing standalone panel-order ladder after placement and
+unregisters on close/replacement. Geometry, authored transparency, materials,
+native input, callbacks and shared ordering code stay unchanged. No fixed top tier.
+
+ClassB, one behavior type. Focused actual Unity/uGUI/TMP and original Overlay
+shader proof passes23 assertions and2 compiling controls: nearer prompt covers
+far rod in Choice/Progress/Done; nearer rod/solid hand remain visible; real button
+hit/click, close/replacement/reopen and exact lease retirement work. The original
+96% background alpha remains; this does not make a translucent panel opaque.
+Native menu bootstrap, real hand geometry and headset/D3D11 are not certified.
+Two initial fixture failures selected a deferred-destroy old root or raycast an
+undrawn replacement; exact opening identity and first actual draw repair only
+the fixture. Passing old-order control is reused, not repeated.
+
+Portable lifecycle15 assertions/2 controls pass; strict actual Debug/Release
+0W0E18.19/18.08s and source16/16PASS19.8s. Compiled scope is only SelfUpdateDialog
+plus11 exact build/branch identities;32 resources exact754. Private comparison's
+adjacent XML docs and short commit display mismatches are retained tooling
+attempts, corrected without assembly changes. All1768 strict inputs bind; only
+dialog/stamp differ from754. Inherit754/753 and qualified750 full268/306739 for
+unchanged systems; no complete-gate rerun or new golden/headset claim. Evidence
+under ignored update-depth755; canonical cleanup and verified proof archives
+precede worktree retirement. Push dev755 only; no local ZIP or release.
+
 **Reported four-player turn stall / fitted confirmations, Build754, 2026-11-01.**
 
 Compared tagged1.2.1/721 through1.2.3/753 and current dev.97 relevant turn,
