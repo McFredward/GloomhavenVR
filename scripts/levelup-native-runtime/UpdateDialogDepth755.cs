@@ -65,10 +65,17 @@ public static partial class LevelUpNativeProgram
             dialog.ShowChoice("Update available","A newer release is ready.","Ignore","Update",()=>ignore++,()=>update++);
             root=UpdateRoot755(dialog);
             Canvas.ForceUpdateCanvases();
+            // Unity assigns Graphic.depth during the actual camera pass. Exercise
+            // the replacement's first drawn frame before requesting a real hit.
+            var buttonFrame=Capture(eye,Path.Combine(output,"update-replacement.png"));Object.DestroyImmediate(buttonFrame);
             var button=root.transform.Find("Update").GetComponent<Button>();
             var pointer=new PointerEventData(EventSystem.current){position=eye.WorldToScreenPoint(button.transform.position)};
             var hits=new System.Collections.Generic.List<RaycastResult>();
             root.GetComponent<GraphicRaycaster>().Raycast(pointer,hits);
+            File.WriteAllText(Path.Combine(output,"button-hit755.txt"),
+                "root="+root.GetInstanceID()+" active="+root.activeInHierarchy+" canvas="+root.GetComponent<Canvas>().isActiveAndEnabled
+                +" position="+pointer.position+" world="+button.transform.position+" depth="+button.GetComponent<Image>().depth
+                +" camera="+eye.pixelRect+" nativeScreen="+Screen.width+","+Screen.height+" hits="+hits.Count+"\n");
             Check(hits.Exists(hit=>hit.gameObject==button.gameObject||hit.gameObject.transform.IsChildOf(button.transform)),
                 "real update button remains a graphic ray target after ordering enrollment");
             ExecuteEvents.Execute(button.gameObject,pointer,ExecuteEvents.pointerClickHandler);
