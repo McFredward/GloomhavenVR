@@ -39,7 +39,7 @@ public static partial class LevelUpNativeProgram
             // the reported later overlay renderer against the complete real
             // update canvas. Rod geometry and placement are surrounding inputs;
             // shader/depth, production UI and actual ordering execute unchanged.
-            var root=GameObject.Find("GloomhavenVR.SelfUpdateDialog");
+            var root=UpdateRoot755(dialog);
             var canvas=root.GetComponent<Canvas>();
             Check(root!=null&&canvas!=null,"whole production update prompt creates its original canvas");
             for(int mode=0;mode<3;mode++)
@@ -63,10 +63,12 @@ public static partial class LevelUpNativeProgram
             }
             Check(update==0&&ignore==0&&close==0,"rendering update modes never invokes user decisions");
             dialog.ShowChoice("Update available","A newer release is ready.","Ignore","Update",()=>ignore++,()=>update++);
-            var button=GameObject.Find("GloomhavenVR.SelfUpdateDialog").transform.Find("Update").GetComponent<Button>();
+            root=UpdateRoot755(dialog);
+            Canvas.ForceUpdateCanvases();
+            var button=root.transform.Find("Update").GetComponent<Button>();
             var pointer=new PointerEventData(EventSystem.current){position=eye.WorldToScreenPoint(button.transform.position)};
             var hits=new System.Collections.Generic.List<RaycastResult>();
-            root=GameObject.Find("GloomhavenVR.SelfUpdateDialog");root.GetComponent<GraphicRaycaster>().Raycast(pointer,hits);
+            root.GetComponent<GraphicRaycaster>().Raycast(pointer,hits);
             Check(hits.Exists(hit=>hit.gameObject==button.gameObject||hit.gameObject.transform.IsChildOf(button.transform)),
                 "real update button remains a graphic ray target after ordering enrollment");
             ExecuteEvents.Execute(button.gameObject,pointer,ExecuteEvents.pointerClickHandler);
@@ -100,4 +102,7 @@ public static partial class LevelUpNativeProgram
             {Color p=image.GetPixel(x,y);if(p.r<.15f&&p.g>.65f&&p.b>.65f)count++;}
         return count;
     }
+
+    private static GameObject UpdateRoot755(SelfUpdateDialog dialog)=>(GameObject)typeof(SelfUpdateDialog)
+        .GetField("_root",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(dialog)!;
 }
