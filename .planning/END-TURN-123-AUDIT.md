@@ -132,3 +132,52 @@ changed and no runtime suite/build claim is made. Checked 97 source identities,
 decompilations; reviewed the affected lifecycle/patch callers and final document.
 No generated Unity project, build cache or live test process was created.
 Hardware failure remains unverified and the turn issue remains unexplained.
+
+## Independent confirmation repair delivered in Build754
+
+Commit `e8751cc799bda95a79b135a3592ec7c696d8ed7f`, after 1.2.1, introduced
+explicit ESC producer ownership. A whole-window prompt then inherited the
+full-screen native root's origin. The original scenario ESC menu is a 368-pixel
+left column on a 1920-pixel root: settled content fitting displaces that root by
+776 pixels from the physical visible frame. The confirmation consequently appears
+beside its owner. This is a concrete regression matching the separate exit-menu
+symptom; no reporter log establishes its exact historical pose.
+
+`ConfirmationOnOwner.Apply` now centers only a whole-window producer's prompt at
+its fitted `HostRect.position`. The native mount still supplies depth, scale and
+rotation. Nested producer origins, original callbacks, persistence, modal consent
+and network authority are unchanged. No end-turn behavior is repaired or bypassed.
+
+Class B: bounded position correction. The existing native Unity fixture now uses
+the original scenario column profile and original confirmation layout, sprites
+and font. It passes 61 assertions across Main Menu, Exit Game and nested producer
+routes, three drag/scale/rotation frames, final pixels, ray hits, explicit button
+clicks and restoration. Two compiling controls reject the old displaced root and
+replacement of the native scale. The first scale-control run failed because a
+stronger geometry oracle reported before the expected pixel message; only that
+expected marker changed, and only that control was repeated. Native bootstrap
+and full conversion allocation remain declared fixture ports, not headset proof.
+
+Containing consumer validation: 383 portable assertions/29 controls and 228
+native lifecycle assertions/29 controls pass. Initial portable compilation needed
+the existing translation-only Transform port to expose `TransformVector`; the
+real Unity fixture owns its matrix proof. The containing portable suite was then
+repeated; the passing native consumer was not. Strict real-reference Debug and
+Release builds have zero warnings/errors. Source coverage is 15 passing checks
+plus the remaining enum check repeated after a build-cleanup file-read race;
+the original failed invocation is retained. This is aggregate 16-check coverage,
+not a new successful complete invocation.
+
+The normalized compiled review changes one behavior type (`ConfirmationOnOwner`)
+and only existing build/version/branch identities elsewhere; all 32 embedded
+resources match published753. Current dev already advanced the project version
+to 1.2.4 after the 1.2.3 release. Qualified750 aggregate268/306739 and753 immutable
+closure evidence cover unchanged systems; no complete runtime rerun or new wire
+golden result is claimed. Runtime source, fixture and actual native dependency
+pins bind the focused final candidate. The two fresh containing suites take
+264.3 and103.6 seconds; strict Debug/Release take18.35/19.93 seconds. Generated
+caches are removed through the standard completion API and all failed evidence
+is retained under the main checkout's ignored `debug/report123*` evidence.
+
+No four-player scenario replay, Windows/D3D11 headset picture or end-turn fix is
+claimed. The original user incident still needs the evidence described above.

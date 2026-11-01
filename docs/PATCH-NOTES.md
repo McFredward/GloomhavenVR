@@ -26,6 +26,20 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build754: confirmations on cropped native windows
+
+The existing confirmation-producer hooks retain their original targets and
+callbacks. Only `ConfirmationOnOwner.Apply` changes: a prompt owned by the entire
+converted window uses its fitted visible host's center. The native full-screen
+source root can be displaced by content fitting, notably the scenario ESC menu's
+left-hand column. Its old origin incorrectly placed Main Menu / Exit prompts
+beside the visible window. Original producer depth, scale, rotation, nested
+subwindow positions and persistent-home restoration stay intact.
+
+This is a presentation repair, not a workaround for the separately reported
+end-turn stall. No gameplay continuation or network acknowledgment is generated.
+See [the source audit](../.planning/END-TURN-123-AUDIT.md).
+
 ## Build747: complete native More Cards previews
 
 WorldUI registers `MenuDepthFurtherAbilityHoverObserver` on the original

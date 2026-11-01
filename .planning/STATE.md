@@ -1,3 +1,32 @@
+**Reported four-player turn stall / fitted confirmations, Build754, 2026-11-01.**
+
+Compared tagged1.2.1/721 through1.2.3/753 and current dev.97 relevant turn,
+board/card/transport files are exact across four revisions; three fresh native
+decompilations match the installed references. Yellow initiative can persist at
+local animation/effect/queue readiness or host participant-ACK barriers. No user
+logs/save were supplied: no source-proven turn cause, gameplay repair, synthetic
+ACK or forced continuation. See END-TURN-123-AUDIT.md for exact sources and the
+host/all-peer log evidence needed to distinguish these states.
+
+Found a separate post1.2.1 confirmation-placement regression: ESC's original
+368px left column is fitted into a compact VR frame, shifting its full1920px
+root776px away from that frame. Whole-window confirmations used that hidden
+origin. Center them on the fitted physical host while retaining native depth,
+scale, rotation, nested origins, callbacks and persistent restoration.
+
+ClassB, one behavior type. Actual Unity/native-widget/final-pixel61 assertions
+and2 compiling controls; containing portable383/29 and native228/29 pass.
+Strict actual Debug/Release0W0E18.35/19.93s. Source15PASS plus enum-onlyPASS
+after an obj-read/build-cleanup race; the failed invocation remains failed.
+Portable containing rerun repairs only a missing vector-transform boundary port;
+native worker repeats only a mismatched control failure marker. No full repeated
+gate. Compiled scope is one behavior type plus explicit existing build/version/
+branch identities;32 embedded resources exact753. Inherit qualified750 full268/
+306739 and753 unchanged input-bound closures. Product config/log/patch surfaces
+remain670/4839/267; bilingual guides pass. Proof and failed attempts retained in
+ignored debug/report123*; own generated caches cleaned and worker proof archived.
+Push dev754 only; no ZIP/release or historical incident/headset acceptance claim.
+
 **Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
 
 The maintainer requests a hotfix and a link to the 1.2.2 release notes. The initially
