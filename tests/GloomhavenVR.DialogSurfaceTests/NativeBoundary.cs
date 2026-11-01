@@ -150,6 +150,9 @@ namespace UnityEngine
         internal Quaternion rotation { get => localRotation; set => localRotation=value; }
         internal Vector3 lossyScale => localScale;
         internal Vector3 TransformPoint(Vector3 point) => point + localPosition;
+        // This lifecycle port models translation only; real scale/rotation and
+        // final placement pixels are exercised by levelup-native-runtime.
+        internal Vector3 TransformVector(Vector3 vector) => vector;
         internal void SetPositionAndRotation(Vector3 point,Quaternion facing) { position=point;rotation=facing; }
         internal Vector3 forward => new(0,0,1);
         internal Vector3 localPosition;
