@@ -632,7 +632,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 753;
+    public const ushort ModBuild = 754;
+
+    // ModBuild754 — keep confirmations inside fitted native owner windows.
+    // The 1.2.3 multiplayer report combines a stalled turn with off-screen
+    // Main Menu/Exit Game confirmations. Since Build742 these prompts belong
+    // to their original ESC producer, whose full-screen root can be shifted
+    // away from its compact visible VR frame. Seat root-owned prompts at that
+    // frame without changing native scale, callbacks, nested producer ownership
+    // or consent. The separate turn stall remains unproven without peer logs:
+    // compared turn/board/transport paths retain their 1.2.1 behavior. Never
+    // bypass native end-of-turn presentation or participant acknowledgements.
 
     // ModBuild753 — useful naming-page character size beside the keyboard.
     // Hardware review accepts752's quest page but the narrow naming strip
