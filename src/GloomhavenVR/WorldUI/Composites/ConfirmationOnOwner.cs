@@ -280,7 +280,16 @@ internal static partial class ConfirmationOnOwner
             RectTransform host = seat.PersistentMember.HostRect;
             // Native pixels, not head distance/zoom. Its pose follows only the accepted
             // owner matrix, including manual drag/resize; a coplanar source would z-fight.
-            host.SetPositionAndRotation(seat.Mount.TransformPoint(new Vector3(0f, 0f, -32f)), seat.Mount.rotation);
+            // A whole-window producer's fitted host is its visible center. The
+            // native full-screen Target can be far away after content fitting:
+            // the ESC menu's authored 368px column sits at its left edge. Using
+            // Target's origin sent Main Menu / Exit prompts beside the visible
+            // menu. Keep the original native depth, rotation and scale (including
+            // fixed-fit scaling); only the root producer's center changes. Nested
+            // source windows retain their exact original native mount unchanged.
+            Vector3 mountCenter = ReferenceEquals(seat.Mount, seat.Panel.Target)
+                ? seat.Panel.HostRect.position : seat.Mount.position;
+            host.SetPositionAndRotation(mountCenter + seat.Mount.TransformVector(new Vector3(0f, 0f, -32f)), seat.Mount.rotation);
             host.localScale = seat.Mount.lossyScale;
             if (seat.PersistentMember.HostRaycaster != null)
                 seat.PersistentMember.HostRaycaster.enabled = true;
