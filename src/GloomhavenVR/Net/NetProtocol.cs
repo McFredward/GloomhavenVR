@@ -632,7 +632,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 754;
+    public const ushort ModBuild = 755;
+
+    // ModBuild755 — update prompts participate in ordinary world-window depth.
+    // The standalone update canvas stayed at sorting order zero while the main
+    // menu grab bar drew in its owner's foreground slot, overpainting the nearer
+    // prompt. Register the actual dialog frame in the existing standalone panel
+    // order ladder after placement, and unregister it on close/replacement.
+    // Keep existing window geometry, materials, input, update callbacks and the
+    // shared ordering implementation; no new always-on-top tier or wire change.
 
     // ModBuild754 — keep confirmations inside fitted native owner windows.
     // The 1.2.3 multiplayer report combines a stalled turn with off-screen

@@ -48,6 +48,13 @@ internal static class Program
 
         Check(dialog.IsShowing, "Release result builds and shows the update prompt");
         Check(dialog.Mode == SelfUpdateDialogMode.Choice, "New prompt starts in choice mode");
+        Check(CanvasConversion.Ordered.Count == 1,
+            "Update prompt joins the existing complete world-window draw-order slot");
+        var ordered = CanvasConversion.Ordered.Single();
+        Check(ReferenceEquals(ordered.Target, ordered.HostRect)
+            && ReferenceEquals(ordered.HostGo, ordered.HostCanvas.gameObject)
+            && ordered.HostRect.sizeDelta.x == 660f && ordered.HostRect.sizeDelta.y == 560f,
+            "Ordering uses the update dialog's actual canvas and complete physical frame");
         foreach (string name in new[] { "Progress", "Track", "Fill" })
         {
             GameObject node = GameObject.All.Single(candidate => candidate.name == name);
@@ -62,5 +69,17 @@ internal static class Program
         Check(updated == 0, "Prompt construction does not invoke the update callback");
         dialog.Close();
         Check(!dialog.IsShowing, "Prompt closes after the regression path completes");
+        Check(CanvasConversion.Ordered.Count == 0, "Closing the update prompt retires its exact draw-order slot");
+        dialog.ShowChoice("Update available", "Again", "Ignore", "Update", () => ignored++, () => updated++);
+        dialog.ShowChoice("Update available", "Replacement", "Ignore", "Update", () => ignored++, () => updated++);
+        Check(CanvasConversion.Ordered.Count == 1,
+            "Replacing an update prompt cannot accumulate stale ordering owners");
+        dialog.ShowDone("Finished", "Close", () => ignored++);
+        Check(CanvasConversion.Ordered.Count == 1 && dialog.Mode == SelfUpdateDialogMode.Done,
+            "Final message retains the same original ordered canvas");
+        dialog.Close();
+        dialog.Close();
+        Check(CanvasConversion.Ordered.Count == 0 && updated == 0,
+            "Repeated close is idempotent and never starts an update");
     }
 }

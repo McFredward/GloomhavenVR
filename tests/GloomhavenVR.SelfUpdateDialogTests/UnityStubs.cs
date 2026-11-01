@@ -161,7 +161,19 @@ namespace GloomhavenVR.Hands.Interact
 
 namespace GloomhavenVR.WorldUI
 {
-    internal static class CanvasConversion { internal static UnityEngine.Camera? WorldCamera => null; }
+    internal sealed class ConvertedPanel
+    {
+        internal UnityEngine.RectTransform Target = null!, HostRect = null!;
+        internal UnityEngine.GameObject HostGo = null!;
+        internal UnityEngine.Canvas HostCanvas = null!;
+    }
+    internal static class CanvasConversion
+    {
+        internal static UnityEngine.Camera? WorldCamera => null;
+        internal static readonly List<ConvertedPanel> Ordered = new();
+        internal static void RegisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Add(panel);
+        internal static void UnregisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Remove(panel);
+    }
     internal static class PanelLayout { internal static float WorldScale => 1f; }
     internal static class PanelPlacement
     {
