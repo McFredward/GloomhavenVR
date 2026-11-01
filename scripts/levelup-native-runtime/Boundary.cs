@@ -138,12 +138,15 @@ namespace GloomhavenVR.Core
     }
     internal static class PerfMonitor {internal readonly struct Noop:IDisposable{public void Dispose(){}}internal static Noop Scope(string name)=>default;internal static void Count(string name,int count){}}
     internal static class UnseenTileOrder {internal static void Tick(Vector3 eye){}}
-    internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){}internal static void Note(string area,string message){} }
+    internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){}internal static void Note(string area,string message){}internal static void Error(string area,string message){} }
 }
 namespace GloomhavenVR.Core.Events {
     internal static class MenuWorldContext { internal static bool IsReady=false; }
 internal static class VRModeStateMachine {internal static bool TableInFrontOfPlayer=true;} }
-namespace GloomhavenVR.Hands.Interact {internal sealed class PokeSurfaceTuning {internal static readonly PokeSurfaceTuning SmallDialog=new();} }
+namespace GloomhavenVR.Hands.Interact {
+    internal sealed class PokeSurfaceTuning {internal static readonly PokeSurfaceTuning SmallDialog=new();}
+    internal static class UguiPokeSurfaces {internal static void Register(Canvas canvas){}internal static void Unregister(Canvas canvas){}}
+}
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     internal static class GuildmasterDestinations
@@ -176,6 +179,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool ConversionActive=true;
         internal static FixtureSetting<bool> Dialogs=new(true),NeutraliseGrabPassBlur=new(true);
         internal static FixtureSetting<float> PanelMipLodOffset=new(0f);
+        internal static FixtureSetting<float> CanvasScaleMm=new(1f);
     }
     internal static class WindowMaterialise {internal static void DropPreRoll(ConvertedPanel panel,string why){} internal static void Cancel(ConvertedPanel panel,string why){}}
     internal static class TownServicePresentation
@@ -230,7 +234,19 @@ namespace GloomhavenVR.WorldUI
         internal static void BindConfirmationMember(ConvertedPanel owner,ConvertedPanel member)
         { ConfirmationBindings745.Add(new Binding745{Owner=owner,Member=member,Position=member.HostRect.position,Scale=member.HostRect.lossyScale,Rotation=member.HostRect.rotation}); }
     }
-    internal static class MrBacking {internal static void SyncPlateOrders(){}}
+    internal static class MrBacking {internal static void SyncPlateOrders(){}internal static void Opacify(Graphic graphic){}}
+    // Existing placement/font/session boundaries; no ordering or renderer port.
+    internal static class PanelPlacement
+    {
+        internal static void Spawn(Camera head,float scale,out Vector3 position,out Quaternion rotation)
+        {position=new Vector3(0,0,2);rotation=Quaternion.identity;}
+        internal static void ClampIntoView(Camera head,float scale,ref Vector3 position,out Quaternion rotation)=>rotation=Quaternion.identity;
+    }
+    internal static class WorldUIAssets
+    {
+        internal static TMPro.TMP_FontAsset? Font755=null;
+        internal static void TryAssignGameFont(TMPro.TMP_Text text){if(Font755!=null)text.font=Font755;}
+    }
     internal static partial class CanvasConversion
     {
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;

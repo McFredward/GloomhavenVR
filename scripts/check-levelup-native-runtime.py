@@ -38,6 +38,7 @@ FILES = {
     'DialogSurface.cs': 'Surfaces/DialogSurface.cs',
     'PanelGraphicMaterial.cs': 'Sharpness/PanelGraphicMaterial.cs',
     'NarrativeBackdrop.cs': 'Modal/NarrativeBackdrop.cs',
+    'SelfUpdateDialog.cs': 'SelfUpdateDialog.cs',
 }
 
 
@@ -60,6 +61,7 @@ def main():
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
     parser.add_argument('--confirmation-placement-only', action='store_true', help='Run only original cropped/root/nested confirmation placement; requires explicit --case selection.')
+    parser.add_argument('--update-dialog-only', action='store_true', help='Run only update dialog ordering/pixel coverage; requires explicit --case selection.')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
@@ -141,7 +143,7 @@ def main():
         'internal static void TickOriginal(RectTransform host)=>ApplyPose(host);internal static void UnparkOriginal()=>Unpark("native test hand-back");'
         + '\n'.join(story_methods)+painted+'}}')
     order_source=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.8.Order.cs').read_text()
-    order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)')]
+    order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)', 'internal static void RegisterStandalonePanelOrder(', 'internal static void UnregisterStandalonePanelOrder(')]
     for name in ('PanelOrderBase','PanelOrderStep','PanelOrderMaxRank','OrderSwapMarginMeters','OrderSwapStableFrames'):
         declaration=re.findall(r'(?:private|internal) const (?:int|float) '+name+r'\s*=\s*[^;]+;',order_source)
         if len(declaration)!=1:raise RuntimeError('Ordering constant binding drift: '+name)
@@ -153,8 +155,10 @@ def main():
         'private static void TickFurnitureOrder(Vector3 eye){}private static void BuildSeenThroughLadder(Vector3 eye){}private static void LogPanelOrder(){}'
         'private static void CheckFollowerOffset(int offset,string name,bool allowBehind){}'
         'internal static void ResetOrder739(){foreach(var p in ActivePanels){p.OrderListed=false;p.OrderSwapPeer=null;p.OrderSwapStreak=0;}OrderedPanels.Clear();}'
+        'internal static int StandaloneCount755=>StandaloneOrderPanels.Count;'
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
+    cases.append(('update-dialog-production', {}, ''))
     cases.append(('narrative-production', {}, ''))
     cases.append(('narrative-early-production', {}, ''))
     narrative_controls = [
@@ -278,6 +282,12 @@ def main():
         if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
         cases.append((name,{key:originals[key].replace(before,after)},expected))
     changes = [
+        ('update-dialog-order-omitted', 'SelfUpdateDialog.cs',
+         'CanvasConversion.RegisterStandalonePanelOrder(_orderPanel);', '/* original order-zero dialog */',
+         'nearer update dialog conceals the farther overlay rod in final pixels'),
+        ('update-dialog-release-omitted', 'SelfUpdateDialog.cs',
+         'CanvasConversion.UnregisterStandalonePanelOrder(_orderPanel);', '/* stale standalone registration */',
+         'closing update prompt removes its exact standalone ordering lease'),
         ('confirmation-cropped-owner-root', 'ConfirmationOnOwner.cs',
          'Vector3 mountCenter = ReferenceEquals(seat.Mount, seat.Panel.Target)\n                ? seat.Panel.HostRect.position : seat.Mount.position;',
          'Vector3 mountCenter = seat.Mount.position;',
@@ -360,6 +370,9 @@ def main():
     if args.confirmation_placement_only and (args.card_list_only or args.narrative_only or not args.case
             or any(name != 'production' and not name.startswith('confirmation-cropped-owner-') for name in args.case)):
         parser.error('--confirmation-placement-only requires explicit production/confirmation-cropped-owner case selection')
+    if args.update_dialog_only and (args.card_list_only or args.narrative_only or args.confirmation_placement_only or not args.case
+            or any(not name.startswith('update-dialog-') for name in args.case)):
+        parser.error('--update-dialog-only requires explicit update-dialog case selection')
     if args.narrative_only:
         if args.card_list_only: parser.error('Narrative and card-list subsets are separate scopes')
         cases = [case for case in cases if case[0].startswith('narrative-')]
@@ -430,10 +443,14 @@ def main():
                     if item.name != dll.name: shutil.copyfile(item, runtime / item.name)
                 manifest['harmony'] = str(runtime / '0Harmony.dll')
             manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected,
-                'entry': 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
+                'entry': 'RunUpdateDialog755' if name.startswith('update-dialog-') else 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
         for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)
+        overlay = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
+        shutil.copyfile(overlay, project / 'Assets/Resources/Overlay755.shader')
+        hashes[str(overlay)] = hashlib.sha256(overlay.read_bytes()).hexdigest()
+        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case or args.narrative_only or args.card_list_only else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         for name in ('Unity.TextMeshPro.dll', 'UnityEngine.UI.dll'): shutil.copyfile(managed / name, project / 'Assets/Plugins' / name)
         shaders = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars'
         source = (shaders / 'ActorBarSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarSDF"', 'Shader "TextMeshPro/Distance Field"', 1)
