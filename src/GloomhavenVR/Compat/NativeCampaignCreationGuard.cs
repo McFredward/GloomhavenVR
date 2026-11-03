@@ -191,7 +191,11 @@ internal static class NativeCampaignCreationGuard
         [HarmonyFinalizer]
         internal static void Finalizer(OriginState __state)
         {
-            if (__state.Entered) _commandOwner = __state.Previous;
+            // Read the copied value through an ordinary local: Harmony's analyzer
+            // otherwise misclassifies readonly __state field reads as writes to
+            // a non-ref patch parameter. The finalizer never changes __state.
+            OriginState scope = __state;
+            if (scope.Entered) _commandOwner = scope.Previous;
         }
     }
 

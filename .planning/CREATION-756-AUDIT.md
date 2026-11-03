@@ -115,3 +115,26 @@ a command versus inside a peer command). The fixture assertion order was repaire
 and the complete containing replay and ten compiling controls passed. That failed
 invocation is preserved, not relabeled. No full integration gate was repeated by
 the worker. Live Bolt and headset outcomes remain unverified.
+
+## Repository analyzer follow-up
+
+The union Debug build rejected the finalizer's direct reads of readonly
+`__state.Entered` and `__state.Previous` as Harmony003 writes to a non-ref patch
+parameter. The prefix already assigned its complete out-state once; no state
+field was being mutated. Copying the finalizer's by-value state into an ordinary
+local before reading its fields satisfies the analyzer without suppressing it,
+changing the patch signature, modifying native exceptions or changing behavior.
+
+The earlier isolated net472 class compile included actual game/Harmony type
+references but omitted the repository's BepInEx.Analyzers package. Its0W0E result
+proves reference compatibility, not acceptance by all production analyzers. The
+new actual `scripts/ci-build.sh Debug` builds both complete real projects with
+those analyzers:0 warnings/errors in15.95s. The containing native replay remains
+68 assertions/ten compiling causal controls on the final body. Full union
+validation remains the integrator's responsibility.
+
+Build output movie copies exceeded the canonical report-retention bound. Their
+22 hashes were checked against the unchanged original Assets/Movies files before
+removing only the896,738,250 duplicate output bytes. The original source media,
+executed plugin/preloader DLLs, build log, source snapshots and copy manifest are
+preserved. Canonical cache cleanup then completed with no skips.
