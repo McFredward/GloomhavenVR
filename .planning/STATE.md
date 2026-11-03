@@ -1,3 +1,38 @@
+**Initiative planes / inert held-info copies, Build757, 2026-11-04.**
+
+After756 delivery, inspected current GitHub#24/#27 original media and shared753
+client logs. The real production coordinator plus original LeanTween IL exposes
+foreign world-X writes before the first adopted LateTick and a changed-row latch
+which preserves corruptedZ after Unity's XY-only layout. Capture native origins
+at conversion, preserve a clean latch when a batch already exists, use original
+layout destinations/entry planes and apply the plan in its first visible frame.
+Ordinary rising-edge and Abort-before-batch paths are covered; actor order,
+native slide curve, board pose and nested portrait depth remain unchanged.
+
+Independently, held figure/prop static copies previously removed singleton
+controllers but could retain ordinary Popup→UIWindow dependencies. Remove clone
+logic in dependency order while inactive; reject remaining unknown logic before
+conversion and latch refusal to the held/source generation. Original UI,
+singletons, registry, scroll offset, text/image/material identities and final
+witness pixels remain. No gameplay, network ACK or rule-engine change.
+
+ClassB inherits fresh qualified756 checkpoint271/306739. New row1029/7,
+binding146/7 and static-copy64/5 actual Unity assertions/controls pass; final
+inputs bind to the merged source and immutable native exports. Earlier fixture
+setup/order/black-render failures remain recorded. Strict Release/Debug0W0E
+15.39/13.38s, source16/16PASS64.22s, scheduler19PASS/two expected skips2.07s.
+Compiled scope: four behavior types, nine exact build literals only; no new/lost
+types,32resources exact. Surface670/274/4846 unchanged. No repeated full gate or
+new golden claim. See ISSUES-24-27-757-REVIEW.md and both worker reviews.
+
+Issue27 has no demonstrated turn cause: all52 recorded ready callbacks and
+83ability/36turn/3round barriers complete. VideoRound11 is not matched to logs
+Resume14/new1–4 or to the reported leave/rejoin recoveries. The separate static
+copy hole does not establish a fix for that stall. Matching affected-run evidence
+is still needed; no headset/Photon result is inferred. Own worktrees/caches are
+retired only after SHA-verified archival; hardware inputs/pins and other agents'
+trees remain. Dev only, no release or local ZIP.
+
 **Paired753 creation and multiplayer progression review, Build756, 2026-11-03.**
 
 The repeated new-character command reused a provisional local actor outside the

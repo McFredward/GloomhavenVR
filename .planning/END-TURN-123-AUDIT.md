@@ -1,6 +1,39 @@
 # Reported multiplayer End Turn stall after 1.2.3
 
-2026-11-01. Source audit, not a reproduced hardware failure.
+## Follow-up with the reporter's attachments, 2026-11-03
+
+The absence-of-logs description below records the original November1 intake;
+the reporter has now attached one client's Build753 Player/BepInEx logs and a
+13.6s video. Original files and per-file SHA256 manifests are preserved under
+ignored debug/github-issues-20261103/hardware/capture-220837Z. The ZIP/log bytes
+attached to initiative issue24 are identical, not a second independent client.
+
+The video shows Round11 without an originating click or leave/rejoin recovery.
+The logs contain resumed Round14 ending successfully, then a new scenario's
+Rounds1–4 followed by explicit MainMenu quit. They have not been matched to the
+filmed game start. All52 captured ReadyButton callbacks reach their delayed
+action, including15 EndTurn→Pass calls. All83 end-ability,36 end-turn and three
+end-round synchronization cycles finish. There is no captured uncompleted ACK
+or lost delayed callback justifying a rule/turn/permission bypass.
+
+The reporter's control-transfer recovery does not identify one cause: native
+OnControllableOwnershipChanged also transfers ActionProcessor state, hides
+popups, cancels dialog choices and refreshes ownership-sensitive action controls.
+A pending choice could recover that way independently of synchronization.
+
+Two separate source defects are distinguished from this unproven cause. The
+off-space ESC confirmations were fixed in754. Static figure/prop info copies
+can retain ordinary native controllers because StripLogicComponents only removes
+singleton scripts before trying UIWindow once; that old safety gap is being
+reproduced and repaired independently. Neither static-copy creation marker
+occurs in these logs, and the relevant clone sources are unchanged721→753.
+See ISSUES-24-27-757-REVIEW.md and the worker's ISSUE27-FOLLOWUP.md for final
+source/causal evidence and delivery limits. No claim is made that this repairs
+the reported unrecorded stall.
+
+## Original source audit, 2026-11-01
+
+Source audit, not a reproduced hardware failure.
 
 ## Finding and limits
 
