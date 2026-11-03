@@ -30,6 +30,7 @@ public static class InitiativeRowChecks
         internal readonly RectTransform Holder;
         internal readonly InitiativeTrackSurface Surface = new();
         internal readonly Camera Camera;
+        internal int BatchCreatedFrame = -1;
         private readonly Material ink;
         private GameObject? backdrop;
         internal Scene(int count, float scale = 1.93f)
@@ -55,7 +56,7 @@ public static class InitiativeRowChecks
             Track.contentSizeFitter.horizontalFit = Track.contentSizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             ink = new Material(Shader.Find("GloomhavenVR/Overlay")); ink.color = Color.white;
             ink.SetInt("_ZWrite", 0); ink.SetInt("_ZTest", 4); ink.SetInt("_Cull", 0);
-            for (int i = 0; i < count; i++) Add(count - i);
+            for (int i = 0; i < count; i++) Add(i + 1);
             NativeLayout();
             foreach (var entry in Entries) HomeY[entry.transform] = entry.transform.localPosition.y;
             Choreographer.s_Choreographer = new Choreographer();
@@ -97,11 +98,12 @@ public static class InitiativeRowChecks
             var host = Surface.Current!;
             host.HostCanvas.worldCamera = Camera;
             var center = host.HostTransform.position;
-            Camera.transform.SetPositionAndRotation(center - host.HostTransform.forward * Board.lossyScale.x * .6f,
-                Quaternion.LookRotation(host.HostTransform.forward, host.HostTransform.up));
+            var headOffset = (-host.HostTransform.forward * .6f + host.HostTransform.right * .14f) * Board.lossyScale.x;
+            Camera.transform.SetPositionAndRotation(center + headOffset,
+                Quaternion.LookRotation(-headOffset, host.HostTransform.up));
             backdrop = GameObject.CreatePrimitive(PrimitiveType.Quad); Owned.Add(backdrop);
             backdrop.name = "IndependentEntryPlaneWitness"; backdrop.transform.SetParent(host.HostTransform, false);
-            backdrop.transform.localPosition = new Vector3(0, 0, 2);
+            backdrop.transform.localPosition = new Vector3(0, 0, -9);
             backdrop.transform.localScale = new Vector3(2400, 1000, 1);
             var blue = new Material(Shader.Find("Unlit/Color")); blue.color = Color.blue;
             backdrop.GetComponent<Renderer>().sharedMaterial = blue;
@@ -127,6 +129,20 @@ public static class InitiativeRowChecks
             foreach (var entry in Track.actorsUI)
                 Track.moveXAnimations.Add(LeanTween.moveX(entry.gameObject, locations[locations.Length - 1 - i++],
                     Track.trackReorderDuration).setEase(LeanTweenType.easeOutQuad));
+        }
+        internal void ScheduleNativeBatch()
+        {
+            BatchCreatedFrame = -1;
+            Track.isAnimating = true;
+            Track.layoutGroup!.enabled = Track.contentSizeFitter!.enabled = false;
+            // Explicit EOF phase port: Unity does not service WaitForEndOfFrame in
+            // Editor batchmode. The source-bound native coroutine:258–287 produces
+            // this batch after the preceding coordinator LateTick. The next real
+            // frame executes original LeanTween IL before the following LateTick.
+            NativeBatch();
+            BatchCreatedFrame = Time.frameCount;
+            File.AppendAllText(Path.Combine(evidence, "native-schedule.txt"),
+                "source-bound EOF phase port at frame " + BatchCreatedFrame + "\n");
         }
         internal Dictionary<Transform, float> LayoutOracle()
         {
@@ -203,6 +219,8 @@ public static class InitiativeRowChecks
     {
         evidence = output; Assertions = 0; VRLog.Lines.Clear();
         if (scenario == "cold") { var cold = Cold(); while (cold.MoveNext()) yield return cold.Current; yield break; }
+        if (scenario == "idle" || scenario == "abort")
+        { var idle = Idle(scenario == "abort"); while (idle.MoveNext()) yield return idle.Current; yield break; }
         var changed = Changed(scenario == "remove", scenario == "paused");
         while (changed.MoveNext()) yield return changed.Current;
     }
@@ -211,20 +229,27 @@ public static class InitiativeRowChecks
     {
         using var scene = new Scene(4);
         scene.Convert(); scene.Track.isAnimating = true; scene.Tick();
-        scene.NativeBatch(); yield return null; scene.Tick();
+        scene.ScheduleNativeBatch();
+        var native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
+        scene.Tick();
         Check(scene.Surface.Sliding, "actual production slide adopts the first native tween batch");
         yield return null; scene.Tick();
         scene.Track.isAnimating = false; scene.Track.moveXAnimations.Clear();
         yield return null; scene.Tick();
-        if (remove) scene.Remove(scene.Entries[1]); else scene.Add(9);
-        scene.Track.isAnimating = true;
-        yield return null; scene.Tick();
         var from = scene.Entries.ToDictionary(entry => entry.transform, entry => entry.transform.localPosition.x);
-        scene.NativeBatch(); var destinations = scene.LayoutOracle();
-        // No coordinator runs between native world-X production and its next real Update.
-        yield return null;
+        // New card initiatives reorder the still-visible original cohort. A second
+        // identical sort would correctly create no foreign movement and no witness.
+        foreach (var entry in scene.Track.actorsUI) entry.Order = 10 - entry.Order;
+        scene.ScheduleNativeBatch();
+        native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
         float foreign = scene.Entries.Max(entry => Mathf.Abs(entry.transform.localPosition.z));
         Check(foreign > 2, "actual native LeanTween world-X IL produced measurable foreign localZ before changed-row takeover");
+        // Choreographer.Update→ProcessMessage→NormalizeActorsPool can run after the
+        // native tween Update and before our LateTick; it does not retire that batch.
+        if (remove) scene.Remove(scene.Entries[1]); else scene.Add(9);
+        File.AppendAllText(Path.Combine(evidence, "native-schedule.txt"),
+            "native first Update and pool mutation before coordinator Late frame " + Time.frameCount + "\n");
+        var destinations = scene.LayoutOracle();
         scene.Tick();
         Check(VRLog.Lines.Any(line => line.Contains("CHANGED ROW")) || !scene.Surface.Sliding,
             "the changed-entry-set production branch is reached");
@@ -244,8 +269,6 @@ public static class InitiativeRowChecks
             foreach (var entry in scene.Entries)
             {
                 if (!from.TryGetValue(entry.transform, out float start)) continue;
-                // Newly inserted entries have no old-row travel; the production branch seats them.
-                if (entry.Order == 9) start = destinations[entry.transform];
                 float want = LeanTween.easeOutQuad(start, destinations[entry.transform], t);
                 Check(Mathf.Abs(entry.transform.localPosition.x - want) < 2,
                     "actual native easeOutQuad waveform and full duration survive row-plane repair");
@@ -270,11 +293,14 @@ public static class InitiativeRowChecks
     private static IEnumerator Cold()
     {
         using var scene = new Scene(4);
-        scene.Track.isAnimating = true; scene.NativeBatch();
+        scene.ScheduleNativeBatch();
+        var native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
         var before = scene.Entries.ToDictionary(entry => entry.transform, entry => entry.transform.localPosition);
         scene.Convert();
+        var destinations = scene.LayoutOracle();
         // Adoption is complete, but the first real native Update precedes the first surface LateTick.
         yield return null;
+        LeanTween.update();
         Check(scene.Entries.Any(entry => Mathf.Abs(entry.transform.localPosition.z) > 2),
             "cold conversion witnesses the actual native world-X write in the new VR frame");
         scene.Tick();
@@ -282,6 +308,31 @@ public static class InitiativeRowChecks
         foreach (var entry in scene.Entries)
             Check(Mathf.Abs(entry.transform.localPosition.y - before[entry.transform].y) < .1f,
                 "cold conversion retains native pre-foreign row Y instead of latching the first leaked pose");
+        Check(scene.Surface.Sliding, "cold conversion retains the already-running native reorder");
+        float began = Time.unscaledTime;
+        int samples = 0;
+        while (scene.Surface.Sliding)
+        {
+            yield return null; scene.Tick(); samples++;
+            float t = Mathf.Clamp01((Time.unscaledTime - began) / scene.Track.trackReorderDuration);
+            foreach (var entry in scene.Entries)
+            {
+                float want = LeanTween.easeOutQuad(before[entry.transform].x, destinations[entry.transform], t);
+                Check(Mathf.Abs(entry.transform.localPosition.x - want) < 2,
+                    "cold adoption keeps native layout destinations and easeOutQuad from captured origins");
+            }
+            if (Time.unscaledTime - began > 2) throw new Exception("cold slide did not terminate");
+        }
+        Check(samples >= 3 && Time.unscaledTime - began >= scene.Track.trackReorderDuration - .035f,
+            "cold adoption plays the full native duration instead of skipping an already-moving row");
+        scene.PlaneAndPixels("cold-completed");
+        scene.Track.isAnimating = false; scene.Track.moveXAnimations.Clear();
+        yield return null; scene.Tick();
+        foreach (var entry in scene.Track.actorsUI) entry.Order = 10 - entry.Order;
+        scene.ScheduleNativeBatch();
+        native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
+        scene.Tick();
+        Check(scene.Surface.Sliding, "lifecycle witness owns an actual in-flight native row plan");
         scene.Surface.Shutdown();
         Check(!scene.Surface.Sliding, "release retires the real slide before native home restoration");
         Check(scene.Track.transform.parent == scene.NativeHome, "native target returns to its exact original home");
@@ -289,5 +340,51 @@ public static class InitiativeRowChecks
         scene.Track.isAnimating = false; scene.Track.moveXAnimations.Clear();
         scene.NativeLayout(); scene.Convert(); yield return null; scene.Tick();
         scene.PlaneAndPixels("cold-reopened");
+    }
+
+    private static IEnumerator ThroughNativeUpdate(Scene scene)
+    {
+        do { yield return null; }
+        while (scene.BatchCreatedFrame < 0 || Time.frameCount <= scene.BatchCreatedFrame);
+        // This is the exact method called by the original LeanTween.Update. Its
+        // native frameRendered guard prevents a second step if Unity already called it.
+        LeanTween.update();
+        Check(Time.frameCount > scene.BatchCreatedFrame, "native first Update follows the source-bound EOF phase port frame");
+    }
+
+    private static IEnumerator Idle(bool abortFirst)
+    {
+        using var scene = new Scene(4);
+        scene.Convert();
+        // A complete native/production slide leaves a known clean idle latch.
+        scene.Track.isAnimating = true; scene.Tick(); scene.ScheduleNativeBatch();
+        var native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
+        scene.Tick();
+        if (abortFirst)
+        {
+            scene.Track.isAnimating = false; scene.Track.moveXAnimations.Clear();
+            scene.Add(9);
+            yield return null; scene.Tick();
+            Check(!scene.Surface.Sliding, "native pool change without a new batch retires the obsolete plan");
+            yield return null; Canvas.ForceUpdateCanvases();
+        }
+        else
+        {
+            float deadline = Time.unscaledTime + 2;
+            while (scene.Surface.Sliding && Time.unscaledTime < deadline)
+            { yield return null; scene.Tick(); }
+            scene.Track.isAnimating = false; scene.Track.moveXAnimations.Clear();
+            yield return null; scene.Tick(); Canvas.ForceUpdateCanvases();
+        }
+        scene.Track.actorsUI.Reverse();
+        foreach (var entry in scene.Track.actorsUI) entry.Order = 10 - entry.Order;
+        // Flag and batch start after the previous coordinator pass. Next observation
+        // therefore contains both the rising flag and the already-integrated native step.
+        scene.ScheduleNativeBatch();
+        native = ThroughNativeUpdate(scene); while (native.MoveNext()) yield return native.Current;
+        Check(scene.Entries.Any(entry => Mathf.Abs(entry.transform.localPosition.z) > 2),
+            "ordinary late-observed native batch supplies a causal out-of-plane witness");
+        scene.Tick();
+        scene.PlaneAndPixels(abortFirst ? "after-abort" : "idle-rising");
     }
 }

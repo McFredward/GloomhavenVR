@@ -134,6 +134,7 @@ namespace GloomhavenVR.WorldUI.Surfaces
     {
         internal bool Active;
         internal InitiativeTrack? Last;
+        internal void Prime(InitiativeTrack? track) => Last = track;
         internal void Tick(InitiativeTrack? track) => Last = track;
         internal void Abort(string reason) { Active = false; Last = null; }
     }

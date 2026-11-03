@@ -13,6 +13,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from town_run_retention import cleanup_completed_run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +56,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=out))
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     status = 1
+    started = time.monotonic()
     env = dict(os.environ)
     own_adb = not env.get('ADB_SERVER_SOCKET')
     if own_adb:
@@ -100,11 +102,22 @@ def main():
                      ('production-remove', 'remove', None, None, None, ''),
                      ('production-paused', 'paused', None, None, None, ''),
                      ('production-cold', 'cold', None, None, None, ''),
+                     ('production-idle', 'idle', None, None, None, ''),
+                     ('production-abort', 'abort', None, None, None, ''),
                      ('old-changed', 'changed', 'InitiativeReorderSlide.cs',
                       '        RestoreEntryPlanes(track, holder);', '',
                       'native entry plane and final pixels restored after changed-add'),
                      ('old-cold', 'cold', 'Coordinator.cs', '        _slide.Prime(_convertedTrack);', '',
                       'native entry plane and final pixels restored after cold-conversion'),
+                     ('unsafe-rising', 'idle', 'InitiativeReorderSlide.cs',
+                      'if (!Active && pending == 0)', 'if (!Active)',
+                      'native entry plane and final pixels restored after idle-rising'),
+                     ('missing-abort-prime', 'abort', 'InitiativeReorderSlide.cs',
+                      '                PrimeAfterMembershipChange(track, holder);', '',
+                      'native entry plane and final pixels restored after after-abort'),
+                     ('missing-first-frame', 'idle', 'InitiativeReorderSlide.cs',
+                      '            entry.localPosition = new Vector3(rest.X, rest.Y, rest.Z);', '',
+                      'native entry plane and final pixels restored after idle-rising'),
                      ('linear-waveform', 'changed', 'InitiativeReorderSlide.cs',
                       'float e = done ? 1f : 1f - (1f - t) * (1f - t);', 'float e = t;',
                       'actual native easeOutQuad waveform and full duration survive row-plane repair'),
@@ -115,6 +128,9 @@ def main():
             cases = [case for case in cases if case[0] in args.case]
         unity = Path('/home/claw/unity-2021.3.5/Editor/Unity')
         managed = root / 'ressources/GH_Data/Managed'
+        native_roots = run / 'original-entry-roots.json'
+        assert execute([str(Path.home() / 'unitypy-venv/bin/python'), str(fixture / 'export-native.py'),
+                        str(managed.parent), str(native_roots)], run / 'native-export.log') == 0, 'Original native entry geometry changed'
         project = run / 'unity-project'
         for folder in ['Assets/Editor', 'Assets/Plugins', 'Assets/Resources', 'ProjectSettings', 'Packages']:
             (project / folder).mkdir(parents=True)
@@ -150,8 +166,10 @@ def main():
                                      'com.unity.modules.imageconversion']}}))
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         pins = [table_path, *paths, Path(__file__), *fixture.rglob('*.cs'), fixture / 'Row.csproj',
+                fixture / 'export-native.py', native_roots,
                 overlay, *[managed / name for name in native], unity,
                 root / 'decompiled/GH.Runtime/InitiativeTrack.cs',
+                root / 'decompiled/GH.Runtime/Choreographer.cs',
                 root / 'tests/mr-backing-depth-runtime/NativeInitiativeGeometry.json']
         (run / 'source-pins.json').write_text(json.dumps({str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                                                         for path in pins}, indent=2) + '\n')
@@ -166,7 +184,7 @@ def main():
         assert code == 0, 'Actual Unity proof failed: ' + str(run)
         assert result.count('PASS negative control ') == sum(bool(case[-1]) for case in cases), 'Missing causal control'
         assert result.count('PASS production-') == sum(not case[-1] for case in cases), 'Missing production case'
-        (run / 'limits.txt').write_text(__doc__ + '\nExact production slide, surface Tick/LateTick/OnConverted/Release, fit-hold and depth normalization execute. Canvas host acquisition, mip/popup/pin/Chronos-diagnostic bootstrap and native actor/phase data are declared ports; original LeanTween IL, actual Unity layout/clocks/uGUI/Overlay pixels are real. Historical screenshot/save/Photon/headset trigger remains unverified.\n')
+        (run / 'limits.txt').write_text(__doc__ + '\nExact production slide, surface Tick/LateTick/OnConverted/Release, fit-hold and depth normalization execute. Canvas host acquisition, mip/popup/pin/Chronos-diagnostic bootstrap and native actor/phase data are declared ports. Editor batchmode does not support WaitForEndOfFrame: an explicit source-bound EOF phase port precedes the next real native Update. Original LeanTween IL, actual Unity layout/clocks/uGUI/Overlay pixels are real. Historical screenshot/save/Photon/headset trigger remains unverified.\n')
         status = 0
     finally:
         if own_adb:
@@ -176,6 +194,7 @@ def main():
                 (run / 'adb-cleanup.log').write_text(result.stdout + result.stderr)
         receipt = cleanup_completed_run('initiative-row-runtime', status, completion, ROOT, process_reaped=True)
         (run / 'cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        (run / 'elapsed-validation.json').write_text(json.dumps({'seconds': time.monotonic() - started, 'exit_code': status}, indent=2) + '\n')
 
 
 if __name__ == '__main__':

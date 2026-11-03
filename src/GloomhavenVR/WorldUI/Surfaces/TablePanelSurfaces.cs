@@ -1641,6 +1641,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     protected override void OnConverted()
     {
         _convertedTrack = Panel != null ? Panel.Target.GetComponent<InitiativeTrack>() : null;
+        _slide.Prime(_convertedTrack);
         if (Panel != null && InitiativeTrack.Instance != null)
             Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;
 

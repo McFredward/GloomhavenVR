@@ -59,7 +59,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool TryGetPose(PanelSlot slot, out Vector3 position, out Quaternion rotation)
         { position = new Vector3(0, 1, 2); rotation = Quaternion.identity; return true; }
     }
-    internal sealed class FloatValue { internal float Value = 10; }
+    internal sealed class FloatValue { internal float Value = 15; }
     internal static class WorldUIConfig
     {
         internal static bool ConversionActive = true;
