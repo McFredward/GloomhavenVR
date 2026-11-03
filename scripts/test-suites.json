@@ -3362,6 +3362,17 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "initiative-row-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-row-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
     }
   ]
 }
