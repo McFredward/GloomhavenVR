@@ -111,14 +111,7 @@ internal sealed class WorldGrab : MonoBehaviour
     private void Update()
     {
         Transform? rig = RigTarget.Current;
-        // A menu/map/scenario transition replaces the rig and its base scale.
-        // Never apply an old gesture's anchors to that new coordinate system, or
-        // persist its scale divided by a different scene's base on release.
-        if (!ReferenceEquals(rig, _gestureRig))
-        {
-            Disengage(null);
-            _gestureRig = rig;
-        }
+        TrackRig(rig);
         VRMode mode = VRModeStateMachine.CurrentMode;
         // Boot/intro keep their fixed tracked vantage. Build742 admits the actual ready
         // world menu; its independent window does not follow a world drag or scale.
@@ -447,6 +440,18 @@ internal sealed class WorldGrab : MonoBehaviour
     /// <summary>Horizontal heading of a tracking-space direction, degrees.</summary>
     private static float HeadingDegrees(Vector3 dir) =>
         Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+
+    private void TrackRig(Transform? rig)
+    {
+        // A menu/map/scenario transition replaces the rig and its base scale.
+        // Never apply an old gesture's anchors to that new coordinate system, or
+        // persist its scale divided by a different scene's base on release.
+        if (!ReferenceEquals(rig, _gestureRig))
+        {
+            Disengage(null);
+            _gestureRig = rig;
+        }
+    }
 
     private void Disengage(Transform? rig)
     {

@@ -44,7 +44,9 @@ internal static class SharedWindowMoves
         int local = NetPlayerActors.LocalPlayerId();
         if (_local != local) { Reset(); _local = local; }
         SharedWindowMoveRegister register = Registers[(int)kind] ??= new SharedWindowMoveRegister(local, (byte)kind);
-        if (kind is SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
+        if (kind == SharedWindowKind.ScenarioStory)
+            register.SetAutomaticAuthor(SharedWindowSpawnAuthority.AuthorId, Time.unscaledTime);
+        else if (kind is SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
             register.SetAutomaticAuthor(RemoteMapStory.SharedReflowAuthor(), Time.unscaledTime);
         return register;
     }
@@ -140,7 +142,9 @@ internal static class SharedWindowMoves
         foreach (SharedWindowMoveEntry row in order.Entries)
         {
             var kind = (SharedWindowKind)row.Kind;
-            if (row.Phase == SharedWindowMovePhase.Automatic && sender != RemoteMapStory.SharedReflowAuthor()) continue;
+            if (row.Phase == SharedWindowMovePhase.Automatic && sender !=
+                (kind == SharedWindowKind.ScenarioStory ? SharedWindowSpawnAuthority.AuthorId
+                    : RemoteMapStory.SharedReflowAuthor())) continue;
             if (!HasMatchingPose(in presence, kind, row.ContentKey)) continue;
             SharedWindowMoveEntry? previous = peer.Rows[row.Kind];
             if (previous.HasValue && previous.Value.SameOpening(in row)

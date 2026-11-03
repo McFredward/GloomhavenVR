@@ -169,6 +169,13 @@ The build-526 hardware clarification fixes the newly opened window at its spawn 
 older, visibly overlapping windows may move. Transparent host/hit areas are not visual overlap;
 a free quest-popup gaze centre takes precedence over the legacy beside-quest-log preference.
 
+The user's 2026-11-03 Build753 report adds a narrow safety exception: an open
+progression-critical map/scenario story that remains far outside the measured
+playfield for three seconds may be restored in front of the common placement
+author. Yield to every local/remote grip, publish the same corrected pose to all
+participants, and never confirm, dismiss or alter its native content. Ordinary
+windows and in-bounds stories retain their fixed pose.
+
 The user's 2026-09-17 tutorial clarification restores the original task-specific hands/controller
 choice and animated transitions. Card handling and physical fingertip tasks show hands; key
 lessons show controllers. Both tracked sides must remain represented by either a hand or a

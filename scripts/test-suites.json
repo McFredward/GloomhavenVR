@@ -3329,6 +3329,39 @@
         "local"
       ],
       "weight": 2
+    },
+    {
+      "id": "campaign-creation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-campaign-creation-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "initiative-popup-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-popup-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "multiplayer-progression-runtime",
+      "command": [
+        "python3",
+        "scripts/check-multiplayer-progression-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

@@ -144,6 +144,14 @@ def main():
         sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
             'internal static partial class ModalFallback {\n'+room+'\n}')
         variants = [
+            ('scenario-auto-author-missing', 'Moves.cs',
+             'register.SetAutomaticAuthor(SharedWindowSpawnAuthority.AuthorId, Time.unscaledTime);',
+             'register.SetAutomaticAuthor(0, Time.unscaledTime);',
+             'scenario recovery author can claim after the actual peer release'),
+            ('scenario-auto-observer-map-only', 'Moves.cs',
+             '(kind == SharedWindowKind.ScenarioStory ? SharedWindowSpawnAuthority.AuthorId\n                    : RemoteMapStory.SharedReflowAuthor())',
+             'RemoteMapStory.SharedReflowAuthor()',
+             'scenario recovery automatic pose reaches every original resolver'),
             ('production', '', '', '', ''),
             ('initial-hint-before-validation', 'MoveRegister.cs',
              '        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',

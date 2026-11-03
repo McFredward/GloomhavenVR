@@ -851,10 +851,15 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         bool arrival = newScenario || _priorKind != RigKind.Scenario;
         float savedZoom = ComfortSettings.ClampedSavedMultiplier;
         float arrivalZoom = ScenarioArrivalScale.Resolve(savedZoom, Defaults.SavedScaleMultiplier, arrival);
-        if (arrivalZoom != savedZoom)
+        if (arrivalZoom != savedZoom && !_scenarioStart.RestorePending)
+        {
+            // Commit the safe arrival as the new remembered size too. Otherwise
+            // a later camera/rig rebuild would silently re-import the same outlier.
+            ComfortSettings.PersistScaleMultiplier(arrivalZoom);
             VRLog.Note("Rig", $"SCENARIO ARRIVAL ZOOM: saved {savedZoom:F3}x is outside the "
                 + $"readable arrival range; using {arrivalZoom:F3}x for this arrival. "
-                + "Saved zoom and deliberate live zoom limits are unchanged.");
+                + "Remembered zoom corrected; deliberate live zoom limits are unchanged.");
+        }
         // Ordinary entries use saved zoom; an explicit Retry restores the original arrival scale.
         float scale = _scenarioStart.RestorePending
             ? _scenarioStart.Pose.Scale

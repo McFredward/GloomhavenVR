@@ -106,6 +106,7 @@ internal static class MoveOrderPairs
     }
     internal static void Run()
     {
+        ScenarioRecovery();
         InitialClockGuards();
         for(int schedule=0;schedule<6;schedule++)
         {
@@ -253,6 +254,14 @@ internal static class MoveOrderPairs
         internal void Grab(RigPose pose)
         {Do(()=>{Proof.Check(SharedWindowMoves.Active&&SharedWindowInteractionBridge.CanBegin!(_kind),"active "+_kind+" admits its actual local claim");
             SharedWindowInteractionBridge.Began!(_kind);var grab=SharedWindows.Grabs[_kind];grab.IsGrabbed=true;grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;});}
+        internal bool Recover(RigPose pose)
+        {
+            bool allowed=false;
+            Do(()=>{allowed=SharedWindowMoves.BeginAutomatic(_kind);if(!allowed)return;
+                var grab=SharedWindows.Grabs[_kind];grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;
+                SharedWindowInteractionBridge.Released!(_kind);});
+            return allowed;
+        }
         internal void Move(RigPose pose){Do(()=>{var grab=SharedWindows.Grabs[_kind];grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;});}
         internal void Drop(){Do(()=>{SharedWindows.Grabs[_kind].IsGrabbed=false;SharedWindowInteractionBridge.Released!(_kind);});}
         internal void Settle(){Do(()=>{Time.unscaledTime+=.3f;Time.frameCount+=3;Apply();});}
@@ -268,6 +277,28 @@ internal static class MoveOrderPairs
             SharedWindows.Grabs[_kind].IsGrabbed=false;Produce();Time.frameCount+=3;Produce();});}
 
 
+    }
+    private static void ScenarioRecovery()
+    {
+        var host=new ActiveNode(1,SharedWindowKind.ScenarioStory);
+        var peer=new ActiveNode(2,SharedWindowKind.ScenarioStory);
+        var initial=host.Publish();peer.Receive(1,initial);peer.Settle();
+        var seat=new RigPose{Position=new Vector3(4,9,-3),Rotation=Quaternion.Euler(0,47,0)};
+        Proof.Check(!peer.Recover(seat),"scenario recovery has only the elected initial author");
+        peer.Grab(Proof.HandPose);host.Receive(2,peer.Publish());
+        Proof.Check(!host.Recover(seat),"scenario recovery yields to the actual remote held claim");
+        peer.Drop();var oldRelease=peer.Publish();host.Receive(2,oldRelease);
+        Proof.Check(host.Recover(seat),"scenario recovery author can claim after the actual peer release");
+        var rescue=host.Publish();
+        Proof.Check(rescue.WindowMoves!.TryGet(1,RemoteStorySync.HashDialog(RemoteStorySync.CurrentBox!.dialogs),out var row)
+            &&row.Phase==SharedWindowMovePhase.Automatic,"scenario rescue emits an actual automatic companion");
+        peer.Receive(1,rescue);peer.Settle();host.Settle();
+        Proof.Check(Proof.Same(host.Pose().Position,peer.Pose().Position)&&Proof.Same(seat.Position,peer.Pose().Position)
+            &&Proof.Same(seat.Rotation,peer.Pose().Rotation),"scenario recovery automatic pose reaches every original resolver");
+        peer.Receive(2,oldRelease);peer.Settle();
+        Proof.Check(Proof.Same(seat.Position,peer.Pose().Position),"an earlier release cannot undo shared story recovery");
+        peer.Grab(Proof.HostPose);host.Receive(2,peer.Publish());host.Settle();peer.Settle();
+        Proof.Check(Proof.Same(host.Pose().Position,peer.Pose().Position),"genuine manual movement remains available after rescue");
     }
     private static void ActiveAllKinds()
     {

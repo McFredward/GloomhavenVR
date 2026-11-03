@@ -18,7 +18,17 @@ internal static partial class ModalFallback
         bool online = SharedWindows.SessionIsOnline();
         bool author = !online || SharedWindowSpawnBridge.IsInitialAuthor;
         Camera? head = CanvasConversion.WorldCamera;
-        if (head == null) return;
+        bool anyEligible = false;
+        foreach (WindowPanel wp in Converted)
+        {
+            SharedWindowKind kind = SharedWindows.KindOf(wp.Window);
+            if (kind is not (SharedWindowKind.ScenarioStory or SharedWindowKind.MapStory)) continue;
+            if (head != null && StoryRecoveryEligible(wp, author)) anyEligible = true;
+            else wp.StoryRecovery.Tick(false, false, false, now);
+        }
+        // A tile footprint is an O(tiles) engine-boundary walk. Do no such work
+        // during ordinary scenario play, on observers or for hidden/held stories.
+        if (!anyEligible || head == null) return;
         float reference = SharedWindowSize.ReferenceWorldScale;
         Bounds playfield;
         if (MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float mapScale))
@@ -33,8 +43,7 @@ internal static partial class ModalFallback
         {
             SharedWindowKind kind = SharedWindows.KindOf(wp.Window);
             if (kind is not (SharedWindowKind.ScenarioStory or SharedWindowKind.MapStory)) continue;
-            bool eligible = author && wp.Window != null && wp.Window.IsOpen && ReflowVisible(wp)
-                && wp.Grab != null && !wp.Grab.IsGrabbed;
+            bool eligible = StoryRecoveryEligible(wp, author);
             Vector3 old = wp.Panel.HostGo != null ? wp.Panel.HostGo.transform.position : Vector3.zero;
             bool far = playfield.SqrDistance(old) > reference * reference * 4f;
             bool changed = (old - wp.StoryRecoverySeat).sqrMagnitude > reference * reference * 0.0001f;
@@ -63,4 +72,8 @@ internal static partial class ModalFallback
             finally { if (online) SharedWindowInteractionBridge.Released?.Invoke(kind); }
         }
     }
+
+    private static bool StoryRecoveryEligible(WindowPanel wp, bool author) => author
+        && wp.Window != null && wp.Window.IsOpen && ReflowVisible(wp)
+        && wp.Grab != null && !wp.Grab.IsGrabbed;
 }

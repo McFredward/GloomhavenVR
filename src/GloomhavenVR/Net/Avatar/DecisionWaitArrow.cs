@@ -21,6 +21,7 @@ internal sealed class DecisionWaitArrow
             Part("Stem", new Vector2(0.006f, 0.035f), new Vector3(0f, 0.0175f, 0f), 0f);
             Part("Left", new Vector2(0.006f, 0.025f), new Vector3(-0.008f, 0.004f, 0f), 45f);
             Part("Right", new Vector2(0.006f, 0.025f), new Vector3(0.008f, 0.004f, 0f), -45f);
+            Core.VRLayers.Apply(_root);
         }
         _root!.SetActive(true);
         float bounce = (1f + Mathf.Sin(Time.unscaledTime * Mathf.PI * 2f / 1.5f)) * 0.005f;

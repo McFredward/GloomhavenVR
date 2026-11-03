@@ -4698,6 +4698,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
     private void DestroyAllAvatars()
     {
+        _decisionWait.Tick(0, 0, 0f);
+        _delayedDecisionPlayer = 0;
+        _nextDecisionWait = 0f;
         _pendingAnimations.Clear();
         ResetNativePresentation();
         _lastAnimationSnapshot = null;

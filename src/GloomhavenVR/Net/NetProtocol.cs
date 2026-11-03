@@ -632,7 +632,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 755;
+    public const ushort ModBuild = 756;
+
+    // ModBuild756 — paired753 campaign creation and progression presentation review.
+    // Repeated provisional creation reused different quest rolls on creator and
+    // observer. Retain the original local result within the exact native command
+    // origin/save/player/class/name context; no RNG rewrite or synthetic action.
+    // Native perk summary pool cells wholly outside their own original frame
+    // are clipped for capture only; valid summaries and actual hover remain.
+    // Starting-card views yield only the creation preview; quest ready badges
+    // follow original tab/confirm eligibility. Pooled depth helpers are rebound,
+    // not added twice. Enemy initiative info uses physical depth, current board
+    // order and the actual portrait seat; remote activated cards wait for the
+    // complete native burn/source departure and their arrival flight.
+    // New scenario arrivals normalize extreme remembered zoom; a rig replacement
+    // retires stale world-grab anchors. The maintainer explicitly permits an open
+    // progression story to be recovered after three seconds far outside the
+    // measured playfield: one author, manual grips win, existing shared pose
+    // channel, no native continuation. No ordinary window recall is added.
+    // Insufficient hand cards quietly accent available rest controls locally
+    // and remotely. One proven pending decision/readiness owner gets a delayed
+    // head-tag arrow; ordinary optional-use bars never imply blocked progress.
+    // Existing native/presentation records supply these cues; wire stays v3.
 
     // ModBuild755 — update prompts participate in ordinary world-window depth.
     // The standalone update canvas stayed at sorting order zero while the main
