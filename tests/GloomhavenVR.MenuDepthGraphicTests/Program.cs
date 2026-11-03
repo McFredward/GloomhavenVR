@@ -265,16 +265,27 @@ public static partial class MenuDepthGraphicProgram
             CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = scene.Panel });
             try
             {
-                MenuDepthGraphic existing = scene.Image.gameObject.AddComponent<MenuDepthGraphic>();
-                try { MenuDepthDriver.Tick(); }
-                catch(Exception error) { throw new Exception("existing original card surface joins the driver without a duplicate component or failed tick",error); }
-                Check(ReferenceEquals(existing,scene.Image.GetComponent<MenuDepthGraphic>())&&scene.Image.GetComponents<MenuDepthGraphic>().Length==1
-                    &&existing.IsReady&&ReferenceEquals(Field(existing),fieldA),
-                    "existing original card surface joins the driver without a duplicate component or failed tick");
+                MenuDepthDriver.Tick();
                 MenuDepthGraphic graphic = scene.Image.GetComponent<MenuDepthGraphic>()
                     ?? throw new Exception("actual driver discovers the real GH.Runtime StoryImageViewer typed image field");
                 Check(graphic.enabled && ReferenceEquals(Field(graphic), fieldA),
                     "actual driver discovers the real GH.Runtime StoryImageViewer typed image field");
+                // Establish ordinary native discovery before checking a second pooled
+                // birth. Otherwise the unbound-story control fails at this new assertion
+                // first, hiding its own independent discovery counterfactual.
+                var pooledObject = new GameObject("new native pooled StoryImageViewer input");
+                pooledObject.SetActive(false); pooledObject.transform.SetParent(scene.Panel, false);
+                StoryImageViewer pooledStory = pooledObject.AddComponent<StoryImageViewer>();
+                Image pooledImage = MakeImage(pooledObject.transform, "native pooled illustration", new Vector2(64,64), new Vector2(100,100));
+                pooledImage.sprite = first;
+                Set(pooledStory, "loadImagesAnimator", animator); Set(pooledStory, "imageHolder", pooledImage); Set(pooledStory, "currentImage", "STORY-FIRST");
+                MenuDepthGraphic existing = pooledImage.gameObject.AddComponent<MenuDepthGraphic>();
+                pooledObject.SetActive(true); MenuDepthDriver.ObserveOwner(pooledStory);
+                try { MenuDepthDriver.Tick(); }
+                catch(Exception error) { throw new Exception("existing original card surface joins the driver without a duplicate component or failed tick",error); }
+                Check(ReferenceEquals(existing,pooledImage.GetComponent<MenuDepthGraphic>())&&pooledImage.GetComponents<MenuDepthGraphic>().Length==1
+                    &&existing.IsReady&&ReferenceEquals(Field(existing),fieldA),
+                    "existing original card surface joins the driver without a duplicate component or failed tick");
                 Set(story, "currentImage", "story-second"); MenuDepthDriver.Tick();
                 Check(graphic.enabled && graphic.IsReady && ReferenceEquals(Field(graphic), fieldA) && scene.Image.sprite == first,
                     "an async new story key retains the corresponding old depth while its original old colour remains visible");
