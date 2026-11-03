@@ -107,6 +107,7 @@ internal static class MenuDepthDriver
         }
         MenuDepthCharacters.Tick();
         MenuDepthCards.Maintain();
+        MenuDepthPerksAudit.Tick();
         RefreshRoots();
         FlushArrivals();
         ApplyBindings();
@@ -476,7 +477,7 @@ internal static class MenuDepthDriver
         _running = false;
         MenuDepthSources.SetDiscoveryPump(null);
         MenuDepthCharacters.Shutdown();
-        MenuDepthCards.Shutdown();
+        MenuDepthCards.Shutdown(); MenuDepthPerksAudit.Shutdown();
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
             if (item.Value.Mesh != null)
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }

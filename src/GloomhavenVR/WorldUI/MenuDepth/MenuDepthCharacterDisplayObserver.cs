@@ -48,6 +48,8 @@ internal static class MenuDepthLifecycleObserver
             AccessTools.PropertySetter(typeof(UnityEngine.UI.RawImage), "texture"),
             AccessTools.Method(typeof(UnityEngine.UI.UIWindow), "OnEnable", Type.EmptyTypes),
             AccessTools.Method(typeof(Character3DDisplayManager), "Start", Type.EmptyTypes),
+            AccessTools.Method(typeof(UIPerksWindow), nameof(UIPerksWindow.Show)),
+            AccessTools.Method(typeof(UIPerksWindow), nameof(UIPerksWindow.Hide)),
         })
             if (method != null && emitted.Add(method.MethodHandle)) yield return method;
     }
@@ -72,6 +74,7 @@ internal static class MenuDepthLifecycleObserver
                     || __originalMethod.Name == "OnCanvasHierarchyChanged");
                 if (graphic is UnityEngine.UI.RawImage image) MenuDepthCharacters.ObserveImage(image);
             }
+            else if (__instance is UIPerksWindow perks) MenuDepthPerksAudit.Observe(perks, __originalMethod.Name == "Show");
             else if (__instance is Character3DDisplayManager manager) MenuDepthCharacters.ObserveManager(manager);
             else if (__instance is MonoBehaviour owner) MenuDepthDriver.ObserveOwner(owner);
         }

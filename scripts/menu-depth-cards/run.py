@@ -37,6 +37,9 @@ def main():
     conversion_paths=[conversion/name for name in ('CanvasConversion.2.Adopt.cs','CanvasConversion.4.Lifecycle.cs','ConvertedPanel.cs')]
     sources['TooltipPlacement747.cs']=tooltip_kernel(tooltip_source,tooltip_patches.read_text(),*(p.read_text()for p in conversion_paths))
     variants=[('production','','','',''),
+        ('perk-clip756','','','',''),
+        ('perk-clip756-unclipped','MenuDepthPerksCardClip.cs','if (!Outside()) return;', 'if (Time.frameCount >= 0) return; /* injected: no native summary clipping */',
+         'a wholly out-of-frame native summary cell paints no stray card in final head pixels'),
         ('inherited-plane-duplicate756','MenuDepthCards.cs',
          'plane = owner.GetComponent<MenuDepthCardPlane>() ?? owner.gameObject.AddComponent<MenuDepthCardPlane>();',
          'plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();',
@@ -172,7 +175,7 @@ def main():
             command=['/home/claw/.dotnet/dotnet','build',str(csproj),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(retained/'fixture'),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game),'-p:DepthBundle='+str(bundle)]
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failure is not a causal-control pass: '+name)
             binary=case/'bin/Release/net472'/(assembly+'.dll');target=run/'assemblies';target.mkdir(exist_ok=True);shutil.copy2(binary,target/binary.name)
-            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunMoreCards747' if name=='more-cards747' or name.startswith(('more-cards747-','more-cards748-')) else 'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
+            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunPerkClip756' if name.startswith('perk-clip756') else 'RunMoreCards747' if name=='more-cards747' or name.startswith(('more-cards747-','more-cards748-')) else 'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
         for folder in ['Assets/Editor','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0','com.unity.textmeshpro':'3.0.6','com.unity.modules.assetbundle':'1.0.0','com.unity.modules.imageconversion':'1.0.0'}})+'\n')

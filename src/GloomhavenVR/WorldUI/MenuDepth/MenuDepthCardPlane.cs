@@ -29,6 +29,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private const float FullDepthWidthRatio = .104f;
     private float _depthWidthRatio;
     private readonly List<(Image Image, MenuDepthGraphic Surface)> _depthSurfaces = new(6);
+    private MenuDepthPerksCardClip? _perkClip;
 
     internal bool OwnsDepthGraphic(Graphic graphic)
     {
@@ -63,7 +64,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     public bool TryRaycast(Vector3 origin, Vector3 direction, float maxDistance, out MenuDepthRayHit hit)
     {
         hit = default;
-        if (!IsReady || _card == null) return false;
+        if (!IsReady || _card == null || _perkClip?.Outside() == true) return false;
         // Nested native card roots share their outer card's physical plane.
         // Derive it from the original pose even if a Canvas batch currently
         // holds the temporary capture pose; a pointer must never depend on eye.
@@ -169,6 +170,8 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     internal void Rebind(Transform? window, IReadOnlyList<Graphic> backgrounds)
     {
         _window = window;
+        _perkClip?.Restore();
+        _perkClip = _owner is UIPerkAttackModifier perk ? new MenuDepthPerksCardClip(perk) : null;
         if (backgrounds.Count != 0) _backgrounds = backgrounds;
         RebindParent(); RebindDepthSurfaces();
     }
@@ -210,6 +213,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         AfterCapture();
         if (!IsReady || _card == null) return;
+        _perkClip?.BeforeCapture();
         _headCapture = MenuDepthHeadRaster.Active;
         _headWorldEye = eye.WorldPosition;
         _headParent = _card.parent;
@@ -252,6 +256,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
 
     public void AfterCapture()
     {
+        _perkClip?.Restore();
         _headCapture = false;
         _headParent = null; _headNativeCanvas = null;
         for (int i = 0; i < _depthSurfaces.Count; i++)
