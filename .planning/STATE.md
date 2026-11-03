@@ -1,3 +1,43 @@
+**Paired753 creation and multiplayer progression review, Build756, 2026-11-03.**
+
+The repeated new-character command reused a provisional local actor outside the
+native party on its creator but skipped it on observers; their personal-quest
+RNG consequently diverged. Reuse is now bounded to the exact original provisional
+actor and native command owner. No RNG, command serialization or native exception
+is replaced. Starter cards hide only the presentation figure; readiness heraldry
+tracks the native eligible page. Pooled MenuDepth helpers are reused rather than
+duplicated. Only exact native perk-summary cells wholly outside their own list
+frame are clipped during capture; live hover and partially visible cells remain.
+
+Enemy initiative popups retain physical depth, portrait-relative placement and
+the current board's ordering band. Remote active-card arrival waits for the
+original burn interval and occupied source. Fresh extreme saved zoom is normalized
+without changing ordinary/live zoom or Retry's captured pose. A lost mandatory
+story window recovers after three seconds far outside the measured playfield,
+using one common author and yielding to manual grips. Forced-rest buttons receive
+a quiet pulse; a single known pending player receives an overhead cue after20s.
+No native decision is forced. Review: MP756-REVIEW.md and CREATION-756-AUDIT.md.
+
+ClassC checkpoint: qualified coverage of all271 local suite IDs,16 source suites,
+306739 wire assertions, bundle and bilingual-guide checks. The original complete
+invocations remain failed: inventory drift, then resource exhaustion. Exact
+unchanged-input passes are retained; only failed/missing groups are continued.
+Level-up's87 original passes plus its three disk-full tail controls cover all90
+cases. Two fixture-only repairs are explicitly recorded. Strict Release/Debug
+pass0W0E9.62/5.21s. Compiled review accounts for22 existing behavior/diagnostic
+types and nine new types; ten further differences are exact build/tool stamps.
+All32 resources are byte-identical; config670 unchanged, patches267→274 and
+tokens4839→4846 with none removed. Final reports and exact timings are retained
+under ignored debug/mp756/integration/final-qualified-coverage.json.
+
+No headset/Photon acceptance is claimed. The perk cell's original layout cause
+is not established; the reported visible overflow is bounded at presentation.
+Own completed caches/worktrees are cleaned; logs/source/capture proof is retained
+with verified lossless solid-zstd recovery indexes. Worker archives are untouched.
+Next work is GitHub#24/#27: original media and shared753 client logs are preserved.
+VideoRound11 is not yet matched to logsResume14/new1–4; no turn repair is inferred
+from unrelated successful ACK records or from the separate confirmation fix.
+
 **Update prompt depth against main-menu chrome, Build755, 2026-11-01.**
 
 The update canvas stayed at sorting order zero while the main-menu rod uses
