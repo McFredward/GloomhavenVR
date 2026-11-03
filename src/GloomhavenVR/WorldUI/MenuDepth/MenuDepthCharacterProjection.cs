@@ -18,6 +18,19 @@ internal static class MenuDepthCharacterProjection
     private const float CommonSpan = 2.4f;
     private static readonly FieldInfo? CreatorName = typeof(UICharacterCreatorWindow).GetField("nameStep", BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly FieldInfo? CreatorQuest = typeof(UICharacterCreatorWindow).GetField("personalQuestStep", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? CreatorClass = typeof(UICharacterCreatorWindow).GetField("classStep", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? CreatorCards = typeof(UICharacterCreatorWindow).Assembly.GetType("UICharacterCreatorClassStep")?.GetField("abilityCardsViewer", BindingFlags.Instance | BindingFlags.NonPublic);
+
+    /// <summary>The original starting-card sheet owns the creation page while it is open.
+    /// Suppress only that preview's mesh; never call the shared model manager's Hide or
+    /// change its request counts, loaded models, native UI state or another consumer.</summary>
+    internal static bool StartingCardsOpen(RawImage image)
+    {
+        UICharacterCreatorWindow? creator = image.GetComponentInParent<UICharacterCreatorWindow>(true);
+        Component? step = creator != null ? CreatorClass?.GetValue(creator) as Component : null;
+        return step != null && Open(CreatorCards?.GetValue(step) as Component);
+    }
+
     private static readonly FieldInfo? QuestHelp = typeof(UICharacterCreatorPersonalQuestStep).GetField("helpText", BindingFlags.Instance | BindingFlags.NonPublic);
 
     // Build752: the shared preview survives creation's page changes, but its

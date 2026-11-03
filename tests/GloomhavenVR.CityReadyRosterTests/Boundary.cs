@@ -51,3 +51,11 @@ namespace GloomhavenVR.WorldUI.MapRoom
         private static readonly Vector3[] CornerScratch=new Vector3[4],MaskCornerScratch=new Vector3[4];
     }
 }
+
+namespace GloomhavenVR.WorldUI
+{
+    // Native loadout permission is a declared fixture input. Production's reader
+    // delegates to UILoadoutManager.CanShowConfirmationButton and toggle visibility.
+    internal static class LoadoutConfirmPark
+    { internal static bool WantsShown = true; internal static bool GameWantsConfirmShown()=>WantsShown; }
+}

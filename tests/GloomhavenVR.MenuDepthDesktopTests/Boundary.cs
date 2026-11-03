@@ -166,9 +166,10 @@ namespace UnityEngine.UI { public sealed class UIWindow : UnityEngine.MonoBehavi
 // fixture inputs. Projection/layout and the final rendering execute production.
 public sealed class UICharacterCreatorWindow : UnityEngine.MonoBehaviour
 {
-    private UnityEngine.Component? nameStep, personalQuestStep;
+    private UnityEngine.Component? nameStep, personalQuestStep, classStep;
     public void BindCreationPages(UnityEngine.Component name, UnityEngine.Component quest)
     { nameStep = name; personalQuestStep = quest; }
+    public void BindClassPage(UnityEngine.Component page) => classStep = page;
 }
 public sealed class UICharacterCreatorPersonalQuestStep : UnityEngine.MonoBehaviour
 {
@@ -176,3 +177,9 @@ public sealed class UICharacterCreatorPersonalQuestStep : UnityEngine.MonoBehavi
     public void BindHelp(UnityEngine.Component help) => helpText = help;
 }
 public sealed class UIKeyboard : UnityEngine.MonoBehaviour { }
+
+public sealed class UICharacterCreatorClassStep : UnityEngine.MonoBehaviour
+{
+    private UnityEngine.Component? abilityCardsViewer;
+    public void BindStartingCards(UnityEngine.Component viewer) => abilityCardsViewer = viewer;
+}

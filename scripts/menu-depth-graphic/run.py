@@ -60,6 +60,10 @@ def main():
         cases = [
             ('production-corpus', '', '', '', '', 'Corpus'),
             ('production', '', '', '', ''),
+            ('existing-native-surface-duplicate756', 'MenuDepthDriver.cs',
+             'MenuDepthGraphic mesh = image.GetComponent<MenuDepthGraphic>()\n                ?? image.gameObject.AddComponent<MenuDepthGraphic>();',
+             'MenuDepthGraphic mesh = image.gameObject.AddComponent<MenuDepthGraphic>();',
+             'existing original card surface joins the driver without a duplicate component or failed tick'),
             ('old-json-array-parser', 'MenuDepthCatalogue.cs',
              'using (Stream input = File.OpenRead(file))\n                manifest = new DataContractJsonSerializer(typeof(Manifest),\n                    new DataContractJsonSerializerSettings { MaxItemsInObjectGraph = 100000 }).ReadObject(input) as Manifest;',
              'manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(file));',

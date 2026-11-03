@@ -265,7 +265,12 @@ public static partial class MenuDepthGraphicProgram
             CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = scene.Panel });
             try
             {
-                MenuDepthDriver.Tick();
+                MenuDepthGraphic existing = scene.Image.gameObject.AddComponent<MenuDepthGraphic>();
+                try { MenuDepthDriver.Tick(); }
+                catch(Exception error) { throw new Exception("existing original card surface joins the driver without a duplicate component or failed tick",error); }
+                Check(ReferenceEquals(existing,scene.Image.GetComponent<MenuDepthGraphic>())&&scene.Image.GetComponents<MenuDepthGraphic>().Length==1
+                    &&existing.IsReady&&ReferenceEquals(Field(existing),fieldA),
+                    "existing original card surface joins the driver without a duplicate component or failed tick");
                 MenuDepthGraphic graphic = scene.Image.GetComponent<MenuDepthGraphic>()
                     ?? throw new Exception("actual driver discovers the real GH.Runtime StoryImageViewer typed image field");
                 Check(graphic.enabled && ReferenceEquals(Field(graphic), fieldA),

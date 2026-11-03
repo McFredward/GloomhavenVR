@@ -107,8 +107,13 @@ internal static class MenuDepthCards
             MenuDepthSources.Register(plane); return;
         }
         if (graphics.Count == 0) return; // Original fields may still be assigned by a native late initializer.
-        plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();
+        // A native ObjectPool clone can already carry the source prefab's
+        // nonserialized, unconfigured helper while having no registry entry.
+        // Rebind that actual component instead of adding a forbidden duplicate.
+        plane = owner.GetComponent<MenuDepthCardPlane>() ?? owner.gameObject.AddComponent<MenuDepthCardPlane>();
+        if (plane == null) return;
         plane.Configure(owner, rect, graphics, windowRoot);
+        if (!plane.enabled) plane.enabled = true;
         Cards.Add(owner, plane);
         // A parent card may arrive after one of its separately pooled modifier or
         // monster children. Refresh only known card ancestors at this real birth,

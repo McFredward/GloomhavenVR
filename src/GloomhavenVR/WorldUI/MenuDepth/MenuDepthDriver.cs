@@ -390,7 +390,13 @@ internal static class MenuDepthDriver
         }
         if (!OwnedImages.TryGetValue(image, out Owned? owned) || owned.Mesh == null)
         {
-            MenuDepthGraphic mesh = image.gameObject.AddComponent<MenuDepthGraphic>();
+            // A typed card plane may already own the same original Image. Its
+            // BaseMeshEffect survives independently of this coordinator's table;
+            // adding another DisallowMultipleComponent effect returns null in
+            // Unity and previously aborted this whole tick on remote clients.
+            MenuDepthGraphic mesh = image.GetComponent<MenuDepthGraphic>()
+                ?? image.gameObject.AddComponent<MenuDepthGraphic>();
+            if (mesh == null) return;
             owned = new Owned(mesh); OwnedImages[image] = owned;
         }
         int priority = binding.Spec.Role != Role.Layer ? 2 : ReferenceEquals(binding.Spec, FrameSpec) ? -1 : binding.Spec.TypeName == "UITab" ? 0 : 1;

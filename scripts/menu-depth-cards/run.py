@@ -37,6 +37,10 @@ def main():
     conversion_paths=[conversion/name for name in ('CanvasConversion.2.Adopt.cs','CanvasConversion.4.Lifecycle.cs','ConvertedPanel.cs')]
     sources['TooltipPlacement747.cs']=tooltip_kernel(tooltip_source,tooltip_patches.read_text(),*(p.read_text()for p in conversion_paths))
     variants=[('production','','','',''),
+        ('inherited-plane-duplicate756','MenuDepthCards.cs',
+         'plane = owner.GetComponent<MenuDepthCardPlane>() ?? owner.gameObject.AddComponent<MenuDepthCardPlane>();',
+         'plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();',
+         'a native pooled widget rebinds its inherited presentation helper immediately without a forbidden duplicate'),
         ('more-cards747','','','',''),
         ('more-cards748-lost-left-gap','MenuDepthLevelUpHoverObserver.cs',
          'if (inventory != null && inventory.transform is RectTransform inventoryRect',

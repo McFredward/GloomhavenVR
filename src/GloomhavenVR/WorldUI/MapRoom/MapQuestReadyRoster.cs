@@ -694,7 +694,11 @@ internal static class MapQuestReadyRoster
         return site switch
         {
             ReadyRosterSite.Quest => toggle.readyUpToggleState == EReadyUpToggleStates.Quests,
-            ReadyRosterSite.EnterDungeon => toggle.readyUpToggleState == EReadyUpToggleStates.NotSet,
+            // The pooled ready toggle retains NotSet while the player opens cards or
+            // perks after cancelling readiness. Native CanShowConfirmationButton
+            // already owns that page permission; a decoration must follow it too.
+            ReadyRosterSite.EnterDungeon => toggle.readyUpToggleState == EReadyUpToggleStates.NotSet
+                && LoadoutConfirmPark.GameWantsConfirmShown(),
             ReadyRosterSite.CityEvent => toggle.readyUpToggleState == EReadyUpToggleStates.CityEvents,
             _ => false,
         };

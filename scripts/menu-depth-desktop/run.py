@@ -164,6 +164,11 @@ internal static class MenuDepthCharacterRotation
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
     variants = [
         ('head-creation752', '', '', '', ''),
+        ('head-creation-starting-cards-visible756', 'MenuDepthCharacterProjection.cs',
+         'return step != null && Open(CreatorCards?.GetValue(step) as Component);',
+         'return false;',
+         'opening original starting cards hides only the character preview in final head pixels and closing restores it'),
+
         ('head-creation-old752', 'MenuDepthCharacterProjection.cs',
          '        CreationLayout(rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan);',
          '        Rect fit = rectangle.rect; float scale = 1f, ground = float.NegativeInfinity, horizontalSpan = CommonSpan;',

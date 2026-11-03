@@ -141,6 +141,36 @@ public static partial class MenuDepthDesktopProgram
                     Check(ground.transform.position==initialGround&&rawRect.position==rawPosition,"page-specific figure fit preserves gameplay ground and native UI transforms");
                     Object.DestroyImmediate(head);yield return null;
                 }
+                // Exact original creator -> class page -> cards viewer linkage.
+                // Native model/manager state stays live while only its consumer
+                // mesh is suppressed; the real converted-window head route renders.
+                name.GetComponent<UIWindow>().IsOpen=false;quest.GetComponent<UIWindow>().IsOpen=false;
+                keyboard.enabled=false;help.enabled=false;bear.SetActive(false);
+                var classPage=new GameObject("native class page",typeof(RectTransform),typeof(UICharacterCreatorClassStep));
+                classPage.transform.SetParent(owner,false);creator.BindClassPage(classPage.GetComponent<UICharacterCreatorClassStep>());
+                var cardPage=new GameObject("native starting cards sheet",typeof(RectTransform),typeof(UIWindow));cardPage.transform.SetParent(owner,false);
+                classPage.GetComponent<UICharacterCreatorClassStep>().BindStartingCards(cardPage.GetComponent<UIWindow>());
+                var cardInk=ReadyGraphic746(cardPage.transform,"native card backing",new Vector2(900,750),Vector2.zero,Color.red,24);
+                // Real starting ability cards retain their own menu-depth source
+                // when the character consumer yields. This original graphic is
+                // its declared flat card witness and keeps that capture route live.
+                cardInk.gameObject.AddComponent<MenuDepthGraphic>().Configure(cardInk,null,0f);
+                Color authored=preview.color;Texture originalTexture=preview.texture;
+                var nativeManager=scene.ModelCamera.GetComponent<Character3DDisplayManager>();
+                for(int state=0;state<3;state++)
+                {
+                    bool opened=state==1;cardPage.GetComponent<UIWindow>().IsOpen=opened;cardInk.enabled=opened;
+                    scene.ModelCamera.Render();MenuDepthCharacters.Tick();Canvas.ForceUpdateCanvases();scene.Eyes(Vector3.zero);scene.Render(false);
+                    Texture2D head=Read(scene.HeadTarget,Path.Combine(output,"starting-cards756-"+state+".png"));
+                    int cyan=0,red=0;foreach(Color32 pixel in head.GetPixels32())
+                    {if(pixel.g>100&&pixel.b>100&&pixel.r<50)cyan++;if(pixel.r>100&&pixel.g<50&&pixel.b<50)red++;}
+                    Check(opened?cyan==0:cyan>50,"opening original starting cards hides only the character preview in final head pixels and closing restores it");
+                    if(opened)Check(red>1000,"the native starting-card sheet remains fully visible through the actual character window coordinator");
+                    Check(preview.enabled&&preview.color==authored&&ReferenceEquals(preview.texture,originalTexture)
+                        &&nativeManager.isActiveAndEnabled&&ground.transform.position==initialGround,
+                        "starting-card visibility never hides the shared native manager, mutates the original image or moves its model");
+                    Object.DestroyImmediate(head);yield return null;
+                }
             }
             finally{PanelSupersample.EndHead(entry);Object.DestroyImmediate(material);}
         }

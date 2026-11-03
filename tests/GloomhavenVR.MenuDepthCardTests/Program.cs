@@ -420,6 +420,13 @@ public static partial class MenuDepthCardProgram
 
         private IEnumerator ProveLifecycle()
         {
+            var pooled = new Card(typeof(UIScenarioAttackModifier), _root, 12);
+            var inherited = pooled.Rect.gameObject.AddComponent<MenuDepthCardPlane>(); inherited.enabled=false;
+            pooled.Rect.gameObject.SetActive(true);MenuDepthDriver.ObserveOwner(pooled.Owner);MenuDepthDriver.Tick();
+            Check(ReferenceEquals(inherited,pooled.Rect.GetComponent<MenuDepthCardPlane>())&&inherited.IsReady
+                &&pooled.Rect.GetComponents<MenuDepthCardPlane>().Length==1,
+                "a native pooled widget rebinds its inherited presentation helper immediately without a forbidden duplicate");
+            pooled.Rect.gameObject.SetActive(false);
             _head.transform.SetPositionAndRotation(new Vector3(.25f, .08f, -.60f), Quaternion.LookRotation(new Vector3(-.25f, -.08f, .60f), Vector3.up));
             foreach (Type type in new[] { typeof(FullAbilityCard), typeof(ItemCardUI) })
             {
