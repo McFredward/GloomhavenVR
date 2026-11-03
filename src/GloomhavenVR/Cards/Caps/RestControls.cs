@@ -30,6 +30,7 @@ internal sealed class RestControls
     private PlayTray.BoardButton? _shortButton;
     private PlayTray.BoardButton? _longButton;
     private bool _locHooked;
+    private readonly RestOfferCue _shortCue = new(), _longCue = new();
 
     // Issue 3 (rest-button relevance visibility): last-logged visibility of each keycap, so the
     // hide/appear flips are logged edge-triggered (once per change) rather than per frame. Seeded
@@ -411,6 +412,8 @@ internal sealed class RestControls
 
     internal void Destroy()
     {
+        _shortCue.Destroy();
+        _longCue.Destroy();
         if (_locHooked)
         {
             Core.Loc.OnChanged -= RefreshLabels;
@@ -665,6 +668,11 @@ internal sealed class RestControls
             _longCaption.gameObject.SetActive(longVisible);
         _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
+        int handCards = hand?.PlayerActor?.CharacterClass?.HandAbilityCards?.Count ?? -1;
+        _shortCue.Tick(_shortButton != null ? _shortButton.transform : null, _capSize,
+            RestOfferCue.Wanted(handCards, shortVisible, shortSelected || longSelected));
+        _longCue.Tick(_longButton != null ? _longButton.transform : null, _capSize,
+            RestOfferCue.Wanted(handCards, longVisible, shortSelected || longSelected));
 
         // Publish for the multiplayer board-UI record (only meaningful while the caps exist).
         ShortRestShown = _shortButton != null && shortVisible;

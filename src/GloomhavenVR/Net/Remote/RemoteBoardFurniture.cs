@@ -1512,10 +1512,11 @@ internal sealed class RemoteBoardFurniture
     /// were parked behind this very branch until it existed.
     /// </summary>
     private InertCap RestCap(Transform parent, string name, Vector3 localPos, float diameter,
-                             Color accent, in CapLabelStyle labels, Cards.CapRole role) =>
+                             Color accent, in CapLabelStyle labels, Cards.CapRole role)
+    {
         // No well plate on either shape — the mirror of RestControls.EnsureBuilt's `wellPlate: false`
         // (user 2026-09-04), same reason GenericCap gives.
-        _restShape == Cards.ButtonShape.Round
+        InertCap cap = _restShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, diameter, _restCapD, CapIdleColor(_style),
                              RestCapTint, labels, travel: _restCapTravel, accent: accent,
                              role: role, style: _style, anim: _capAnim, wellPlate: false)
@@ -1523,6 +1524,10 @@ internal sealed class RemoteBoardFurniture
                               _restCapD, CapIdleColor(_style), RestCapTint, labels,
                               travel: _restCapTravel, accent: accent,
                               role: role, style: _style, anim: _capAnim, wellPlate: false);
+        cap.RestCueSize = _restShape == Cards.ButtonShape.Round
+            ? Vector2.one * diameter : new Vector2(_restCapW, _restCapH);
+        return cap;
+    }
 
     // ---------------------------------------------------------------- refresh --
 
@@ -1786,6 +1791,17 @@ internal sealed class RemoteBoardFurniture
     {
         CPlayerActor? displayedActor = RemoteBoardFocus.DisplayedActor(owner, out _);
         TickCharacterDecision(displayedActor, owner);
+        int handCards = displayedActor?.CharacterClass?.HandAbilityCards?.Count ?? -1;
+        bool restSelected = (owner.CapStateMask & (NetProtocol.BoardUiCapShortRestAccentBit
+            | NetProtocol.BoardUiCapLongRestAccentBit)) != 0;
+        _shortRest?.TickRestCue(Cards.RestOfferCue.Wanted(handCards,
+            owner.HasCapStates && owner.HasBoardUi && (owner.BoardButtonsMask & NetProtocol.BoardUiShortRestBit) != 0
+                && (owner.CapStateMask & NetProtocol.BoardUiCapShortRestEnabledBit) != 0,
+            restSelected));
+        _longRest?.TickRestCue(Cards.RestOfferCue.Wanted(handCards,
+            owner.HasCapStates && owner.HasBoardUi && (owner.BoardButtonsMask & NetProtocol.BoardUiLongRestBit) != 0
+                && (owner.CapStateMask & NetProtocol.BoardUiCapLongRestEnabledBit) != 0,
+            restSelected));
         bool allowUseBerth = owner.AllowsActiveDismissPresentation(displayedActor);
         bool slot0 = (slotMask & 1) != 0;
         bool slot1 = (slotMask & 2) != 0;
@@ -4075,6 +4091,10 @@ internal sealed class RemoteBoardFurniture
         private static readonly Color BevelHighlight = new(0.66f, 0.53f, 0.32f);
 
         private readonly GameObject _go;
+        private readonly Cards.RestOfferCue _restCue = new();
+        internal Vector2 RestCueSize;
+        internal void TickRestCue(bool wanted) => _restCue.Tick(_go.transform, RestCueSize, wanted);
+        internal void DestroyRestCue() => _restCue.Destroy();
         private readonly TextMeshPro _label;
         private readonly RemoteCapVisibility _visibility;
 
@@ -4723,6 +4743,8 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     public void Destroy()
     {
+        _shortRest?.DestroyRestCue();
+        _longRest?.DestroyRestCue();
         if (_activeDismissGhostMaterial != null) Object.Destroy(_activeDismissGhostMaterial);
         _characterDecision.Destroy();
         _decisionPrompt.Destroy();

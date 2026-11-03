@@ -117,6 +117,8 @@ internal static class PanelPoseWatch
 
         /// <summary>User-authorized, opening-only room making for overlapping map windows.</summary>
         RoomMaking,
+        /// <summary>Explicitly authorized753 lost-story recovery; never a general window recall.</summary>
+        StoryRecovery,
     }
 
     private sealed class Entry
@@ -427,6 +429,7 @@ internal static class PanelPoseWatch
         switch (writer)
         {
             case Writer.RoomMaking:
+            case Writer.StoryRecovery:
             case Writer.UserGrab:
                 // The one allowed writer: re-baseline in silence. This is the pose the player chose.
                 entry.LockedPos = subject.position;

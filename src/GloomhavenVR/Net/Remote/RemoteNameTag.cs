@@ -107,6 +107,7 @@ internal sealed class RemoteNameTag
     /// tag uses (<see cref="RemoteFocusOutline"/>) — one cue, two carriers, from the peer's synced
     /// record 22 and the shared <c>FocusCue</c> clock; see <see cref="AvatarTurnRing"/>.</summary>
     private readonly AvatarTurnRing _turnRing;
+    private readonly DecisionWaitArrow _waitArrow = new();
 
     /// <summary>THE SPEAKING BADGE (user request 2026-08-24, and his own typo correction
     /// "Steam-Logo über dem Kopf"): the loudspeaker in the lower-right corner of the Steam picture
@@ -265,6 +266,9 @@ internal sealed class RemoteNameTag
             // to a second at draw order 0 while its own row rides the ladder at ~96 — and a menu
             // window behind the peer paints straight over it.
             if (_voiceBadge.Tick(_avatarQuad, AvatarSize, carrierVisible: true))
+                _tagRenderersRefreshAt = 0;
+            if (_waitArrow.Tick(_billboard, _avatarQuad != null ? _avatarQuad.localPosition : Vector3.zero,
+                NetAvatarDriver.DelayedDecisionPlayer() == _owner.PlayerId))
                 _tagRenderersRefreshAt = 0;
             // PANEL COMPOSITING (user report 2026-08-04): rank the tag's renderers on the
             // converted-panel distance ladder so a menu window BEHIND the tag can no longer
@@ -457,6 +461,7 @@ internal sealed class RemoteNameTag
 
     public void Destroy()
     {
+        _waitArrow.Destroy();
         _turnRing.Destroy();
         _voiceBadge.Destroy(); // its material is a BoardVisual.Unlit clone — same asset rule as below
         if (_avatarMat != null)
