@@ -54,7 +54,7 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// NRE inside the message pump → the enemy turn never ran → soft-lock. The rework:
 /// - the second panel is a DUMB VISUAL SNAPSHOT of the real panel's UI hierarchy: Instantiated
 ///   under an INACTIVE holder (so Awake — and therefore the Singleton steal — can never run),
-///   with the <c>ActorStatPanel</c>/<c>UIWindow</c>/every Singleton-derived component
+///   with all native controllers, input/event emitters and animation drivers
 ///   DestroyImmediate'd while still never-activated (Unity skips OnDestroy for components whose
 ///   Awake never ran, so the game's <c>_instance</c> is untouched at both ends of the copy's
 ///   life), THEN handed to the regular convert/place machinery;
@@ -173,6 +173,10 @@ internal sealed class StatPanelSurface
     private static ScenarioRuleLibrary.CActor? _pendingCopyActor; // snapshot requested for this actor
     private static float _pendingCopyAt;
     private static float _pendingCopyDeadline;
+    private static long _held2Sequence;
+    private static long _refusedCopySequence;
+    private static ActorStatPanel? _refusedCopySource;
+    private static ScenarioRuleLibrary.CActor? _refusedCopyActor;
 
     /// <summary>Last-known REAL game panel — the ONLY value <see cref="HealSingleton"/> may ever
     /// write back into <c>Singleton&lt;ActorStatPanel&gt;._instance</c>. Never a copy (copies carry
@@ -465,6 +469,7 @@ internal sealed class StatPanelSurface
         _held2Actor = secondary?.Actor;
         _held2Anchor = secondary?.Anchor;
         _held2SideSign = secondary.HasValue ? SignFor(secondary.Value.Side) : 1f;
+        _held2Sequence = secondary?.Seq ?? 0;
 
         // [WorldUI] StatPanels is GONE (user ruling 2026-08-13): the stat card is the only place
         // a monster's HP, immunities and attributes can be read in VR, and its OFF released the
@@ -477,7 +482,8 @@ internal sealed class StatPanelSurface
         {
             _pendingCopyActor = null; // copy teardown (if one exists) happens in TickCopy
         }
-        else if (!ReferenceEquals(_copyActor, _held2Actor) && !ReferenceEquals(_pendingCopyActor, _held2Actor))
+        else if (!ReferenceEquals(_copyActor, _held2Actor) && !ReferenceEquals(_pendingCopyActor, _held2Actor)
+                 && !CopyWasRefused(ActorStatPanel.Instance, _held2Actor))
         {
             _pendingCopyActor = _held2Actor;
             // Shown already (the normal case — it WAS the primary until this very grab)? Snapshot
@@ -757,9 +763,9 @@ internal sealed class StatPanelSurface
     /// Singleton safety (the load-bearing part):
     /// 1. the copy is Instantiated under an INACTIVE holder, so Unity NEVER calls Awake on any of
     ///    its components — the copied ActorStatPanel cannot steal <c>Singleton._instance</c>;
-    /// 2. the <c>ActorStatPanel</c> (Singleton-derived; destroyed FIRST — it RequireComponent's the
-    ///    UIWindow), every other Singleton-derived component, and the <c>UIWindow</c> are
-    ///    DestroyImmediate'd while still never-activated — Unity does not invoke OnDestroy for
+    /// 2. every non-presentation component, including ordinary native popup controllers and their
+    ///    required <c>UIWindow</c>, is DestroyImmediate'd in dependency order while still
+    ///    never-activated — Unity does not invoke OnDestroy for
     ///    components whose Awake never ran, so <c>Singleton._instance</c> is untouched here too;
     /// 3. only then does <see cref="TickCopy"/> hand the bare imagery to CanvasConversion, whose
     ///    re-parent into the active host finally activates it — at that point no component with any
@@ -767,6 +773,8 @@ internal sealed class StatPanelSurface
     /// </summary>
     private static void BuildStaticCopy(ActorStatPanel real, ScenarioRuleLibrary.CActor actor)
     {
+        if (CopyWasRefused(real, actor))
+            return;
         using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.Snapshot") : default;
         DestroyCopy();
 
@@ -776,7 +784,16 @@ internal sealed class StatPanelSurface
         GameObject copy = Object.Instantiate(real.gameObject, holder.transform, false);
         copy.name = "GloomhavenVR.ActorStatPanelCopy";
 
-        int stripped = StripLogicComponents(copy);
+        if (!StripLogicComponents(copy, out int stripped))
+        {
+            _refusedCopySource = real;
+            _refusedCopyActor = actor;
+            _refusedCopySequence = _held2Sequence;
+            Object.Destroy(holder); // still inactive: no rejected controller may run Awake
+            VRLog.Alert("WorldUI", "stat-panel snapshot refused: native logic could not be stripped " +
+                                  "from the inactive copy; the live panel is unchanged.");
+            return;
+        }
 
         // The window may have been copied mid fade-in — force the snapshot fully opaque and inert.
         var group = copy.GetComponent<CanvasGroup>();
@@ -798,6 +815,12 @@ internal sealed class StatPanelSurface
                               $"component(s) stripped, {detached} portrait(s) detached; game " +
                               $"singleton untouched) — both hands' figures now show a panel each. {diff}");
     }
+
+    // A refused dependency graph is retried only for a new hold or a new native source,
+    // never from TickCopy -> Reconcile every frame. Releasing/regrabbing changes Seq.
+    private static bool CopyWasRefused(ActorStatPanel real, ScenarioRuleLibrary.CActor actor) =>
+        _refusedCopySource != null && ReferenceEquals(_refusedCopySource, real)
+        && ReferenceEquals(_refusedCopyActor, actor) && _refusedCopySequence == _held2Sequence;
 
     /// <summary>
     /// Give the snapshot its own copy of the TWO images the game pulls out from under it — and
@@ -946,42 +969,79 @@ internal sealed class StatPanelSurface
     private static readonly List<Sprite> _copyOwnedSprites = new();
 
     /// <summary>
-    /// DestroyImmediate every Singleton-derived component (by base-type name <c>Singleton`1</c>, so
-    /// any singleton flavor is caught) and every <see cref="UIWindow"/> in <paramref name="copy"/>.
-    /// Order matters: ActorStatPanel [RequireComponent(typeof(UIWindow))] must go before its window.
-    /// Plain viewer components (Image/TMP_Text/layout/scrollers) are kept — they are the imagery.
+    /// Admit only an inactive, entirely presentation-only snapshot. Dependencies are removed
+    /// after their dependents; retained stock drawing/layout primitives keep authored imagery
+    /// and current scroll offsets, without running scroll/input/animation callbacks.
     /// Internal since the two-props build: <see cref="PropInfoSurface"/> builds the second
     /// held-PROP card by the same recipe and calls this rather than carrying a third copy of it.
     /// </summary>
-    internal static int StripLogicComponents(GameObject copy)
+    internal static bool StripLogicComponents(GameObject copy, out int stripped)
     {
-        int stripped = 0;
-        MonoBehaviour[] behaviours = copy.GetComponentsInChildren<MonoBehaviour>(true);
-        for (int i = 0; i < behaviours.Length; i++)
+        stripped = 0;
+        if (copy == null || copy.activeInHierarchy)
+            return false;
+
+        // A static snapshot must not activate ordinary native controllers either. The old
+        // singleton-only pass left PersistentAbilityPopup alive, so Unity refused to remove
+        // its required UIWindow; the reported removal count still claimed success. This is
+        // an independently verified clone-safety defect, NOT an established cause of issue27.
+        // Keep only engine drawing/layout primitives. Scroll/input/animation controllers and
+        // their serialized callbacks go; their current RectTransforms and imagery stay exact.
+        Component[] components = copy.GetComponentsInChildren<Component>(true);
+        for (int pass = 0; pass < components.Length; pass++)
         {
-            MonoBehaviour mb = behaviours[i];
-            if (mb == null || !IsSingletonDerived(mb.GetType()))
-                continue;
-            Object.DestroyImmediate(mb);
-            stripped++;
+            bool freed = false;
+            for (int i = components.Length - 1; i >= 0; i--)
+            {
+                Component component = components[i];
+                if (component == null || IsSnapshotPresentation(component)
+                    || HasSnapshotDependent(component, components))
+                    continue;
+                Object.DestroyImmediate(component);
+                if (component != null)
+                    continue;
+                stripped++;
+                freed = true;
+            }
+            if (!freed)
+                break;
         }
-        UIWindow[] windows = copy.GetComponentsInChildren<UIWindow>(true);
-        for (int i = 0; i < windows.Length; i++)
+
+        foreach (Component component in copy.GetComponentsInChildren<Component>(true))
         {
-            if (windows[i] == null)
-                continue;
-            Object.DestroyImmediate(windows[i]);
-            stripped++;
+            if (component != null && !IsSnapshotPresentation(component))
+                return false;
         }
-        return stripped;
+        return true;
     }
 
-    private static bool IsSingletonDerived(System.Type type)
+    private static bool IsSnapshotPresentation(Component component)
     {
-        for (System.Type? t = type; t != null; t = t.BaseType)
+        if (component is Transform or Canvas or CanvasRenderer or CanvasGroup)
+            return true;
+        System.Reflection.Assembly assembly = component.GetType().Assembly;
+        if (component is Graphic)
+            return assembly == typeof(Image).Assembly || assembly == typeof(TMPro.TMP_Text).Assembly;
+        return assembly == typeof(Image).Assembly
+            && component is Mask or RectMask2D or BaseMeshEffect or LayoutGroup or LayoutElement
+                or ContentSizeFitter or AspectRatioFitter or CanvasScaler;
+    }
+
+    private static bool HasSnapshotDependent(Component required, Component[] components)
+    {
+        System.Type requiredType = required.GetType();
+        foreach (Component other in components)
         {
-            if (t.IsGenericType && t.Name == "Singleton`1")
-                return true;
+            if (other == null || other == required || other.gameObject != required.gameObject)
+                continue;
+            foreach (RequireComponent dependency in other.GetType()
+                         .GetCustomAttributes(typeof(RequireComponent), inherit: true))
+            {
+                if ((dependency.m_Type0 != null && dependency.m_Type0.IsAssignableFrom(requiredType))
+                    || (dependency.m_Type1 != null && dependency.m_Type1.IsAssignableFrom(requiredType))
+                    || (dependency.m_Type2 != null && dependency.m_Type2.IsAssignableFrom(requiredType)))
+                    return true;
+            }
         }
         return false;
     }
@@ -1141,6 +1201,8 @@ internal sealed class StatPanelSurface
         _enemyTurnPanel.Detach();
         DestroyCopy();
         _pendingCopyActor = null;
+        _refusedCopySource = null;
+        _refusedCopyActor = null;
         for (int i = 0; i < _reg.Length; i++)
             _reg[i] = null;
         _heldActor = null; _heldAnchor = null; _held2Actor = null; _held2Anchor = null;
