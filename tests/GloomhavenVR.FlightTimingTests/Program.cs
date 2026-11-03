@@ -91,6 +91,18 @@ arrivals._owner.Flying=true;
 Check(arrivals.Hold(1,1),"Another running flight for the same active card retains ownership");
 arrivals._owner.Flying=false; Time.unscaledTime=6f;
 Check(!arrivals.Hold(2,int.MinValue),"Missing active flight still settles after original bounded grace");
+arrivals._owner.SlotOccupancyKnown=true; arrivals._owner.SourceRecess=0; arrivals._owner.BoardSlotMask=1;
+for(int frame=0;frame<200;frame++) {
+    Time.unscaledTime=6f+frame/90f;
+    Check(arrivals.Hold(3,int.MinValue),"A matching occupied source must not also appear in the active destination during native burn");
+}
+Check(!arrivals.Hold(3,3),"An exact completed flight supersedes stale source occupancy");
+arrivals._owner.BoardSlotMask=2;
+Check(!arrivals.Hold(3,int.MinValue),"A different occupied recess cannot hold this original's active destination");
+arrivals._owner.BoardSlotMask=1; arrivals._owner.SlotOccupancyKnown=false;
+Check(!arrivals.Hold(3,int.MinValue),"Unknown owner occupancy never invents a source hold");
+arrivals._owner.SlotOccupancyKnown=true; arrivals._owner.SourceRecess=-1;
+Check(!arrivals.Hold(3,int.MinValue),"Missing original source identity never holds an unrelated card");
 home._shownActor=a; home.Capture(1,localHome,localRotation,0.63f); home._pop[1]=1;
 home._cards[1].transform.localPosition=new System.Numerics.Vector3(99,99,99);
 home._cards[1].transform.localRotation=Quaternion.identity;

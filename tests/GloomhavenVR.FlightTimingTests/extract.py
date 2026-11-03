@@ -198,7 +198,7 @@ public void Capture(int i,System.Numerics.Vector3 pos,Quaternion rot,float swapS
 }
 internal static class Time { public static float unscaledTime; }
 internal static class NetProtocol { public const float CardFxSeconds=0.4f; }
-internal sealed class ArrivalOwner { public bool Flying; public bool IsCardFlyingToActive(int id)=>Flying; }
+internal sealed class ArrivalOwner { public bool Flying, SlotOccupancyKnown; public int SourceRecess=-1, BoardSlotMask; public int RecessShowingCard(int id)=>SourceRecess; public bool IsCardFlyingToActive(int id)=>Flying; }
 internal sealed class ActiveArrivalFixture {
 public System.Collections.Generic.Dictionary<int,float> _arrivalDeadlines=new();
 public System.Collections.Generic.HashSet<int> _flyingSeats=new(); public ArrivalOwner _owner=new();

@@ -144,6 +144,22 @@ internal static class Program
         Check(!receiver.TryBurnNoFlightCompletion(4,new CAbilityCard(31),out _),"No-flight completion cannot attach to another original card with the same id");
         receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,4,4,0,32,32f,true)}});
         Check(!receiver.TryBurnNoFlightCompletion(4,card,out _),"A new owner burn invalidates the old no-flight completion before playback");
+        // Activated native burns are not lost-pile burns; the exact owner-progress
+        // history must still keep a new active cell absent for the entire native lifetime.
+        var activationOwner=new RemoteAvatar(); NetAvatarDriver.Controller=activationOwner;
+        activationOwner.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,4,4,0,32,33f,true)}});
+        var activated=new ActiveFixture();
+        for(int frame=0;frame<180;frame++)
+        {
+            Time.unscaledTime=frame/90f;
+            activated.Refresh(actor);
+            Check(activated.Reflows==0,"Activated native burn must hold the active destination before any lost-card watcher");
+        }
+        activationOwner.ApplyBurnCompletions(new CardBurnCompletionHistory());
+        activated.Refresh(actor);
+        Check(activated.Reflows==1,"Finishing native owner progress releases ordinary active-card arrival");
+        activated.Refresh(other);
+        Check(activated.Reflows==2,"Another actor never inherits a completed activation hold");
         // The actual production discovery method must survive pooled widget replacement and
         // absent pile UI without admitting another burn for the same original model card.
         var original=new CAbilityCard(101);

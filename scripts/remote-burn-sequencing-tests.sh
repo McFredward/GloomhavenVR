@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native freeze-running lost-ui-gap lost-seed lost-membership clear-burn-output; do
+for mutation in active-layout activated-native-progress recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native freeze-running lost-ui-gap lost-seed lost-membership clear-burn-output; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/BurnReleasePolicy.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -26,7 +26,8 @@ file,old,new={
 'incoming-progress':('Remote/RemoteBurnFx.cs','if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);',''),
 'progress-is-release':('Remote/RemoteAvatar.cs','if (entry.InProgress || entry.NoFlightCompleted) continue;',''),
 'duplicate-terminal':('Remote/RemoteAvatar.cs','if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;',''),
-'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout)','if (bool.Parse("false") && _owner.HoldsBurnCardLayout)'),
+'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout || CardAppearanceMirror.OwnerBurnInProgress(actor))','if (bool.Parse("false") && (_owner.HoldsBurnCardLayout || CardAppearanceMirror.OwnerBurnInProgress(actor)))'),
+'activated-native-progress':('Remote/RemoteActiveCards.cs',' || CardAppearanceMirror.OwnerBurnInProgress(actor)',''),
 'recess-layout':('Remote/RemoteControlBoard.cs','if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))','if (bool.Parse("false") && _owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))'),
 'early-native':('CardAppearanceMirror.cs','progress >= 1f','progress >= 0f'),
 'wrong-provenance':('CardAppearanceMirror.cs','!ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))','bool.Parse("false") && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))'),
@@ -56,6 +57,7 @@ PY
     initial-history) expected='Joining after historical losses must not create an orphan burn claim';;
     duplicate-terminal) expected='Adopted historical terminal state stays inert on repetition';;
     active-layout) expected='Pending burn must not compact the active grid';;
+    activated-native-progress) expected='Activated native burn must hold the active destination before any lost-card watcher';;
     recess-layout) expected='Pending burn must not replace the first recess';;
     early-native) expected='Release must wait while native interpolation still contains pre-completion output';;
     wrong-provenance) expected='Same seat or id cannot substitute another original card';;

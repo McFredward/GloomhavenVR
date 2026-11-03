@@ -472,7 +472,11 @@ internal sealed class RemoteActiveCards
 
     public void Refresh(CPlayerActor actor, int completedFlightCardId = int.MinValue)
     {
-        if (_owner.HoldsBurnCardLayout)
+        // Native activated cards are already in the replicated active list while their
+        // owner's two-second burn still plays in a round recess. RemoteBurnFx's lost-card
+        // hold cannot cover them: they are not in either lost pile. Use the same explicit
+        // owner-progress barrier as CardsDriver, before consulting model membership.
+        if (_owner.HoldsBurnCardLayout || CardAppearanceMirror.OwnerBurnInProgress(actor))
         {
             // Do not compact ActivatedCards over the old cell while its departure burns.
             // Native material playback remains live independently of this layout refresh.
@@ -603,7 +607,14 @@ internal sealed class RemoteActiveCards
                 deadline = Time.unscaledTime + NetProtocol.CardFxSeconds;
                 _arrivalDeadlines.Add(flying, deadline);
             }
-            if (Time.unscaledTime < deadline || inTheAir)
+            // Model and presentation snapshots may be reordered. A matching card still
+            // shown in an explicitly occupied owner recess has not departed, even after
+            // the ordinary lost-flight grace expires. Keep its destination empty; the
+            // exact flight transfers that source and owns the cell until its real landing.
+            int sourceRecess = _owner.RecessShowingCard(flying);
+            bool atSource = flying != completedFlightCardId && _owner.SlotOccupancyKnown && sourceRecess >= 0
+                && (_owner.BoardSlotMask & (1 << sourceRecess)) != 0;
+            if (Time.unscaledTime < deadline || inTheAir || atSource)
                 _flyingSeats.Add(i);
             if (inTheAir)
                 _seenInAir = true;
