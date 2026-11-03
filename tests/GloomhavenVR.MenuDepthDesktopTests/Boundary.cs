@@ -183,3 +183,17 @@ public sealed class UICharacterCreatorClassStep : UnityEngine.MonoBehaviour
     private UnityEngine.Component? abilityCardsViewer;
     public void BindStartingCards(UnityEngine.Component viewer) => abilityCardsViewer = viewer;
 }
+
+namespace GloomhavenVR.WorldUI.MenuDepth
+{
+    // This fixture supplies item/ability planes and original character consumers,
+    // never native Perks summary pools. Their real clipping executes separately
+    // against GH.Runtime in menu-depth-cards; it is not replaced in that proof.
+    internal sealed class MenuDepthPerksCardClip
+    {
+        internal static MenuDepthPerksCardClip? For(MonoBehaviour owner) => null;
+        internal bool Outside() => false;
+        internal void BeforeCapture() { }
+        internal void Restore() { }
+    }
+}

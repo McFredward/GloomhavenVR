@@ -217,7 +217,9 @@ internal static class MenuDepthDriver
 
     internal static void ObserveOwner(MonoBehaviour owner)
     {
-        if (_running && owner != null) PendingOwners.Add(owner);
+        if (!_running || owner == null) return;
+        if (owner is UIPerksWindow perks) MenuDepthPerksAudit.Observe(perks, perks.IsVisible);
+        PendingOwners.Add(owner);
     }
 
     private static bool HasRoot(Transform value)
@@ -338,6 +340,8 @@ internal static class MenuDepthDriver
                 if (method != null && method.DeclaringType?.Assembly == typeof(StoryImageViewer).Assembly
                     && emitted.Add(method.MethodHandle)) yield return method;
             }
+        MethodInfo showPerks = AccessTools.Method(typeof(UIPerksWindow), nameof(UIPerksWindow.Show));
+        if (showPerks != null && emitted.Add(showPerks.MethodHandle)) yield return showPerks;
     }
 
     private static void BindImage(Binding binding, Image image)

@@ -39,7 +39,7 @@ internal static class MenuDepthPerksAudit
         for (int i = Pending.Count - 1; i >= 0; i--)
         {
             Visit visit = Pending[i];
-            if (visit.Window == null || !visit.Window.gameObject.activeInHierarchy)
+            if (visit.Window == null || !visit.Window.gameObject.activeInHierarchy || !visit.Window.IsVisible)
             { Pending.RemoveAt(i); continue; }
             int elapsed = Time.frameCount - visit.Started;
             if (elapsed < (visit.Samples == 0 ? 2 : 30)) continue;
@@ -69,7 +69,7 @@ internal static class MenuDepthPerksAudit
             bool summaryOwner = summary != null && card.transform.IsChildOf(summary.transform);
             bool tooltipOwner = tooltip != null && card.transform.IsChildOf(tooltip);
             bool outsideSummary = summaryOwner && rect != null && summaryRect != null && !Overlaps(rect, summaryRect);
-            bool outsidePoolFrame = new MenuDepthPerksCardClip(card).Outside();
+            bool outsidePoolFrame = MenuDepthPerksCardClip.For(card)?.Outside() == true;
             if (summaryOwner && !outsideSummary && !outsidePoolFrame) continue;
             ++outside;
             if (notes++ >= 12) continue;

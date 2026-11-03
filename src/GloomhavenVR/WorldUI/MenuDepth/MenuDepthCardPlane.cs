@@ -171,7 +171,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         _window = window;
         _perkClip?.Restore();
-        _perkClip = _owner is UIPerkAttackModifier perk ? new MenuDepthPerksCardClip(perk) : null;
+        _perkClip = _owner != null ? MenuDepthPerksCardClip.For(_owner) : null;
         if (backgrounds.Count != 0) _backgrounds = backgrounds;
         RebindParent(); RebindDepthSurfaces();
     }

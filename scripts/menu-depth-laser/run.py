@@ -37,7 +37,7 @@ def main():
     code=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'
     names=['IMenuDepthSource.cs','MenuDepthEye.cs','MenuDepthSources.cs','MenuDepthProjection.cs','MenuDepthScreenProjection.cs',
         'MenuDepthDisplay.cs','MenuDepthHeadRaster.cs','MenuDepthHeadCarrier.cs','MenuDepthNativeUiScope.cs',
-        'MenuDepthHeightfield.cs','MenuDepthGraphic.cs','MenuDepthCardPlane.cs','MenuDepthCharacterSource.cs','MenuDepthCharacterProjection.cs']
+        'MenuDepthHeightfield.cs','MenuDepthGraphic.cs','MenuDepthCardPlane.cs','MenuDepthPerksCardClip.cs','MenuDepthCharacterSource.cs','MenuDepthCharacterProjection.cs']
     paths=[code/name for name in names]+[ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',
         ROOT/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs',ROOT/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs',
         ROOT/'src/GloomhavenVR/Hands/HoverHaptics.cs',ROOT/'src/GloomhavenVR/Hands/Interact/IPokeable.cs']

@@ -21,7 +21,9 @@ internal sealed class MenuDepthPerksCardClip
     private readonly Vector3[] _corners = new Vector3[4];
     private bool _graphicsDirty = true;
 
-    internal MenuDepthPerksCardClip(UIPerkAttackModifier card)
+    internal static MenuDepthPerksCardClip? For(MonoBehaviour owner) => owner is UIPerkAttackModifier card ? new(card) : null;
+
+    private MenuDepthPerksCardClip(UIPerkAttackModifier card)
     {
         _card = card;
         _summary = card.GetComponentInParent<UIPerksActiveModifiers>(true);
