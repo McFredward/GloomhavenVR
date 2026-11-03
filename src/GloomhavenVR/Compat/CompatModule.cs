@@ -65,6 +65,9 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(NativeBugFixes_ShowUsableItemsActor));
         VRSession.Harmony?.PatchAll(typeof(NativeBugFixes_ItemReplayActor));
         VRSession.Harmony?.PatchAll(typeof(NativeCardsRestorePhaseFix));
+        VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.CreateSeam));
+        VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.NameClassSeam));
+        VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.ReservedNameSeam));
 
         // ISSUE #4 — walls, round 3 (whole-wall redesign; hardware falsified the per-pixel
         // approach). Two halves, both VR-gated and reversible; the evidence and the rejected
@@ -254,6 +257,7 @@ internal sealed class CompatModule : IVRModule
 
     public void Shutdown()
     {
+        NativeCampaignCreationGuard.Reset();
         // WallFadeDisable is a Harmony patch, removed on hot-reload by Plugin.OnDestroy's
         // _harmony.UnpatchSelf() (INVARIANTS §9) — NOT by anything on VRSession, which only
         // HOLDS the shared Harmony instance. There is no VRSession.UnpatchAll; UnpatchAll and
