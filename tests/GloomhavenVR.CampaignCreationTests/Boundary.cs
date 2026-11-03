@@ -11,6 +11,7 @@ namespace HarmonyLib
  [AttributeUsage(AttributeTargets.Class)] public sealed class HarmonyPatch : Attribute { public HarmonyPatch(Type type,string method){} }
  [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPrefix : Attribute { }
  [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPostfix : Attribute { }
+ [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyFinalizer : Attribute { }
 }
 namespace GloomhavenVR.Core
 {
@@ -21,7 +22,7 @@ namespace FFSNet
 {
  public sealed class NetworkPlayer
  {
-  public int PlayerID; public CreatingCharacter CreatingCharacter { get; set; }
+  public int PlayerID { get; set; } public CreatingCharacter CreatingCharacter { get; set; }
   public bool IsCreatingCharacter=>CreatingCharacter!=null;
   public void ToggleCharacterCreationScreen(bool value){if(!value)CreatingCharacter=null;}
  }
@@ -128,6 +129,13 @@ public partial class UICharacterCreatorWindow
  public sealed class CharacterViewInfo
  {
   public CMapCharacter Character;public ICharacterCreatorClass CharacterClass=new CreatorClass("BruteID");
+ }
+ public void ProxyCreateCharacter(FFSNet.GameAction action)
+ {
+  if(!CharacterCreatorService.UseGuard){ProxyCreateCharacterOriginal(action);return;}
+  NativeCampaignCreationGuard.OriginSeam.Prefix(action,out var state);
+  try{ProxyCreateCharacterOriginal(action);}
+  finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(state);}
  }
  public CharacterViewInfo characterViewInfo=new();public UICharacterCreatorNameStep nameStep=new();
  public CharacterCreatorService creationService=new();public int QuestOpened;

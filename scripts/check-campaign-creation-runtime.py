@@ -71,7 +71,8 @@ def main():
              'CreateCharacter(', 'CreateCharacterOriginal('),
             ('UICharacterCreatorNameStep', 'public bool IsNameRepeated(string characterName)',
              'IsNameRepeated(', 'IsNameRepeatedOriginal('),
-            ('UICharacterCreatorWindow', 'public void ProxyCreateCharacter(GameAction action)', None, None),
+            ('UICharacterCreatorWindow', 'public void ProxyCreateCharacter(GameAction action)',
+             'ProxyCreateCharacter(', 'ProxyCreateCharacterOriginal('),
             ('UICampaignAdventurePartyAssemblyWindow', 'private IEnumerator ProxyCreateCampaignCharacterCoroutine(CampaignPersonalQuestData data)',
              'private IEnumerator', 'public IEnumerator'),
         ]
@@ -90,7 +91,7 @@ def main():
             'native_methods': [row[:2] for row in specs], 'ports': [
                 'MapRuleLibrary state/generation boundary with deterministic successive quest IDs and work counters',
                 'FFSNet player/action records, original creator window fields and presentation no-ops',
-                'Harmony prefix/postfix invocation adapter; native service and name-lookup methods renamed only to call through adapter',
+                'Harmony prefix/postfix/finalizer invocation adapter; native service, name lookup and proxy methods renamed only to call through adapter',
                 'Private original completion coroutine made public for explicit test invocation; no live Bolt or HMD proof'],
             }, indent=2) + '\n')
         command = ['dotnet', 'run', '--project', str(project / 'CampaignCreation.csproj'), '-c', 'Release', '--property:CreationSource=' + str(production)]
@@ -116,6 +117,16 @@ def main():
              'if (ReferenceEquals(prior, null))', 'different class never reuses wrong native character'),
             ('lost-reservation', '__result = ReservedForOtherClass(__instance, characterName);', '__result = false;',
              'changed class retains native repeated-name rejection'),
+            ('wrong-command-origin', 'return LocalCommand(player) && creation != null', 'return creation != null',
+             'peer same-name command generates its own native object'),
+            ('lost-origin-restore', 'if (__state.Entered) _commandOwner = __state.Previous;', 'if (__state.Entered) _commandOwner = -1;',
+             'nested peer exception restores outer local origin'),
+            ('lost-entered-origin', 'if (__state.Entered) _commandOwner = __state.Previous;', '_commandOwner = __state.Previous;',
+             'unentered finalizer cannot clear outer local origin'),
+            ('cross-thread-origin', '[ThreadStatic] private static int _commandOwner;', 'private static int _commandOwner;',
+             'native origin cannot leak to another thread'),
+            ('observer-name-reservation', '|| (_commandOwner != 0 && !LocalCommand(PlayerRegistry.MyPlayer))', '',
+             'peer wrong-class command retains original observer name validation'),
         ]
         for label, needle, replacement, expected in variants:
             assert original_text.count(needle) == 1, (label, 'control binding')

@@ -44,6 +44,19 @@ internal static class NativeCampaignCreationGuard
     private static readonly ConditionalWeakTable<UICharacterCreatorNameStep, NameClass> NameClasses = new();
     private static readonly PropertyInfo? Creating = typeof(PlayerRegistry).Assembly
         .GetType("FFSNet.NetworkPlayer")?.GetProperty("CreatingCharacter");
+    private static readonly PropertyInfo? PlayerId = typeof(PlayerRegistry).Assembly
+        .GetType("FFSNet.NetworkPlayer")?.GetProperty("PlayerID");
+    // A name alone cannot identify the service caller: a concurrent peer may
+    // submit that name too. Only this synchronous original proxy invocation
+    // supplies its owner. Zero is outside a proxy; -1 is an invalid proxy owner.
+    [ThreadStatic] private static int _commandOwner;
+
+    internal readonly struct OriginState
+    {
+        internal readonly int Previous;
+        internal readonly bool Entered;
+        internal OriginState(int previous) { Previous = previous; Entered = true; }
+    }
     private static int _reuses;
     private static int _conflicts;
 
@@ -66,7 +79,7 @@ internal static class NativeCampaignCreationGuard
 
         object map = AdventureState.MapState;
         object? player = PlayerRegistry.MyPlayer;
-        if (player == null || Creating == null)
+        if (player == null || Creating == null || PlayerId == null)
         {
             Reset();
             return false;
@@ -92,9 +105,12 @@ internal static class NativeCampaignCreationGuard
         // NetPlayerActors bridge; CreatingCharacter itself is a plain game DTO.
         object? player = PlayerRegistry.MyPlayer;
         var creation = player == null ? null : Creating?.GetValue(player, null) as CreatingCharacter;
-        return creation != null
+        return LocalCommand(player) && creation != null
             && string.Equals(creation.CharacterName, characterName, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool LocalCommand(object? player) => _commandOwner > 0 && player != null
+        && PlayerId?.GetValue(player, null) is int id && id == _commandOwner;
 
     internal static bool TryReuse(string classId, string characterName, out CMapCharacter? character)
     {
@@ -143,6 +159,9 @@ internal static class NativeCampaignCreationGuard
     internal static bool ReservedForOtherClass(UICharacterCreatorNameStep window, string characterName)
     {
         if (!InCampaign() || string.IsNullOrEmpty(characterName)
+            // Original observer validation must not inherit the local creator's
+            // provisional reservation or currently selected name-step class.
+            || (_commandOwner != 0 && !LocalCommand(PlayerRegistry.MyPlayer))
             || !NameClasses.TryGetValue(window, out NameClass? selected)
             || !Pending.TryGetValue(characterName, out CMapCharacter? prior)
             || !Provisional(prior) || string.Equals(prior.CharacterID, selected.ClassId, StringComparison.Ordinal))
@@ -153,6 +172,27 @@ internal static class NativeCampaignCreationGuard
             VRLog.Warn("Compat", "CAMPAIGN CREATION NAME RESERVED: a provisional character of another "
                 + "class already owns this name; retaining the native repeated-name warning.");
         return true;
+    }
+
+    [HarmonyPatch(typeof(UICharacterCreatorWindow), nameof(UICharacterCreatorWindow.ProxyCreateCharacter))]
+    internal static class OriginSeam
+    {
+        [HarmonyPrefix]
+        internal static void Prefix(GameAction action, out OriginState __state)
+        {
+            __state = new OriginState(_commandOwner);
+            _commandOwner = action != null && action.SupplementaryDataIDMax > 0
+                ? action.SupplementaryDataIDMax : -1;
+        }
+
+        // A void finalizer leaves every native exception untouched. The entered
+        // bit also preserves an outer scope if an earlier prefix threw before
+        // our nested prefix could execute (Harmony's default __state).
+        [HarmonyFinalizer]
+        internal static void Finalizer(OriginState __state)
+        {
+            if (__state.Entered) _commandOwner = __state.Previous;
+        }
     }
 
     [HarmonyPatch(typeof(CharacterCreatorService), nameof(CharacterCreatorService.CreateCharacter))]

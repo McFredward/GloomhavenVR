@@ -66,6 +66,7 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(NativeBugFixes_ItemReplayActor));
         VRSession.Harmony?.PatchAll(typeof(NativeCardsRestorePhaseFix));
         VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.CreateSeam));
+        VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.OriginSeam));
         VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.NameClassSeam));
         VRSession.Harmony?.PatchAll(typeof(NativeCampaignCreationGuard.ReservedNameSeam));
 

@@ -33,6 +33,56 @@ internal static class Program
  {
   creator.ProxyCreateCharacter(new(){SupplementaryDataIDMax=owner,SupplementaryDataToken=new CampaignCharacterData(id,name)});
  }
+ private static CMapCharacter CreateLocal(string classId,string name)
+ {
+  NativeCampaignCreationGuard.OriginSeam.Prefix(new(){SupplementaryDataIDMax=PlayerRegistry.MyPlayer.PlayerID},out var state);
+  try{return CharacterCreatorService.CreateCharacter(classId,name);}
+  finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(state);}
+ }
+ private static bool TryLocalReuse(string classId,string name,out CMapCharacter? character)
+ {
+  NativeCampaignCreationGuard.OriginSeam.Prefix(new(){SupplementaryDataIDMax=PlayerRegistry.MyPlayer.PlayerID},out var state);
+  try{return NativeCampaignCreationGuard.TryReuse(classId,name,out character);}
+  finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(state);}
+ }
+ private static void Origins()
+ {
+  Reset();var creator=Creator();Receive(creator,2,"BruteID","Shared");
+  var own=creator.characterViewInfo.Character;
+  Receive(creator,1,"BruteID","Shared");
+  var peer=AdventureState.MapState.MapParty.CheckCharacters.Single();
+  Check(!ReferenceEquals(own,peer)&&AdventureState.MapState.Rolls==4,"peer same-name command generates its own native object");
+  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","Shared",out _),"matching owner record outside native command cannot authorize reuse");
+  Check(peer.PossiblePersonalQuests[0].ID=="Q3"&&own.PossiblePersonalQuests[0].ID=="Q1","opposite-owner commands preserve both original quest sequences");
+  Reset();creator=Creator();Receive(creator,2,"BruteID","Shared");
+  creator.nameStep.Show(new CreatorClass("ScoundrelID"));
+  Receive(creator,1,"ScoundrelID","Shared");
+  Check(AdventureState.MapState.MapParty.CheckCharacters.Count==1&&AdventureState.MapState.MapParty.CheckCharacters[0].CharacterID=="ScoundrelID","peer wrong-class command retains original observer name validation");
+  Reset();creator=Creator();Receive(creator,2,"BruteID","Nested");own=creator.characterViewInfo.Character;
+  NativeCampaignCreationGuard.OriginSeam.Prefix(new(){SupplementaryDataIDMax=2},out var outer);
+  try
+  {
+   bool threw=false;
+   try{Receive(creator,99,"BruteID","Nested");}
+   catch(InvalidOperationException error){threw=error.Message.Contains("Sequence contains no matching element");}
+   Check(threw&&NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out var restored)&&ReferenceEquals(restored,own),"nested peer exception restores outer local origin");
+   NativeCampaignCreationGuard.OriginSeam.Prefix(new(){SupplementaryDataIDMax=1},out var inner);
+   try{Check(!NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"nested peer origin cannot use outer local provisional");}
+   finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(inner);}
+   Check(NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"normal nested completion restores outer local origin");
+   NativeCampaignCreationGuard.OriginSeam.Finalizer(default);
+   Check(NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"unentered finalizer cannot clear outer local origin");
+   NativeCampaignCreationGuard.OriginSeam.Prefix(null!,out var unknown);
+   try{Check(!NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"invalid nested command cannot borrow local creation authority");}
+   finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(unknown);}
+   Check(NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"invalid nested completion restores outer local origin");
+   bool otherThreadReused=true;
+   var thread=new System.Threading.Thread(()=>otherThreadReused=NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _));thread.Start();thread.Join();
+   Check(!otherThreadReused,"native origin cannot leak to another thread");
+  }
+  finally{NativeCampaignCreationGuard.OriginSeam.Finalizer(outer);}
+  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","Nested",out _),"normal proxy completion leaves no active origin");
+ }
  private sealed record Snapshot(string[] First,string[] Second,int Rolls,int Gold,int Completed,int Errors);
  private static Snapshot Replay(int player)
  {
@@ -104,39 +154,39 @@ internal static class Program
  private static void Contexts()
  {
   Reset();PlayerRegistry.MyPlayer.CreatingCharacter=new(2,"First");
-  var first=CharacterCreatorService.CreateCharacter("BruteID","First");
-  Check(NativeCampaignCreationGuard.TryReuse("BruteID","First",out var reused)&&ReferenceEquals(first,reused),"same context retains provisional original");
-  Check(!NativeCampaignCreationGuard.TryReuse("ScoundrelID","First",out _),"different class never reuses wrong native character");
-  Check(NativeCampaignCreationGuard.TryReuse("BruteID","first",out reused)&&ReferenceEquals(first,reused),"name identity retains native case-insensitive collision rule");
+  var first=CreateLocal("BruteID","First");
+  Check(TryLocalReuse("BruteID","First",out var reused)&&ReferenceEquals(first,reused),"same context retains provisional original");
+  Check(!TryLocalReuse("ScoundrelID","First",out _),"different class never reuses wrong native character");
+  Check(TryLocalReuse("BruteID","first",out reused)&&ReferenceEquals(first,reused),"name identity retains native case-insensitive collision rule");
   first.AssignPersonalQuest(first.PossiblePersonalQuests[0]);
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"completed prior character is never reused");
-  var committedReplacement=CharacterCreatorService.CreateCharacter("BruteID","First");
+  Check(!TryLocalReuse("BruteID","First",out _),"completed prior character is never reused");
+  var committedReplacement=CreateLocal("BruteID","First");
   Check(!ReferenceEquals(first,committedReplacement),"native creation after completed prior character is not substituted");
   PlayerRegistry.MyPlayer=new(){PlayerID=2,CreatingCharacter=new(2,"First")};
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"rejoin with same save and numeric player id cannot reuse old session");
-  var rejoined=CharacterCreatorService.CreateCharacter("BruteID","First");
+  Check(!TryLocalReuse("BruteID","First",out _),"rejoin with same save and numeric player id cannot reuse old session");
+  var rejoined=CreateLocal("BruteID","First");
   AdventureState.MapState=new();
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"new save never inherits provisional character");
-  var fresh=CharacterCreatorService.CreateCharacter("BruteID","First");
+  Check(!TryLocalReuse("BruteID","First",out _),"new save never inherits provisional character");
+  var fresh=CreateLocal("BruteID","First");
   Check(!ReferenceEquals(rejoined,fresh),"new save executes new native generation");
   FFSNetwork.IsOnline=false;
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"offline cannot reuse network provisional objects");
+  Check(!TryLocalReuse("BruteID","First",out _),"offline cannot reuse network provisional objects");
   FFSNetwork.IsOnline=true;
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"observed disconnect clears old context even with same player object");
-  var next=CharacterCreatorService.CreateCharacter("BruteID","First");
+  Check(!TryLocalReuse("BruteID","First",out _),"observed disconnect clears old context even with same player object");
+  var next=CreateLocal("BruteID","First");
   VRSession.IsRunning=false;
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"disabled VR retains original behavior");
+  Check(!TryLocalReuse("BruteID","First",out _),"disabled VR retains original behavior");
   VRSession.IsRunning=true;AdventureState.MapState.IsCampaign=false;
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"Guildmaster retains original behavior");
+  Check(!TryLocalReuse("BruteID","First",out _),"Guildmaster retains original behavior");
   AdventureState.MapState.IsCampaign=true;
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","First",out _),"mode change invalidates old provisional context");
+  Check(!TryLocalReuse("BruteID","First",out _),"mode change invalidates old provisional context");
   _=next;
   Reset(1);var observer=Creator();Receive(observer,2,"BruteID","Peer");
   var observed=AdventureState.MapState.MapParty.CheckCharacters.Single();
   AdventureState.MapState.MapParty.CheckCharacters.Clear();
   PlayerRegistry.MyPlayer.CreatingCharacter=new(1,"Peer");
-  Check(!NativeCampaignCreationGuard.TryReuse("BruteID","Peer",out _),"departed peer cannot leave an observer-side reuse entry");
-  var localAfterLeave=CharacterCreatorService.CreateCharacter("BruteID","Peer");
+  Check(!TryLocalReuse("BruteID","Peer",out _),"departed peer cannot leave an observer-side reuse entry");
+  var localAfterLeave=CreateLocal("BruteID","Peer");
   Check(!ReferenceEquals(observed,localAfterLeave),"native departed-peer cleanup permits fresh local creation");
  }
  private static void Naming()
@@ -163,7 +213,7 @@ internal static class Program
  }
  public static void Main()
  {
-  OriginalFailure();
+  OriginalFailure();Origins();
   var owner=Replay(2);var host=Replay(1);
   Check(owner.First.SequenceEqual(host.First)&&owner.Second.SequenceEqual(host.Second),"owner and observer quest choices remain identical after repeated native action");
   Check(owner.Rolls==host.Rolls&&owner.Gold==host.Gold,"owner and observer native work stays identical");

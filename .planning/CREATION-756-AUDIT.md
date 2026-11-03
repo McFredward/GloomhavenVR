@@ -42,8 +42,18 @@ character, including its original personal-quest objects and one-time gold/items
 The original network command and its ordinary receiver still execute normally;
 observers already skip that duplicate name, as vanilla does.
 
-Only the local creator is cached: the original `CreatingCharacter` record set by
-`ProxyCreateCharacter` identifies that owner before the native service is called.
+Only the local creator is cached: a synchronous read-only prefix/finalizer scope
+on the original `ProxyCreateCharacter` records its command owner
+(`SupplementaryDataIDMax`). That owner must match the current local player's ID;
+the original `CreatingCharacter` name alone is insufficient for simultaneous
+same-name local/remote commands. The finalizer restores nested scopes on both
+success and native exceptions and does not suppress an exception. Its entered
+bit protects an outer scope if a nested earlier prefix failed before ours ran.
+The scope is thread-local and absent outside the original command.
+
+The original `CreatingCharacter` name remains an additional validation, never the
+sole authority. Peer command validation also cannot inherit local provisional
+name reservations or the currently selected local name-step class.
 An observer never retains a peer's object, so native removal when that peer leaves
 cannot become a stale reuse entry. Weak map/player identities separate save
 loads and rejoins. Offline, Guildmaster, disabled VR, unknown native owner and
@@ -68,7 +78,7 @@ bodies against a deterministic domain boundary. The service/name method rename
 and public coroutine visibility are invocation ports. Map generation, network
 records and presentation no-ops are explicit boundaries, not real Bolt/HMD proof.
 
-Final focused proof passes56 assertions and five compiling causal controls.
+Final focused proof passes68 assertions and ten compiling causal controls.
 The unmodified replay reproduces the creator/observer roll-count split and both
 original coroutine errors. The fixed replay verifies the original-object and
 quest identity, one-time work, subsequent character rolls, exact quest completion,
@@ -88,3 +98,20 @@ Ignored proof lives under `debug/mp756/creation/` in the main checkout after
 worker archival. Hardware inputs are referenced by SHA256 and preserved in place;
 all failed fixture attempts, executed artifacts, native source snapshots,
 control logs, manifests and canonical cleanup receipts remain in that archive.
+
+## Origin follow-up review
+
+The final union review found that a local CreatingCharacter name did not prove
+the current native service caller was local. The bounded follow-up adds only the
+read-only GH.Runtime proxy scope and its registration. Opposite-owner same-name
+commands must each retain original generation; a peer of another class must also
+retain original name validation. Reuse remains restricted to the local command.
+Normal, exceptional, invalid, unentered and cross-thread scope cases are tested.
+The existing original failure/resume/wrong-class/commit/join/save cases remain.
+
+The actual-reference class compiles again with zero warnings/errors in1.28s.
+One first control invocation failed earlier than its expected assertion (outside
+a command versus inside a peer command). The fixture assertion order was repaired
+and the complete containing replay and ten compiling controls passed. That failed
+invocation is preserved, not relabeled. No full integration gate was repeated by
+the worker. Live Bolt and headset outcomes remain unverified.
