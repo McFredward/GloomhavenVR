@@ -632,7 +632,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 756;
+    public const ushort ModBuild = 757;
+
+    // ModBuild757 — keep initiative entries in their original row plane.
+    // A native world-x tween can run before the first adopted LateTick or before
+    // a new batch is observed. Prime at conversion, retain the clean pre-batch
+    // latch, restore known/authored entry planes after original layout, and apply
+    // the plan in the first visible frame. Preserve native order and slide curve.
+    // Static held-figure/prop info snapshots now remove ordinary native popup
+    // controllers as well as singletons before activation. Refused copies stay
+    // inactive and retry only for a changed hold/source. Original live UI stays.
+    // The issue27 video/logs do not identify one captured stall: recorded native
+    // callbacks and synchronization barriers complete. No synthetic ACK, rule
+    // advancement or claimed turn-stall repair is added. Wire remains v3.
 
     // ModBuild756 — paired753 campaign creation and progression presentation review.
     // Repeated provisional creation reused different quest rolls on creator and

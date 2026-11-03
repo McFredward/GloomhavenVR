@@ -3373,6 +3373,17 @@
         "local"
       ],
       "weight": 30
+    },
+    {
+      "id": "static-copy-inertness-runtime",
+      "command": [
+        "python3",
+        "scripts/check-static-copy-inertness-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
     }
   ]
 }
