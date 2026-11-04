@@ -38,6 +38,21 @@ Autosave and SelectAbilityCardsOrLongRest1123089/1123093. A later explicit
 MainMenu confirmation1127594 precedes UserQuit1127892. Neither transition leaves
 an observable prior-turn barrier pending.
 
+Follow-up2026-11-04: an explicit MainMenu quit does not establish that the prior
+gameplay was healthy. It can itself be recovery from an unusable choice. The
+last unresolved required input in this recording is Round4 ability-card
+selection or long rest: native phase SelectAbilityCardsOrLongRest at1123091,
+PlayerToSelectAbilityCardsOrLongRest1123095, ActionProcessor ProcessFreely at
+StartOfRound1123359–1123360. No later selection confirmation or gameplay phase
+advance is recorded before the pause/MainMenu flow. The local Mindthief,
+Sir Josh A Lot/player10, has ownership and an interactive fan reported at
+1123150/1123157–1123158; short/long rest are both offered and neither selected
+at1123159. These are model/permission observations, not proof of usable rendered
+controls. The log does not identify one final pending player. Missing or blocked
+selection/readiness remains a valid candidate despite all earlier ACK cycles
+having completed. Normal voluntary quitting and quitting because that input was
+unusable cannot be distinguished from the menu click alone.
+
 The13.6-second video instead displays Round11; these logs show resumed Round14
 followed by a new scenario's Rounds1–4. No EndTurn click or leave/control-handover
 recovery is filmed. The captured video stall cannot securely be assigned to this
