@@ -1791,14 +1791,17 @@ internal sealed class RemoteBoardFurniture
     {
         CPlayerActor? displayedActor = RemoteBoardFocus.DisplayedActor(owner, out _);
         TickCharacterDecision(displayedActor, owner);
-        int handCards = displayedActor?.CharacterClass?.HandAbilityCards?.Count ?? -1;
+        // Use the same native actor predicate as the owner's board. A card moved
+        // into a round recess still belongs to the playable pair; counting only
+        // the shrinking hand wrongly advertised a forced rest after placement.
+        bool requiresRest = displayedActor != null && Cards.CardsGameApi.MustRestInsteadOfPlay(displayedActor);
         bool restSelected = (owner.CapStateMask & (NetProtocol.BoardUiCapShortRestAccentBit
             | NetProtocol.BoardUiCapLongRestAccentBit)) != 0;
-        _shortRest?.TickRestCue(Cards.RestOfferCue.Wanted(handCards,
+        _shortRest?.TickRestCue(Cards.RestOfferCue.Wanted(requiresRest,
             owner.HasCapStates && owner.HasBoardUi && (owner.BoardButtonsMask & NetProtocol.BoardUiShortRestBit) != 0
                 && (owner.CapStateMask & NetProtocol.BoardUiCapShortRestEnabledBit) != 0,
             restSelected));
-        _longRest?.TickRestCue(Cards.RestOfferCue.Wanted(handCards,
+        _longRest?.TickRestCue(Cards.RestOfferCue.Wanted(requiresRest,
             owner.HasCapStates && owner.HasBoardUi && (owner.BoardButtonsMask & NetProtocol.BoardUiLongRestBit) != 0
                 && (owner.CapStateMask & NetProtocol.BoardUiCapLongRestEnabledBit) != 0,
             restSelected));

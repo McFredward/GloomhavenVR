@@ -79,7 +79,7 @@ internal sealed class VREventsModule : IVRModule
         private void Update()
         {
             VRModeStateMachine.Tick();
-            if (!VRModeStateMachine.ScenarioBoardExists) ProgressWaitNotice.Reset();
+            TickGuard.Run("Events.ProgressWait", ProgressWaitNotice.Tick, "Events");
         }
     }
 }

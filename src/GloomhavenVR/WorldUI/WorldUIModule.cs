@@ -102,6 +102,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCoroutinePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
+        VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementJoinGuard)); // joining refusal must precede the native confirmation latch
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialStepPatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));

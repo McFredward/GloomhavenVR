@@ -68,6 +68,9 @@ internal static class ProgressWaitNotice
         || state == Choreographer.ChoreographerStateType.WaitingForEndTurnSync
         || state == Choreographer.ChoreographerStateType.WaitingForEndRoundSync;
 
+    // Observe even when the native hand is temporarily absent during turn reset.
+    // A diagnostic of an empty board must not require that board to own a hand.
+    internal static void Tick() { _ = CurrentHint; }
     internal static void Reset() => Clear();
 
     private static void Clear()

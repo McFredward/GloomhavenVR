@@ -3384,6 +3384,41 @@
         "local"
       ],
       "weight": 30
+    },
+    {
+      "id": "card-progress-lifetime",
+      "command": [
+        "python3",
+        "scripts/check-card-progress-lifetime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "event-dispatch",
+      "command": [
+        "python3",
+        "scripts/check-event-dispatch.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "peer-retirement",
+      "command": [
+        "bash",
+        "scripts/peer-retirement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
     }
   ]
 }

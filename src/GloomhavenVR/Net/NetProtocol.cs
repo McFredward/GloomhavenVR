@@ -632,7 +632,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 757;
+    public const ushort ModBuild = 758;
+
+    // ModBuild758 — comprehensive SP/MP progression-safety review.
+    // Isolate every mod event/mode observer so one failure cannot consume another
+    // owner's unlock or scene edge. Canceled queued card work releases its four
+    // mod admission latches without running native actions or success callbacks.
+    // Complete only the original successful card-animation cancellation's missing
+    // UI-liveness flag; preserve native exceptions and replacement generations.
+    // Refuse native enhancement-sale joining guards before their phantom-confirm
+    // latch, and keep original enchantress controls reachable if the optional
+    // ability fan has failed. Unavailable optional grab lessons cannot hold the
+    // scripted tutorial. Late-camera confirmations receive their first pose once;
+    // independent window content probes cannot starve another original's recovery.
+    // Cosmetic peer teardown failures no longer skip identity retirement or other
+    // owners' releases, and reentrant new peer identities survive old retirement.
+    // Native hand+round/phase/extra-turn rules drive both forced-rest cues. Existing
+    // shared banners explain actual choices and prolonged original automatic waits;
+    // bounded ordinary logs retain each wait's local-ready/completion context.
+    // No synthetic ACK, forced decision, rule phase, save or protocol change.
+    // These source-proven repairs do not establish the historical Issue27 cause.
 
     // ModBuild757 — keep initiative entries in their original row plane.
     // A native world-x tween can run before the first adopted LateTick or before

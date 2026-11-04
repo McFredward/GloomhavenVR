@@ -1,13 +1,12 @@
 # Planning index
 
-Updated 2026-10-30: Build753 enlarges the naming preview by about50% with a stable
-upright frame beside the keyboard. Final rendered silhouette clearance includes
-a wide body and companion; the accepted752 quest/default framing stays intact.
-Class B selects five variants, strict/source/compiled checks and explicitly bound
-750/752 reuse. STATE.md and ignored menu753 evidence retain the initial pixel
-obstruction, corrected proof, cleanup and hardware limits. Release1.2.2 is
-published; dev's version is1.2.3. Windows builds its archive from dev. Passive
-map stalls remain open in MP746-PERFORMANCE.md.
+Updated2026-11-04: Build758 integrates the comprehensive SP/MP progression
+review. Independently proven lifecycle, cancellation, confirmation and fallback
+repairs plus player guidance are detailed in DEADLOCK-758-REVIEW.md and the
+three owned reviews. Final classC integration validation is recorded in STATE.md;
+worker passes alone are not a complete gate. The historical Issue27 incident
+remains causally unresolved; no fabricated acknowledgment or forced choice is
+used to hide it. Passive map stalls remain open in MP746-PERFORMANCE.md.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -17,6 +16,12 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [DEADLOCK-758-REVIEW.md](DEADLOCK-758-REVIEW.md) | Integrated progression-safety findings, ownership boundaries, guidance and final validation |
+| [DEADLOCK-758-CARDS.md](DEADLOCK-758-CARDS.md) | Complete Cards/Board audit, original cancellation and queued-lifetime repairs, input guidance and secondary render/data review |
+| [DEADLOCK-758-WINDOWS.md](DEADLOCK-758-WINDOWS.md) | Required-window recovery, actual confirmation pixels and exception-safe peer retirement |
+| [DEADLOCK-758-MAP.md](DEADLOCK-758-MAP.md) | Map/NPC/tutorial flow review, native joining latch, failed-hand fallback and startup review |
+| [ISSUES-24-27-757-REVIEW.md](ISSUES-24-27-757-REVIEW.md) | Initiative plane repair and explicitly unresolved historical turn-stall evidence |
+| [MP756-REVIEW.md](MP756-REVIEW.md) | Paired character-creation repair and multiplayer progression presentation checkpoint |
 | [MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md](MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md) | Left-gap previews, actual menu surface laser geometry, story retirement and first-frame backdrop ownership; complete aggregate validation |
 | [MENU747-COMPLETE-PREVIEWS-AND-STORY.md](MENU747-COMPLETE-PREVIEWS-AND-STORY.md) | Complete native More Cards previews, exact composed loadout backing lease and bounded verification |
 | [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |

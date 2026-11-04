@@ -1,3 +1,17 @@
+**Progression safety review, Build758, 2026-11-04 — final integration pending.**
+
+The full SP/MP review inventories1170 production C# sources and traces critical
+input, choice, native UI lifecycle, cancellation, session/peer and startup paths.
+Twelve concrete failure/guidance classes are recorded in DEADLOCK-758-REVIEW.md;
+the three owned reviews retain precise causes, callback authority and proof
+boundaries. New independently reproduced failures do not establish Issue27's
+historical cause. No fake ACK, forced choice/phase, private-card disclosure or
+save rewrite is introduced. Existing owner-authored status transport mirrors
+the new ordinary-choice and delayed automatic-wait guidance.
+
+Focused proof is complete; classC final union check, strict builds, source/surface
+and compiled comparison remain pending. Dev only, no release or local ZIP.
+
 **Initiative planes / inert held-info copies, Build757, 2026-11-04.**
 
 After756 delivery, inspected current GitHub#24/#27 original media and shared753
