@@ -366,14 +366,12 @@ internal static class BurnCommitWatch
                 "StartCoroutine being refused on an inactive hand object — look for a 'Coroutine couldn't " +
                 "be started' line, and for a 'BURN COMMIT RESCUE' line just above this one. If the RESCUE " +
                 "line is present and this one still fired, the coroutine started and something ELSE " +
-                "swallowed it. THE NEXT SUSPECT IS THE WaitUntil AT CardsHandUI.cs:1103, NOT " +
-                "OnDisable: 'CardsHandUI.OnDisable -> CancelAnimateCardLost -> StopAllCoroutines' " +
-                "stood here for several builds and CANNOT be the cause — CancelAnimateCardLost " +
-                "(CardsHandUI.cs:1154-1178) releases the UI lock and INVOKES " +
-                "onAnimateCardLostCallback before nulling it, so that path advances the flow " +
-                "rather than swallowing it. AnimateCardsLost's own 'yield return new WaitUntil(() " +
-                "=> animations.Count == 0)' has no timeout of any kind, and everything the rules " +
-                "need runs after it. Read the BURN ANIM STUCK line below for that half. Reported " +
+                "interrupted it. Inspect the original WaitUntil at CardsHandUI.cs:1103, native " +
+                "callback exceptions and cancellation/replacement evidence before assigning a " +
+                "cause. Successful original CancelAnimateCardLost invokes the original callback; " +
+                "its returned UI animation flag alone does not prove rule/network completion. " +
+                "AnimateCardsLost's own 'yield return new WaitUntil(() => animations.Count == 0)' " +
+                "has no timeout. Read the BURN ANIM STUCK line below for that half. Reported " +
                 "once per commit.");
         }
         catch (System.Exception ex)
@@ -424,12 +422,9 @@ internal static class BurnCommitWatch
                     // HW-VERIFY: grep token "BURN ANIM STUCK CLEARED".
                     VRLog.Note("Cards",
                         $"BURN ANIM STUCK CLEARED after {now - _animRunningSince:0.0}s — " +
-                        "CardsHandUI.AnimatingLostCards came back down after all, so the " +
-                        "WaitUntil(animations.Count == 0) returned and the flow's completion " +
-                        "callback ran. The turn was not lost. NOTE this is the ONLY ending that " +
-                        "clears the flag (CardsHandUI.cs:1115): the game's own recovery path, " +
-                        "CancelAnimateCardLost, leaves it latched true, so a recovery reaches the " +
-                        "BURN ANIM FLAG LATCHED verdict instead and never this line.");
+                        "CardsHandUI.AnimatingLostCards came back down. The animation lifetime " +
+                        "completed, or successful original cancellation bookkeeping was restored. " +
+                        "This UI flag alone does not prove native rule/network continuation.");
                 }
                 Disarm();
                 return;
@@ -439,12 +434,10 @@ internal static class BurnCommitWatch
                 return;
 
             _animReported = true;
-            // THE DECIDING FIELD. `AnimatingLostCards` alone cannot tell a coroutine that is still
-            // parked from one the game has already CANCELLED and completed — both read true, because
-            // CancelAnimateCardLost never clears the flag (see Arm's doc). `animatedLosingCard` is
-            // false in BOTH endings and true only while the coroutine is live, so it is the term
-            // that separates a lost turn from a leftover flag. Without it this alert would report a
-            // stranded flow for a flow that had advanced.
+            // A running iterator and leftover presentation bookkeeping are different incidents.
+            // Original cancellation omits the final flag clear; successful native cleanup is now
+            // repaired at that endpoint. Exception or replacement cases deliberately remain intact.
+            // Neither flag independently establishes callback delivery or rule/network progress.
             bool coroutineLive = hand.animatedLosingCard;
             if (!coroutineLive)
             {

@@ -153,7 +153,12 @@ internal static class Program
         hand.Owned=true;hand.Confirmed=false;hand.ShortRestChoosing=true;driver.Help(hand);
         Check(driver.Banner==null,"Short-rest sacrifice choice never receives ordinary selection instructions");
         hand.ShortRestChoosing=false;hand.Mode=CardHandMode.ActionSelection;PhaseManager.PhaseType=CPhase.PhaseType.ActionSelection;
+        CardsGameApi.MayReady=false;
         driver.Help(hand);Check(driver.Banner=="progress_choose_action","Own action phase explains card or basic action affordance");
+        driver.Help(hand,actions:false);Check(driver.Banner==null,"Empty long-rest dock does not advertise a card action");
+        CardsGameApi.MayConfirm=true;driver.Help(hand);
+        Check(driver.Banner==null,"Live End Turn or Continue does not compete with a choose-action instruction");
+        CardsGameApi.MayConfirm=false;
         GloomhavenVR.Core.Events.VRModeStateMachine.TargetingActive=true;driver.Help(hand);
         Check(driver.Banner=="progress_choose_target","Mandatory targeting explains laser use instead of another card action");
         hand.IsTurn=false;Choreographer.s_Choreographer.ThisPlayerHasTurnControl=false;driver.Help(hand);
@@ -161,9 +166,15 @@ internal static class Program
         GloomhavenVR.Core.Events.VRModeStateMachine.TargetingActive=false;
         GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint="native automatic wait";driver.Help(hand);
         Check(driver.Banner=="native automatic wait","Actual long-running automatic wait is never described as rest or card input");
+        driver.Help(hand,burning:true);
+        Check(driver.Banner=="native automatic wait","Native automatic wait notice survives an animation-only input barrier");
+        driver.Help(hand,modal:true);Check(driver.Banner==null,"Genuine blocking modal keeps its own instructions");
         driver.Help(hand,blocked:true);Check(driver.Banner==null,"Blocking overlay retains its own decision and instructions");
         driver.Help(hand,visible:false);Check(driver.Banner==null,"Hidden board does not publish a progress banner");
-        driver.Help(null);Check(driver.Banner==null,"Missing hand is not guessed into a required action");
+        driver.Help(null);Check(driver.Banner=="native automatic wait","Empty board still explains actual automatic synchronization wait");
         GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint=null;
+        driver.Help(null);Check(driver.Banner==null,"Missing hand is not guessed into a required action");
+        PhaseManager.PhaseType=CPhase.PhaseType.SelectAbilityCardsOrLongRest;hand.Mode=CardHandMode.CardsSelection;
+        driver.Help(hand,burning:true);Check(driver.Banner==null,"An incomplete native burn must not advertise new card input");
     }
 }

@@ -189,13 +189,14 @@ namespace GloomhavenVR.Cards
         private const int LongRestRetryMaxAttempts=3;
         private readonly List<CAbilityCard> _reopenKeep=new();
         private readonly List<VRCard> _fieldCards=new();
+        private readonly List<VRCard> _halfBuffer=new();
         private readonly HashSet<VRCard> _pickExitFlown=new();
         private readonly Dictionary<object,object> _dismissFlightOriginals=new();
         private readonly PortTray _tray=new();
         private readonly PortFactory _factory=new();
         private readonly PortFan _fan=new();
         private readonly PortHalf _half=new();
-        private bool _overlayGateBlocked;
+        private bool _overlayGateBlocked,_modalInputBlocked,_burnLayoutPending;
         private bool _sceneFacesReturned;
         private void ResetActiveDismiss() { }
         private void ClearLaserHover() { }
@@ -206,8 +207,9 @@ namespace GloomhavenVR.Cards
         internal bool Released => _sceneFacesReturned;
         internal string? Banner=>_tray.Banner;
         internal int Writes=>_tray.Writes;
-        internal void Help(CardsHandUI? hand,bool visible=true,bool blocked=false)
-        { _tray.IsVisible=visible;_overlayGateBlocked=blocked;UpdateProgressStatus(hand); }
+        internal void Help(CardsHandUI? hand,bool visible=true,bool blocked=false,bool modal=false,bool burning=false,bool actions=true)
+        { _tray.IsVisible=visible;_overlayGateBlocked=blocked;_modalInputBlocked=modal;_burnLayoutPending=burning;
+          _halfBuffer.Clear();if(actions)_halfBuffer.Add(new VRCard());UpdateProgressStatus(hand); }
         internal void Request(int which,CardsHandUI hand)
         {
             if(which==0)PumpLongRestTurn();

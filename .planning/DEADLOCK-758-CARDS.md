@@ -8,7 +8,7 @@ consumer/localization integration. No worker push or release is authorized.
 
 ## Scope and review model
 
-The recorded inventory includes all160 original C# files in those subtrees plus
+The recorded inventory includes all 160 original C# files in those subtrees plus
 the two added production files. The ignored `review-inventory.json` records each
 path/hash/category; it is accounting, not a claim of executed line coverage.
 
@@ -89,7 +89,11 @@ It also consumes root's passive delayed automatic-wait notice, so a stalled
 synchronization is not mislabeled as a card/rest choice.
 
 Existing mandatory item, floating panel, pick and exhausted status retain
-priority. Blocking overlays and hidden/missing boards do not publish a fallback.
+priority. Blocking modals/overlays and hidden/missing boards do not publish a
+fallback. Ordinary input instructions defer incomplete burn layout; an actual
+automatic-wait notice can still explain a visible board with no hand at all.
+The card-action instruction requires actual docked cards and no live native
+End Turn/Continue control, so an empty long-rest dock never advertises an action.
 Messages are change-gated, contain no private card identity and use existing
 owner-to-peer banner synchronization. No additional interaction, choice or
 presentation timer is introduced. Root owns English/German localization.
@@ -112,6 +116,19 @@ presentation timer is introduced. Root owns English/German localization.
 | Held figure blocks native action/animation | Existing direct action and animator hooks release local/remote figures before native work; native busy/FlowControl gates remain unchanged |
 | Original callback throws or original network/rule progression fails | Preserve the original exception and authority; diagnose it. Do not treat a timer as permission to skip an outcome or acknowledge another player |
 
+### Configuration-off admission
+
+There is no optional Cards/Board/HalfSelection module-disable setting in these
+subtrees. The VR/dev module lifetime owns HandSuppression.Active and restores the
+original window on shutdown. CardsConfig switches affect comfort, placement,
+sound, particles and optional cues; they do not disable the original callbacks.
+BoardConfig.TouchTilesWithFingertip=false excludes only near-touch admission;
+BoardPick's ordinary far ray and BoardClickDriver.TickFar remain available.
+HoverHaptics, SnapToHexCenter, AutoFocusOnTurn and SelectionReadyHighlighter affect
+their named optional aid; half-card laser/poke and original Ready/Undo callbacks
+remain. Parent owns global interactor-policy and window fallback review. No
+configuration is silently re-enabled by this change.
+
 ## Focused evidence
 
 `check-card-progress-lifetime.py` compiles the actual production queue, the four
@@ -123,21 +140,24 @@ The original long-rest WaitWhile predicate is source-bound. Unity scheduling,
 layout drawing and native rule/network endpoints are explicit ports; rule calls
 are counted/refused, never simulated as a successful network session.
 
-Final focused run `run-asf53k1f`: **427 assertions and14 compiling causal controls
-pass in51.94s**. Controls separately remove cancellation notification, substitute
+Final focused run `run-kwavzqlz`: **433 assertions and 16 compiling causal controls
+pass in 58.52s**. Controls separately remove cancellation notification, substitute
 success callbacks, lose reentrant work, strand each of four actual caller flags,
 restore original missing animation flag cleanup, remove replacement/owned guards,
-count only the hand, remove extra-turn exemption and misattribute targeting or
-automatic-wait instructions. Normal completion, repeat cancel, native exception,
+count only the hand, remove extra-turn exemption, misattribute targeting or
+automatic-wait instructions, or wrongly advertise actions during an empty
+long-rest dock or native End Turn/Continue. Normal completion, repeat cancel, native exception,
 replacement and cross-hand cases retain their original outcomes.
 
 Earlier retained attempts: first fixture compile failed on three uninitialized
 port fields; second failed because its frame driver advanced once while the real
 hand-switch recovery requires two frames. Those fixture-only errors were corrected,
-not relabeled as passes. Prior intermediate runs passed122/10 and339/12 before
-the rest/notice proof was extended; only the427/14 run binds the final functional
-production inputs. Subsequent DamageFlowPatches changes are diagnostic wording
-and stale comment correction, covered by integration compiler/source checks.
+not relabeled as passes. Intermediate runs passed 122/10, 339/12, 427/14,
+430/14 and 431/14 as rest/notice/modal/empty-hand proof was extended. Only the
+433/16 run binds the final functional production inputs. Subsequent Flows and
+DamageFlowPatches edits correct diagnostic wording and stale comments; the
+executed method bodies are unchanged. Parent compiler/source checks cover those
+final nonfunctional differences.
 
 The existing actual Unity multiplayer-progression suite requires its affected
 cue consumer rerun after root integration; its fixture was adapted to the bool

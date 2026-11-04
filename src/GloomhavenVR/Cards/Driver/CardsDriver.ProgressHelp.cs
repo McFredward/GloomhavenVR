@@ -17,10 +17,13 @@ internal sealed partial class CardsDriver
     private void UpdateProgressStatus(CardsHandUI? hand)
     {
         string? line = null;
-        if (_tray.IsVisible && hand != null && CardsGameApi.InScenario && !_overlayGateBlocked)
+        if (_tray.IsVisible && CardsGameApi.InScenario
+            && !_overlayGateBlocked && !_modalInputBlocked)
         {
             line = ProgressWaitNotice.CurrentHint;
-            if (line == null && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest
+            bool inputOffer = !_burnLayoutPending;
+            if (line == null && hand != null && inputOffer
+                && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest
                 && CardsGameApi.Mode(hand) == CardHandMode.CardsSelection
                 && !CardsGameApi.IsShortRestChoosing(hand))
             {
@@ -31,12 +34,13 @@ internal sealed partial class CardsDriver
                     : CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable()
                         ? "progress_selection_confirm" : "progress_selection_other");
             }
-            else if (line == null && VRModeStateMachine.TargetingActive
+            else if (line == null && hand != null && inputOffer && VRModeStateMachine.TargetingActive
                 && Choreographer.s_Choreographer != null
                 && Choreographer.s_Choreographer.ThisPlayerHasTurnControl)
                 line = Loc.Mod("progress_choose_target");
-            else if (line == null && PhaseManager.PhaseType == CPhase.PhaseType.ActionSelection
-                && CardsGameApi.IsActionTurn(hand) && _half.IsVisible && !_half.ReadOnly)
+            else if (line == null && hand != null && inputOffer && PhaseManager.PhaseType == CPhase.PhaseType.ActionSelection
+                && CardsGameApi.IsActionTurn(hand) && _half.IsVisible && !_half.ReadOnly
+                && _halfBuffer.Count > 0 && !CardsGameApi.CanConfirm())
                 line = Loc.Mod("progress_choose_action");
         }
 

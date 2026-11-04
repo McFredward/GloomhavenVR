@@ -76,6 +76,8 @@ def main():
    ('rest-extra-turn',driver,'if (actor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None)','if (actor == null)','Local and mirrored rest cue retain native hand+round/phase/extra-turn semantics'),
    ('hint-foreign-target',progress,'&& Choreographer.s_Choreographer.ThisPlayerHasTurnControl','',"Another player's targeting never asks this player to click"),
    ('hint-automatic-wait',progress,'line = ProgressWaitNotice.CurrentHint;','line = null;','Actual long-running automatic wait is never described as rest or card input'),
+   ('hint-empty-action-dock',progress,'&& _halfBuffer.Count > 0','', 'Empty long-rest dock does not advertise a card action'),
+   ('hint-finish-action',progress,'&& !CardsGameApi.CanConfirm()','', 'Live End Turn or Continue does not compete with a choose-action instruction'),
   ]
   # A queue tail enqueued during cancellation must survive; clearing again after callbacks loses it.
   variants[2]=('queue-drop-reentrant',queue,'catch (Exception ex) { VRLog.Error("Cards", $"Card action cancellation callback threw: {ex}"); }\n        }','catch (Exception ex) { VRLog.Error("Cards", $"Card action cancellation callback threw: {ex}"); }\n        }\n        Queue.Clear();','Reentrant cancellation enqueue belongs to next pump')

@@ -1809,8 +1809,8 @@ internal sealed partial class CardsDriver
     // THE RULE NOW. An UNANSWERED rest is driven exactly as before — that is what this pump is for
     // and the original stuck-long-rest bug is unchanged. Once the player has ANSWERED, the pump
     // holds while the game is visibly acting on the answer (CardsHandUI.AnimatingLostCards, the
-    // game's own flag, bounded by LongRestAnimatingCeilingSeconds because CancelAnimateCardLost
-    // latches it true) and for at least LongRestAnswerSettleSeconds, and may then re-drive, saying
+    // game's own flag, bounded by LongRestAnimatingCeilingSeconds for exceptional incomplete
+    // animation cleanup) and for at least LongRestAnswerSettleSeconds, and may then re-drive, saying
     // so with its own token. It is not a timer standing in for a signal: the signal is
     // PickFlowWatch.AnswerOutstandingFor, an EDGE recorded at the game's own commit choke point.
     // `ClearAnswer` at the top means a rest that resolves normally leaves nothing behind for the
@@ -1857,11 +1857,11 @@ internal sealed partial class CardsDriver
     private const float LongRestAnswerSettleSeconds = BurnEffectMaxHoldSeconds + FlyToPileSeconds;
 
     /// <summary>
-    /// The ceiling on the <c>AnimatingLostCards</c> hold, in seconds. That flag is a HOLD signal
-    /// with no end of its own — <c>CancelAnimateCardLost</c> stops the coroutine without ever
-    /// clearing it (CardsHandUI.cs:1154-1178) — so a latched-true flag must not be able to hold the
-    /// remedy off for the rest of the session. Generous against any plausible tween chain and still
-    /// far short of a lost turn.
+    /// The ceiling on the existing <c>AnimatingLostCards</c> hold, in seconds. Original
+    /// cancellation omits the flag's final clear (CardsHandUI.cs:1154-1178); the successful
+    /// native cancellation endpoint now completes that bookkeeping. Exceptional/incomplete
+    /// cleanup still remains diagnostic evidence. This bound changes neither the native flag
+    /// nor its wait/continuation and is not itself permission to release either one.
     /// </summary>
     private const float LongRestAnimatingCeilingSeconds = 20f;
 
@@ -1944,8 +1944,8 @@ internal sealed partial class CardsDriver
             // bounded by serialized tween durations this mod cannot read. While
             // CardsHandUI.AnimatingLostCards is true the game is visibly acting on the answer and
             // the pump may not touch it, however long that takes — bounded only by
-            // LongRestAnimatingCeilingSeconds, because that flag latches true for ever when
-            // CancelAnimateCardLost runs (CardsHandUI.cs:1154-1178 never clears it).
+            // LongRestAnimatingCeilingSeconds. Successful original cancellation now releases
+            // its omitted final flag write; incomplete/replaced lifetimes remain untouched.
             bool stillAnimating = CardsGameApi.AnimatingLostCards(hand)
                                   && sinceAnswer < LongRestAnimatingCeilingSeconds;
             if (!retryRunning
