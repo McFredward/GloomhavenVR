@@ -18,6 +18,11 @@ public static class Singleton<T> where T : class
 }
 public class StoryController { public UnityEngine.UI.UIWindow window = null!; }
 public class MapStoryController { public UnityEngine.UI.UIWindow window = null!; }
+namespace UnityEngine
+{
+    public sealed class Transform { public bool Drawn; }
+    public static class Time { public static float unscaledTime; }
+}
 namespace UnityEngine.UI
 {
     public sealed class UIWindow
@@ -29,6 +34,7 @@ namespace UnityEngine.UI
         public bool IsOpen = true, Permanent, Introduction, Destination, LevelMessage;
         public int Hides, Escapes;
         public object? Identity;
+        public readonly UnityEngine.Transform transform = new();
         public T? GetComponent<T>() where T : class => Identity as T;
         // Native UIWindow.Escape: None refuses; Skip succeeds without hiding; Hide hides.
         public bool Escape() { Escapes++; if (escapeKeyAction == EscapeKeyAction.None) return false;

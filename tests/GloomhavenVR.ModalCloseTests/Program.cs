@@ -162,6 +162,7 @@ static class Program
             "shared city readiness cannot be privately hidden or marked for local release");
         Check(ConfirmationOnOwner.CloseIntents == 0,
             "shared city close keeps its native decision authority");
+        EmptyRecoveryCases.Run(Check);
         Console.WriteLine($"Modal close: {_assertions} assertions passed.");
     }
 }
