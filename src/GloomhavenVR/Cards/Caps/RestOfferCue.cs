@@ -10,8 +10,8 @@ internal sealed class RestOfferCue
     private Transform? _parent;
     private Vector2 _size;
     private Renderer[] _renderers = System.Array.Empty<Renderer>();
-    internal static bool Wanted(int handCards, bool offered, bool selected) =>
-        handCards >= 0 && handCards < 2 && offered && !selected;
+    internal static bool Wanted(bool requiresRest, bool offered, bool selected) =>
+        requiresRest && offered && !selected;
 
     internal void Tick(Transform? parent, Vector2 size, bool wanted)
     {

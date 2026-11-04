@@ -965,11 +965,13 @@ internal sealed partial class CardsDriver
         ReportRestBoardClear(hand);
         if (UpdateItemDemandStatus(hand))
         {
+            _progressStatusKey = null;
             _exhaustedStatusKey = null; // another owner holds the placard; re-push ours when it lets go
             return;                     // the item-surrender demand owns the banner while its picker is open
         }
         if (UpdatePanelDecisionStatus())
         {
+            _progressStatusKey = null;
             _exhaustedStatusKey = null;
             return;                     // a floating-panel decision (doom / distribute) owns the banner
         }
@@ -997,9 +999,12 @@ internal sealed partial class CardsDriver
             // standing state. Deliberately below every decision above — a live ask always outranks
             // a statement of fact, and this one is true for the rest of the scenario.
             UpdateExhaustedStatus(hand);
+            if (!_exhaustedStatusKey.HasValue) UpdateProgressStatus(hand);
+            else _progressStatusKey = null;
             return;
         }
 
+        _progressStatusKey = null;
         _exhaustedStatusKey = null; // a live card pick owns the placard from here on
         CardHandMode mode = CardsGameApi.Mode(hand);
         int total = CardsGameApi.PickCardsWanted();
@@ -2054,7 +2059,8 @@ internal sealed partial class CardsDriver
                     VRLog.Info("Cards", $"Long rest: auto-advanced — {step}.");
                     _dirty = true; // burn step opening changes the fan/tray → rebuild
                 }
-            });
+            },
+            onCancelled: () => { _longRestPumpQueued = false; _dirty = true; });
     }
 
     // ------------------------------------------------- selection-follow hand switch --
@@ -2148,7 +2154,8 @@ internal sealed partial class CardsDriver
                                         "regardless of any open menu.");
                     _dirty = true; // the ShowHands postfix also set it — belt and braces
                 }
-            });
+            },
+            onCancelled: () => { _selSwitchQueued = false; _dirty = true; });
     }
 
     private (bool selected, bool losing, bool done, bool pickRefused)? _longRestState;

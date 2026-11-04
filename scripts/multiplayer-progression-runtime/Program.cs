@@ -21,9 +21,9 @@ public static class ProgressionTests {
  Check(!dwell.Tick(true,true,true,101)&&dwell.Tick(true,true,true,104),"new external displacement arms a fresh dwell");
  Check(!dwell.Tick(false,true,true,105)&&!dwell.Tick(true,true,true,106),"manual grip resets recovery dwell");
  Check(!dwell.Tick(true,false,true,110)&&!dwell.Tick(true,true,true,111),"returning to playfield resets recovery dwell");
- Check(!RestOfferCue.Wanted(2,true,false)&&!RestOfferCue.Wanted(-1,true,false),"normal or unresolved hand is never called forced-rest");
- Check(RestOfferCue.Wanted(0,true,false)&&RestOfferCue.Wanted(1,true,false),"insufficient hand accents allowed rest offers");
- Check(!RestOfferCue.Wanted(0,false,false)&&!RestOfferCue.Wanted(0,true,true),"unavailable or already chosen rest never glows");
+ Check(!RestOfferCue.Wanted(false,true,false),"normal or unresolved hand is never called forced-rest");
+ Check(RestOfferCue.Wanted(true,true,false),"insufficient hand accents allowed rest offers");
+ Check(!RestOfferCue.Wanted(true,false,false)&&!RestOfferCue.Wanted(true,true,true),"unavailable or already chosen rest never glows");
  var cameraGo=new GameObject("Head");var head=cameraGo.AddComponent<Camera>();head.enabled=false;
  head.transform.position=new Vector3(0,6,-8);head.transform.rotation=Quaternion.identity;
  CanvasConversion.WorldCamera=head;VRRigDriver.HeadCamera=head;

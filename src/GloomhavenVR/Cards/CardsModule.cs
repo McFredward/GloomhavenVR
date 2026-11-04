@@ -53,6 +53,8 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_DestroyCardUI_Patch));
         // Damage-negation burn flow hardening (task #11) + hover-FX suppression (task #10).
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_OnLoseCardClick_Gate));
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_AnimateCardsLost_Lifetime));
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_CancelAnimateCardLost_Lifetime));
         VRSession.Harmony?.PatchAll(typeof(TakeDamagePanel_BurnHover_Skip));
         VRSession.Harmony?.PatchAll(typeof(DialogPopup_Show_HoverStrip));
         // ITEMS 9 + 10 (2026-09-05): the pick flow's own OPEN and END edges. The game latches

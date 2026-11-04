@@ -668,11 +668,14 @@ internal sealed class RestControls
             _longCaption.gameObject.SetActive(longVisible);
         _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
-        int handCards = hand?.PlayerActor?.CharacterClass?.HandAbilityCards?.Count ?? -1;
+        // Selected round cards still belong to the playable pool. Looking only at the fan
+        // made the final valid pair advertise a forced rest as soon as it was laid down.
+        // Use the same native hand+round rule (including extra-turn exemption) as placement.
+        bool requiresRest = hand != null && CardsGameApi.MustRestInsteadOfPlay(hand);
         _shortCue.Tick(_shortButton != null ? _shortButton.transform : null, _capSize,
-            RestOfferCue.Wanted(handCards, shortVisible, shortSelected || longSelected));
+            RestOfferCue.Wanted(requiresRest, shortVisible, shortSelected || longSelected));
         _longCue.Tick(_longButton != null ? _longButton.transform : null, _capSize,
-            RestOfferCue.Wanted(handCards, longVisible, shortSelected || longSelected));
+            RestOfferCue.Wanted(requiresRest, longVisible, shortSelected || longSelected));
 
         // Publish for the multiplayer board-UI record (only meaningful while the caps exist).
         ShortRestShown = _shortButton != null && shortVisible;
