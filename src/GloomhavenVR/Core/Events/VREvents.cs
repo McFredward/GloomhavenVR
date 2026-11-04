@@ -207,8 +207,8 @@ internal readonly struct SessionResumedEvent
 ///   pump, uGUI callbacks and Harmony postfixes on main-thread methods).
 /// - Handlers must NEVER block (the ScenarioRuleLibrary worker thread is fed from
 ///   here — a blocked handler stalls the whole game; see CARDS.md §8 spin-wait trap).
-/// - Handlers should not throw; a throwing handler is logged and does not take the
-///   game down, but it aborts the remaining handlers of that single raise.
+/// - Handlers should not throw; a throwing handler is isolated and reported through
+///   the bounded TickGuard diagnostic, and later subscribers still receive the event.
 /// - Do not do per-frame work in handlers; they are edge-triggered notifications.
 /// </summary>
 internal static class VREvents
@@ -274,15 +274,6 @@ internal static class VREvents
     /// </summary>
     private static void Invoke<T>(Action<T>? handler, in T payload, string eventName) where T : struct
     {
-        if (handler == null)
-            return;
-        try
-        {
-            handler(payload);
-        }
-        catch (Exception ex)
-        {
-            VRLog.Error("Events", $"Subscriber to {eventName} threw: {ex}");
-        }
+        EventDispatch<T>.Invoke(handler, payload, eventName);
     }
 }

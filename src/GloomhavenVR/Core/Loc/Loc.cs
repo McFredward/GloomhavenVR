@@ -261,6 +261,30 @@ internal static partial class Loc
         // precisely the information the reporting session lacked: two players, both heroes owned by
         // the host, and three builds spent looking for a missing button that the game was withholding
         // on purpose. This line is the instruction, shown under the game's own sentence.
+        ["progress_choose_cards"] = Pair("Choose two ability cards, or rest.",
+            "Wähle zwei Aktionskarten oder raste."),
+        ["progress_rest_required"] = Pair("Too few cards to play. Choose a short or long rest.",
+            "Zu wenige Karten zum Spielen. Wähle eine kurze oder lange Rast."),
+        ["progress_selection_confirm"] = Pair("Confirm your selection to continue.",
+            "Bestätige deine Auswahl, um fortzufahren."),
+        ["progress_selection_other"] = Pair("Choose cards for your other characters, then confirm.",
+            "Wähle Karten für deine anderen Charaktere und bestätige dann."),
+        ["progress_ready_wait"] = Pair("Ready. Waiting for the other players.",
+            "Bereit. Warte auf die anderen Spieler."),
+        ["progress_choose_action"] = Pair("Select a card action, or use a basic attack or move.",
+            "Wähle eine Kartenaktion oder einen Standardangriff bzw. eine Standardbewegung."),
+        ["progress_choose_target"] = Pair("Select a highlighted target or destination with your laser.",
+            "Wähle mit dem Laser ein markiertes Ziel oder Zielfeld."),
+        ["progress_other_owner"] = Pair("Waiting for this character’s player.",
+            "Warte auf den Spieler dieses Charakters."),
+        ["progress_wait_players"] = Pair("Waiting for the other players to finish this step.",
+            "Warte darauf, dass die anderen Spieler diesen Schritt abschließen."),
+        ["progress_finishing_turn"] = Pair("Finishing the turn. Check for any open choices on the acting character’s board.",
+            "Der Zug wird abgeschlossen. Prüfe offene Entscheidungen auf dem Brett des handelnden Charakters."),
+        ["progress_finishing_round"] = Pair("Finishing the round. Check for any open choices on the character boards.",
+            "Die Runde wird abgeschlossen. Prüfe offene Entscheidungen auf den Charakterbrettern."),
+        ["progress_finishing_action"] = Pair("Finishing the action. Check for any open target or damage choices.",
+            "Die Aktion wird abgeschlossen. Prüfe offene Ziel- oder Schadensentscheidungen."),
         ["mp_assign_hint"] = Pair(
             "Every player needs at least one mercenary before the journey can start. "
             + "Assign them in the multiplayer menu.",

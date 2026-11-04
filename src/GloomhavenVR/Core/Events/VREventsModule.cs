@@ -55,6 +55,8 @@ internal sealed class VREventsModule : IVRModule
             return;
         _active = false;
 
+        ProgressWaitNotice.Reset();
+
         if (_driverGo != null)
         {
             Object.Destroy(_driverGo);
@@ -74,6 +76,10 @@ internal sealed class VREventsModule : IVRModule
     /// <summary>Per-frame pump for the mode state machine's scenario-presence poll.</summary>
     private sealed class VREventsDriver : MonoBehaviour
     {
-        private void Update() => VRModeStateMachine.Tick();
+        private void Update()
+        {
+            VRModeStateMachine.Tick();
+            if (!VRModeStateMachine.ScenarioBoardExists) ProgressWaitNotice.Reset();
+        }
     }
 }
