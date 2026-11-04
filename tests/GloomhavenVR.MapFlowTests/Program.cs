@@ -89,6 +89,17 @@ internal static class Program
         Check(unchanged.ConfirmationOpened && box.Shown == 3,
             "Unmodified native handler reproduces the no-dialog joining deadlock");
         FFSNet.PlayerRegistry.JoiningPlayers.Clear();
+        var permittedShop = new UINewEnhancementWindow();
+        var slot = new UINewEnhancementShopSlot();
+        FFSNet.PlayerRegistry.MyPlayer.Owns = false;
+        Check(!slot.Click(permittedShop) && permittedShop.NativeEntries == 0
+              && !permittedShop.ConfirmationOpened && box.Shown == 3,
+            "Original slot ownership refuses a foreign player's enhancement before the new guard");
+        FFSNet.PlayerRegistry.MyPlayer.Owns = true;
+        Check(slot.Click(permittedShop) && permittedShop.NativeEntries == 1
+              && permittedShop.ConfirmationOpened && box.Shown == 4,
+            "The owned original slot keeps its normal explicit sale and confirmation path");
+        box.Cancel!();
         FFSNetwork.IsOnline = FFSNetwork.IsHost = FFSNetwork.IsClient = false;
     }
 

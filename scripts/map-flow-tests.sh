@@ -38,6 +38,10 @@ if sale.exists():
     end = original.index('\n\t}', start) + len('\n\t}')
     fixture = (root / 'tests/GloomhavenVR.MapFlowTests/NativeEnhancementSale.cs').read_text()
     assert original[start:end] in fixture, 'Native enhancement sale fixture differs from game source'
+    permission = (common.parent / 'decompiled/GH.Runtime/UINewEnhancementShopSlot.cs').read_text()
+    start = permission.index('\tpublic void DetermineInteractability()')
+    end = permission.index('\n\t}', start) + len('\n\t}')
+    assert permission[start:end] in fixture, 'Native enhancement slot ownership fixture differs from game source'
     print('Native enhancement sale fixture: complete handler matches the read-only game source.')
 NATIVE
 dotnet run --project "$project" --configuration Release \

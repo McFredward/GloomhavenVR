@@ -1,6 +1,7 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using FFSNet;
 using GloomhavenVR.WorldUI;
 
@@ -63,8 +64,8 @@ internal sealed class UINewEnhancementWindow
 		});
 	}
 }
-internal sealed class EnhancementSlot { internal readonly object button = new(); internal readonly int enhancement = 1; }
-internal sealed class NativeSaleCharacter { internal int CalculateSellPriceEnhancement(object button) => 12; }
+internal sealed class EnhancementSlot { internal readonly EnhancementButtonBase button = new(); internal readonly int enhancement = 1; }
+internal sealed class NativeSaleCharacter { internal readonly string CharacterName = "native-owner"; internal int CalculateSellPriceEnhancement(object button) => 12; }
 internal sealed class NativeSaleService { internal int Removals; internal void RemoveEnhancement(object button) => Removals++; }
 internal sealed class NativeSaleDisplay { internal void OnRemovedEnhancement(object card) { } }
 internal sealed class NativeSaleCard { internal readonly object AbilityCard = new(); }
@@ -86,6 +87,7 @@ namespace FFSNet
     {
         internal static readonly List<object> JoiningPlayers = new();
         internal static bool OtherClientsAreJoining;
+        internal static readonly NativeSalePlayer MyPlayer = new();
     }
     internal enum GameActionType { SellEnhancement }
     internal enum ActionPhaseType { MapHQ }
@@ -101,3 +103,48 @@ namespace FFSNet
             Guid actorGuid, IProtocolToken supplementaryDataToken) => Requests++;
     }
 }
+
+// Original slot permission, retained ahead of the guarded native sale handler.
+internal sealed class UINewEnhancementShopSlot
+{
+    private readonly NativeSaleButton button = new();
+    private readonly NativeSaleCharacter character = new();
+    private readonly EnhancementSlot enhancement = new();
+    internal bool Click(UINewEnhancementWindow shop)
+    {
+        DetermineInteractability();
+        if (!button.interactable) return false;
+        shop.RequestSale(enhancement);
+        return true;
+    }
+	public void DetermineInteractability()
+	{
+		CCharacterClass cCharacterClass = CharacterClassManager.Classes.FirstOrDefault((CCharacterClass x) => x.FindCardWithID(enhancement.button.AbilityCardID) != null);
+		int controllableID = ((SaveData.Instance.Global.GameMode == EGameMode.Campaign) ? character.CharacterName.GetHashCode() : cCharacterClass.ModelInstanceID);
+		button.interactable = !FFSNetwork.IsOnline || (cCharacterClass != null && PlayerRegistry.MyPlayer.HasControlOver(controllableID) && ControllableRegistry.GetControllable(controllableID)?.NetworkEntity != null);
+	}
+}
+internal sealed class NativeSaleButton { internal bool interactable; }
+internal sealed class EnhancementButtonBase { internal int AbilityCardID => 42; }
+internal sealed class CCharacterClass
+{
+    internal int ModelInstanceID => 12;
+    internal object FindCardWithID(int id) => id == 42 ? this : null;
+}
+internal static class CharacterClassManager
+{ internal static readonly List<CCharacterClass> Classes = new() { new CCharacterClass() }; }
+internal sealed class NativeSalePlayer
+{
+    internal bool Owns;
+    internal bool HasControlOver(int id) => Owns && id == 12;
+}
+internal sealed class NativeSaleControllable { internal object NetworkEntity => this; }
+internal static class ControllableRegistry
+{ internal static NativeSaleControllable GetControllable(int id) => new(); }
+internal enum EGameMode { Campaign, Guildmaster }
+internal sealed class SaveData
+{
+    internal static readonly SaveData Instance = new();
+    internal readonly SaleGlobal Global = new();
+}
+internal sealed class SaleGlobal { internal EGameMode GameMode => EGameMode.Guildmaster; }
