@@ -142,3 +142,52 @@ executed artifacts, capture and result logs remain. The private ADB endpoint5058
 was task-owned and is no longer listening. No main/shared reference or another
 agent's live run was removed. Parent owns verified final archival/worktree
 retirement and the integrated complete gate; no worker push, release or ZIP.
+
+## Secondary peer-retirement lane
+
+The parent explicitly assigned three additional methods in
+`Net/Avatar/NetAvatarDriver.cs`: `ForgetPeer`, `DestroyAllAvatars`, and `OnDisable`.
+This is a method-scoped follow-up, not a claim to have reviewed all networking.
+
+**Source-proven failure:** `ForgetPeer` called damage-preview controller cleanup,
+decision-presentation cleanup and `RemoteAvatar.Destroy` before removing the peer
+or restoring any held figure/prop. `RemoteAvatar.Destroy` calls numerous Unity
+clone/material destructors without an enclosing catch; preview reset also calls
+live native UI controller methods. If one throws during a scene transition,
+disconnect or hot disable, the peer remains eligible for later stale ticks and
+its held objects are never restored. Whole-session retirement similarly called
+native-presentation reset before reaching any peer, and hot disable had multiple
+external cleanup calls before its final avatar retirement.
+
+**Fix:** retire the driver dictionary identity, queued packets, construction
+budget and environment/placement candidacy before touching presentation objects.
+Each existing owner's release has an independent, stable-key `TickGuard` boundary.
+A failed visual destructor cannot starve figure/prop restoration, other owner
+cleanup or later peers. Hot disable isolates its external cleanup calls, keeping
+ordinary field/collection resets direct. The first failure retains its full
+normal-level diagnostic; repetition follows the existing ten-second cadence.
+An owner's own failed cleanup is not reported as successful and is not replaced
+with a fake native action or ACK.
+
+`DestroyAllAvatars` snapshots exact avatar identities before invoking resets and
+compares identity again before retiring each peer. It no longer clears the whole
+dictionary afterward: a native lifecycle callback can create a new peer or a
+replacement for the same ID, which belongs to the subsequent opening and must
+retain its fresh queued state. Original wire/native actor authority is unchanged.
+
+**Executed proof:** `scripts/peer-retirement-tests.sh` compiles all three complete
+current methods and the production `TickGuard`. The portable native/Unity,
+transport, held-object owners and sent-state fields are explicit ports. Faults
+at each independent owner, disconnect/stale cleanup, hot disable, flat/non-FFS
+transport, same-ID rejoin and reentrant snapshot replacement execute against the
+actual coordinator methods. The suite passed **301 assertions and 10 compiling
+negative controls** in **34.28 s**. The controls include the three original
+ModBuild 757 method bodies and targeted guard/ordering/snapshot removals.
+
+Evidence: `debug/peer-retirement/run-rdq7h8wk`. The initial run
+`run-rbd1z00v` failed compilation because the perf-monitor port lacked the
+production documentation's `StepsActive` reference; that fixture-only omission
+was repaired and the failure is retained. Both runs completed canonical cleanup;
+the passing run removed 2,707,327 bytes of caches without skips. No real Bolt,
+Unity teardown, HMD picture or arbitrary failing destructor internals execute in
+this fixture; the parent validates the final strict build/source gates and union.
