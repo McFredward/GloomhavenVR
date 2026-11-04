@@ -30,6 +30,7 @@ public class UITempleShopSlot : MonoBehaviour { public Selectable button = null!
 public class UINewEnhancementWindow : UIWindow
 {
     public object character = new object(); public int mode;
+    public bool _isConfirmationBoxOpened;
     public AbilityCardUI? selectedCard, SowingCard;
     public EnhancementShop enhancementShop = null!;
     public CardHolder cardHolder = null!;
@@ -54,7 +55,7 @@ public static class Probe
         return go;
     }
 }
-namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { if (b.StartsWith("TOWN SERVICE FALLBACK")) Console.WriteLine(b); } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
+namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { if (b.StartsWith("TOWN SERVICE FALLBACK")) Console.WriteLine(b); } public static void Alert(string a,string b) {} public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
 // Production timing scopes do not change the interaction fixture's behavior.
 namespace GloomhavenVR.Core { internal static class PerfMonitor { internal static IDisposable Scope(string _) => EmptyScope.Instance; private sealed class EmptyScope : IDisposable { internal static readonly EmptyScope Instance = new(); public void Dispose() { } } } }
 namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static bool WantsPurseFocus;internal static void TickApproach() {} } }
@@ -174,6 +175,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
     internal static class MapRoomDriver
     {
         internal static bool Active = true;internal static int Presses;internal static bool SwitchForcesFirst;
+        // This interaction fixture exercises a healthy ability fan. Failed-fan
+        // recovery and native pending-choice ownership have dedicated coverage.
+        internal static bool AbilityHandFailed => false;
         internal static bool PressGuildmasterMode(EGuildmasterMode mode,string reason,bool suppressNativeSound=false)
         { Presses++;WorldUI.GuildmasterDestinations.Mode=mode;var window=WorldUI.GuildmasterDestinations.Window;if(window!=null){window.IsOpen=window.IsVisible=true;}if(SwitchForcesFirst&&NewPartyDisplayUI.PartyDisplay!=null)NewPartyDisplayUI.PartyDisplay.SelectedUISlot=NewPartyDisplayUI.PartyDisplay.FirstSlot;return true; }
         internal static bool TryGetParchmentFrame(out Vector3 center, out float scale)
