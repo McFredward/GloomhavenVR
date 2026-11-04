@@ -107,6 +107,7 @@ internal static class MapRoomDriver
     private static readonly MapLocationInteractor Locations = new();
     private static readonly MapButtonRail Buttons = new();
     private static readonly MapRoomHand Hand = new();
+    internal static bool AbilityHandFailed => Hand.HasFailed;
     private static readonly MapTableLegs TableLegs = new();
     private static readonly GuildmasterMapTable GuildmasterTable = new();
 
