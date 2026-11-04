@@ -136,7 +136,7 @@ python3 - "$repo_root/src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhanceme
 from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
-needle = '''return !(FFSNetwork.IsHost && PlayerRegistry.JoiningPlayers.Count > 0
+needle = '''return !(FFSNetwork.IsHost && JoiningPlayers?.GetValue(null) is ICollection joining && joining.Count > 0
             || FFSNetwork.IsClient && PlayerRegistry.OtherClientsAreJoining);'''
 assert source.count(needle) == 1, 'Enhancement join guard mutation seam changed'
 Path(sys.argv[2]).write_text(source.replace(needle, 'return true;'))

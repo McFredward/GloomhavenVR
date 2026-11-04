@@ -85,7 +85,7 @@ namespace FFSNet
 {
     internal static class PlayerRegistry
     {
-        internal static readonly List<object> JoiningPlayers = new();
+        internal static List<object> JoiningPlayers { get; } = new();
         internal static bool OtherClientsAreJoining;
         internal static readonly NativeSalePlayer MyPlayer = new();
     }

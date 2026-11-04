@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Reflection;
 using FFSNet;
 using GloomhavenVR.Core;
 using HarmonyLib;
@@ -16,12 +18,18 @@ namespace GloomhavenVR.WorldUI;
 [HarmonyPatch(typeof(UINewEnhancementWindow), "ConfirmSell")]
 internal static class TownServiceEnhancementJoinGuard
 {
+    // The original collection is List<BoltConnection>. Read its count through
+    // ICollection, as the existing quest roster does, without adding a compile-time
+    // dependency on the game's network transport implementation.
+    private static readonly PropertyInfo? JoiningPlayers = typeof(PlayerRegistry).GetProperty(
+        "JoiningPlayers", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
     [HarmonyPrefix]
     internal static bool Prefix()
     {
         if (!VRSession.IsRunning || !WorldUIConfig.ConversionActive)
             return true;
-        return !(FFSNetwork.IsHost && PlayerRegistry.JoiningPlayers.Count > 0
+        return !(FFSNetwork.IsHost && JoiningPlayers?.GetValue(null) is ICollection joining && joining.Count > 0
             || FFSNetwork.IsClient && PlayerRegistry.OtherClientsAreJoining);
     }
 }
