@@ -11,11 +11,13 @@
     <MapGateSource Condition="'$(MapGateSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs</MapGateSource>
     <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
     <TravelSource Condition="'$(TravelSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs</TravelSource>
+    <EnhancementJoinSource Condition="'$(EnhancementJoinSource)' == ''">../../src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementJoinGuard.cs</EnhancementJoinSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(LoadoutSource)" Link="Production/LoadoutWindowOwnership.cs" />
     <Compile Include="$(SelectionSource)" Link="Production/MapSelectionTransition.cs" />
     <Compile Include="$(MapGateSource)" Link="Production/MapInputGate.cs" />
+    <Compile Include="$(EnhancementJoinSource)" Link="Production/TownServiceEnhancementJoinGuard.cs" />
     <Compile Include="$(IntermediateOutputPath)MapPolicies.g.cs" />
   </ItemGroup>
   <Target Name="ExtractProductionMapPolicies" BeforeTargets="BeforeCompile">

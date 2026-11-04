@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <TutorialScopeSource Condition="'$(TutorialScopeSource)' == ''">../../src/GloomhavenVR/Compat/Tutorial/TutorialLessonScope.cs</TutorialScopeSource>
     <TutorialHoldSource Condition="'$(TutorialHoldSource)' == ''">../../src/GloomhavenVR/Compat/Tutorial/TutorialChainHold.cs</TutorialHoldSource>
+    <TutorialGrabSource Condition="'$(TutorialGrabSource)' == ''">../../src/GloomhavenVR/Compat/Tutorial/TutorialGrabStep.cs</TutorialGrabSource>
   </PropertyGroup>
-  <ItemGroup><Compile Include="Program.cs" /><Compile Include="$(TutorialScopeSource)" Link="Production/TutorialLessonScope.cs" /><Compile Include="$(TutorialHoldSource)" Link="Production/TutorialChainHold.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="Program.cs" /><Compile Include="GrabLessonFixture.cs" /><Compile Include="$(TutorialScopeSource)" Link="Production/TutorialLessonScope.cs" /><Compile Include="$(TutorialHoldSource)" Link="Production/TutorialChainHold.cs" /><Compile Include="$(TutorialGrabSource)" Link="Production/TutorialGrabStep.cs" /></ItemGroup>
 </Project>

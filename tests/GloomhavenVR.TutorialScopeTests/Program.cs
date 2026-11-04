@@ -82,7 +82,70 @@ internal static class Program
         service.Throw = false;
         Capture(service);
         CheckHoldLifetime(global, first, later);
+        CheckGrabCapability();
         Console.WriteLine($"Tutorial scope production tests: {_checks} assertions passed.");
+    }
+
+    private static void CheckGrabCapability()
+    {
+        var handler = new LevelMessagesUIHandler();
+        LevelMessagesUIHandler.s_Instance = handler;
+        var owner = new LevelEventsController();
+        LevelEventsController.s_Instance = owner;
+        var previous = new CLevelMessage { TitleKey = "TUTORIAL_2_HELP_010" };
+        var following = new CLevelMessage { MessageName = "native-following-message" };
+        UnityEngine.Time.unscaledTime = 100f;
+        TutorialGrabStep.Reset();
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = false;
+        TutorialGrabStep.NoteDismissed(previous);
+        Check(!TutorialChainHold.Engaged,
+            "Disabled figure grabbing must not hold the native tutorial for an impossible lesson");
+        owner.ShowLevelMessage(following);
+        Check(owner.Shown.Count == 1 && handler.Shows == 0,
+            "Disabled optional lesson leaves native message delivery completely untouched");
+
+        TutorialGrabStep.Reset();
+        owner.Shown.Clear();
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = true;
+        TutorialGrabStep.NoteDismissed(previous);
+        Check(TutorialChainHold.Engaged, "Enabled figure grabbing retains the real extra lesson");
+        owner.ShowLevelMessage(following);
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = false;
+        TutorialGrabStep.Tick();
+        Check(!TutorialChainHold.Engaged && owner.Shown.Count == 1 && handler.Shows == 0,
+            "Disabling figure grabbing while armed immediately restores the withheld native message");
+        Check(ReferenceEquals(owner.Shown[0], following),
+            "Capability loss replays the exact native message instead of inventing a completion");
+
+        TutorialGrabStep.Reset();
+        owner.Shown.Clear();
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = true;
+        TutorialGrabStep.NoteDismissed(previous);
+        owner.ShowLevelMessage(following);
+        UnityEngine.Time.unscaledTime += 1f;
+        TutorialGrabStep.Tick();
+        Check(handler.Shows == 1 && handler.CurrentlyDisplayedHelpTextMessage != null
+              && TutorialChainHold.Engaged, "Enabled lesson actually displays and retains its native chain hold");
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = false;
+        TutorialGrabStep.Tick();
+        Check(!TutorialChainHold.Engaged && handler.CurrentlyDisplayedHelpTextMessage == null
+              && handler.Hides == 1 && owner.Shown.Count == 1,
+            "Disabling the displayed grab lesson closes only its own strip and releases native flow");
+        TutorialGrabStep.Tick();
+        Check(handler.Hides == 1 && owner.Shown.Count == 1,
+            "Capability recovery does not replay or dismiss the native message twice");
+
+        TutorialGrabStep.Reset();
+        owner.Shown.Clear();
+        GloomhavenVR.Board.FigureGrab.FigureGrabConfig.GrabFigures.Value = true;
+        TutorialGrabStep.NoteDismissed(previous);
+        owner.ShowLevelMessage(following);
+        GloomhavenVR.Board.FigureGrab.HeldFigures.Count = 1;
+        TutorialGrabStep.Tick();
+        Check(!TutorialChainHold.Engaged && owner.Shown.Count == 1,
+            "An actual figure pickup still completes the enabled lesson through its original path");
+        GloomhavenVR.Board.FigureGrab.HeldFigures.Count = 0;
+        TutorialGrabStep.Reset();
     }
 
     private static void CheckHoldLifetime(GlobalData global, Tutorial first, Tutorial later)
@@ -165,6 +228,7 @@ public class LevelEventsController
 {
     public static bool s_EventsControllerActive;
     public static LevelEventsController? s_Instance;
+    public Action? m_ActionForNextMessageDismissal = null;
     public readonly List<CLevelMessage> Shown = new();
     public void ShowLevelMessage(CLevelMessage message)
     {
@@ -181,6 +245,7 @@ namespace GloomhavenVR.Core
         internal static void Warn(string scope, string message) { }
         internal static void Info(string scope, string message) { }
         internal static void Note(string scope, string message) { }
+        internal static void Error(string scope, string message) { }
     }
 }
 namespace HarmonyLib
@@ -203,15 +268,20 @@ namespace ScenarioRuleLibrary.CustomLevels
 {
     public class CLevelMessage
     {
+        public enum ELevelMessageLayoutType { Box, HelpText }
         public string MessageName = "message";
-        public string LayoutType = "box";
+        public ELevelMessageLayoutType LayoutType;
+        public string TitleKey = "";
+        public float DisplayDelay;
+        public bool ShouldPauseGame, ShowScreenBG;
         public CLevelTrigger? DisplayTrigger;
+        public CLevelTrigger DismissTrigger = new();
     }
-    public class CLevelTrigger { public bool IsUIEventTypeTrigger; public int EventTriggerTypeInt; }
+    public class CLevelTrigger { public bool IsUIEventTypeTrigger, IsTriggeredByDismiss; public int EventTriggerTypeInt, EventTriggerSubTypeInt; }
 }
 namespace GloomhavenVR.Compat
 {
-    internal static class TutorialGrabStep { }
+    internal static class TutorialHints { }
     internal static class ControlsTutorial { }
     internal static class WallFadeDisable { }
 }
