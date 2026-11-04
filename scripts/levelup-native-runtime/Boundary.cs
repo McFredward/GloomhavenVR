@@ -280,7 +280,7 @@ namespace GloomhavenVR.WorldUI
         }
         internal static void TransferSeatedSubtree(RectTransform rect,ConvertedPanel? destination) { }
         internal static void PlaceHost(ConvertedPanel panel,Vector3 position,Quaternion rotation,float scale)
-        {panel.HostRect.SetPositionAndRotation(position,rotation);panel.HostRect.localScale=Vector3.one*scale;PoseAuthors++;}
+        {PlaceHostNative758(panel,position,rotation,scale);PoseAuthors++;}
 
     }
     internal static partial class ModalFallback

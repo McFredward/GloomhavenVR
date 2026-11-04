@@ -17,7 +17,9 @@ bindings={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (*
 cases=[('production',{},None)]
 for name,before,after,expected in [
  ('scenario-only','bool inRoom = VRModeStateMachine.TableInFrontOfPlayer','bool inRoom = Choreographer.s_Choreographer != null && VRModeStateMachine.TableInFrontOfPlayer','already-open map confirmation converts without scenario choreographer'),
- ('edge-only','if (_pendingShow || _panel == null)','if (_pendingShow)','already-open map confirmation converts without scenario choreographer'),
+ ('edge-only','if (_pendingShow || _panel == null || !_placed)','if (_pendingShow)','already-open map confirmation converts without scenario choreographer'),
+ ('late-camera-retry-lost','if (_pendingShow || _panel == null || !_placed)','if (_pendingShow || _panel == null)','late head availability places the pending original confirmation exactly once'),
+ ('settled-placement-repeated','_placed = true;','_placed = false;','settled or manually moved confirmation never follows later head motion'),
  ('no-fallback','FallbackWindow = box.GetComponent<UIWindow>();','FallbackWindow = null;','failed dedicated conversion publishes exact original fallback window'),
  ('no-release','CanvasConversion.Release(_panel);','{}','desktop rescue releases only presentation'),
  ('native-hide','private void ReleasePanel()\n    {','private void ReleasePanel()\n    {\n        if (_attached != null) _attached.CurrentBox.IsOpen = false;','desktop rescue releases only presentation'),

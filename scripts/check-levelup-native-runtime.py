@@ -95,6 +95,8 @@ def main():
     originals['SupersampleKernel.cs'] = ('using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {'
         'internal static partial class PanelSupersample {\n' + '\n'.join(kernels) + '\n}}\n')
     converter_core=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
+    originals['NativeHostPlacement758.cs'] = ('using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {'
+        + method(converter_core, 'internal static void PlaceHost(').replace('void PlaceHost(', 'void PlaceHostNative758(', 1) + '}}')
     centering=converter_core[converter_core.index('        target.SetParent(hostRect, worldPositionStays: false);'):converter_core.index('        AdoptNestedCanvases(panel);')]
     originals['NativeTargetFrame739.cs']='using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {internal static void NormalizeTarget739(RectTransform target,RectTransform hostRect,Vector2 size){'+centering+'}}}'
     adopt = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.2.Adopt.cs').read_text()
@@ -158,6 +160,7 @@ def main():
         'internal static int StandaloneCount755=>StandaloneOrderPanels.Count;'
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
+    cases.append(('dialog-placement-production', {}, ''))
     cases.append(('update-dialog-production', {}, ''))
     cases.append(('narrative-production', {}, ''))
     cases.append(('narrative-early-production', {}, ''))
@@ -361,6 +364,14 @@ def main():
              '        if (!StoryComposite.PointOfNoReturn && BrowseOwnerAvailable(reset) && !ReferenceEquals(_retiredBrowse, inventory))',
              'fresh native Cards owner recovers browsing after commitment ends'),
         ])
+    changes.extend([
+        ('dialog-placement-late-camera-retry-lost', 'DialogSurface.cs',
+         'if (_pendingShow || _panel == null || !_placed)', 'if (_pendingShow || _panel == null)',
+         'late head places the already-open native confirmation at its original first-opening pose'),
+        ('dialog-placement-settled-pose-repeated', 'DialogSurface.cs',
+         '_placed = true;', '_placed = false;',
+         'settled or manually moved native confirmation never reacquires head-follow placement'),
+    ])
     for name, file, before, after, expected in changes:
         if originals[file].count(before) != 1:
             raise SystemExit('Mutation binding drift: ' + name)
@@ -443,7 +454,7 @@ def main():
                     if item.name != dll.name: shutil.copyfile(item, runtime / item.name)
                 manifest['harmony'] = str(runtime / '0Harmony.dll')
             manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected,
-                'entry': 'RunUpdateDialog755' if name.startswith('update-dialog-') else 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
+                'entry': 'RunStandaloneConfirmation758' if name.startswith('dialog-placement-') else 'RunUpdateDialog755' if name.startswith('update-dialog-') else 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
         for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)

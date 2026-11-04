@@ -285,7 +285,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class CanvasConversion
     {
-        internal static int Converts, Releases, Transfers, CompositeReleases;
+        internal static int Converts, Releases, Transfers, CompositeReleases, Placements;
         internal static readonly List<ConvertedPanel> ActivePanels = new();
         internal static ConvertedPanel? LastDestination;
         internal static bool ReturnNull, ThrowConvert, ThrowPlace, ThrowRelease;
@@ -307,7 +307,10 @@ namespace GloomhavenVR.WorldUI
             panel.Target.SetParent(panel.Home, false);
         }
         internal static void PlaceHost(ConvertedPanel panel, Vector3 pos, Quaternion rotation, float scale)
-        { if (ThrowPlace) throw new InvalidOperationException("placement"); }
+        {
+            if (ThrowPlace) throw new InvalidOperationException("placement");
+            Placements++; panel.HostRect.SetPositionAndRotation(pos,rotation);
+        }
         internal static void TransferSeatedSubtree(RectTransform root, ConvertedPanel? destination)
         { ++Transfers; LastDestination = destination; }
         internal static void Reset()
@@ -316,7 +319,7 @@ namespace GloomhavenVR.WorldUI
             Singleton<UIItemConfirmationBox>.Instance = null;
             TownServicePresentation.Owned=false;MapDialogSeat.AllowTransfer=true;
             Core.Events.MenuWorldContext.IsReady = false; FlatScreen.MenuOwner = null; FlatScreen.MenuSource = null;
-            ActivePanels.Clear(); Converts = Releases = Transfers = CompositeReleases = 0; Last = LastDestination = null;
+            ActivePanels.Clear(); Converts = Releases = Transfers = CompositeReleases = Placements = 0; Last = LastDestination = null;
             PanelSupersample.Bindings.Clear();
             ReturnNull = ThrowConvert = ThrowPlace = ThrowRelease = false;
             WorldCamera = new Camera();
