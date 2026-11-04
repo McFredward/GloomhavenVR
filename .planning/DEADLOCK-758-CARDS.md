@@ -170,3 +170,51 @@ Every standalone run calls cleanup_completed_run after process reap. Source,
 manifest, execution assemblies, original native body, controls, failed attempts
 and logs remain; generated bin/obj caches are removed. Only this worker's caches
 and eventual worktree may be retired.
+
+## Independent render/data liveness review
+
+A read-only secondary pass used main integration `c73bf2b2e` on 2026-11-04.
+Its inventory covers 94 Core Perf/Environment/WallFade/Water files, 54 town-service
+files and 15 top-level pure codec/envelope files. This is source triage and
+inspection of relevant consumers, loops and writes, not new runtime coverage.
+No further source-proven deadlock was identified and no runtime edit was made.
+
+- Scenery loading drains are finite: Retune increments its cursor through the
+  fixed record/projector population and sets it to -1; node/recipe walks dequeue
+  or advance a finite native hierarchy. Ordinary traversal has node/time budgets.
+  Large loading-edge work can still cause a finite stall; this pass does not
+  certify frame time or a maximum load duration.
+- Wall prepare/survey cursors advance or return at the slice budget. Derivation
+  retains the previously committed renderer table until atomic commit. Union-find
+  links roots, ancestry walks climb Unity's acyclic hierarchy, and suspended-clock
+  catch-up has a 64-iteration guard. Rendering tables are not native rule waits.
+- Decorative collider ownership rejects trigger/rigidbody/gameplay/actor/door
+  and unknown-callback scopes; only proven native tree/pure decorative-bay
+  colliders are claimed. Claims restore only this owner's disable. Ambient FX
+  may pause only without stopAction/collision/trigger side effects. Cloth and
+  material/mesh budgets do not stop native actors or rule callbacks.
+- Preparation hooks on room reveal and loading completion are void notifications,
+  contain faults, and preserve the original native continuation. Environment
+  failure restores originals and stops optional work. Generation-profile scopes
+  restore with Harmony finalizers even on a native exception. Water changes
+  material/probe output and introduces no collider/phase/input gate.
+- DoorOpenWatch observes native DoorIsOpen and preserves unlocking/paused clocks;
+  its bounded visual replay is not a continuation signal. Original Choreographer
+  OpenDoor independently reveals/spawns actors and releases PauseLoco; it does
+  not wait for that watch or its renderer animation to finish.
+- Packet loops advance their TLV/header cursor even for unknown zero-length
+  records, require exact known lengths and cap allocations. Inflation aborts on
+  zero reads and rejects extra output; catalog parent validation detects cycles.
+  Motion packing shrinks search bounds/selected counts or advances bounded visit
+  counters. Shared send arbitration has finite page/attempt limits, rather than
+  waiting synchronously for delivery or an acknowledgment.
+- Deferred native-template preparation retries at most eight visits per tick,
+  with a two-millisecond check, stale/session/disconnect retirement and a fixed
+  population bound. It gates observer presentation, not a local gameplay callback.
+  Town grants retain their independent resident/session/nonce authority, renewal,
+  release and coordinator-election drain; malformed presentation cannot authorize
+  or advance a native purchase, donation or enhancement.
+
+The ignored secondary inventory and hashes are preserved beside the first review
+evidence in the main checkout. Existing full integration validation remains the
+parent's responsibility; this read-only pass deliberately ran no additional tests.
