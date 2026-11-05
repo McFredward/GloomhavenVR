@@ -79,6 +79,8 @@ internal static partial class Loc
             ["ButtonColors/RestCapTintG"] = Pair("Green color component of rest buttons, from 0 to 1.", "Grünanteil der Rastknöpfe, von 0 bis 1."),
             ["ButtonColors/RestCapTintR"] = Pair("Red color component of rest buttons, from 0 to 1.", "Rotanteil der Rastknöpfe, von 0 bis 1."),
             ["Cards/ActiveCardScale_*"] = Pair("Size of active cards relative to ordinary cards.", "Größe aktiver Karten relativ zu normalen Karten."),
+            ["Cards/ProgressHelpMode"] = Pair("Show additional action explanations on your board always, never, or after a delay. Required choices and instructions remain visible.", "Zeigt zusätzliche Aktionserklärungen auf deinem Brett immer, nie oder nach einer Wartezeit. Notwendige Entscheidungen und Anweisungen bleiben sichtbar."),
+            ["Cards/ProgressHelpDelaySeconds"] = Pair("Delay in seconds before additional action explanations appear while a decision remains pending. Applies to After a delay.", "Wartezeit in Sekunden, bevor zusätzliche Aktionserklärungen bei einer ausstehenden Entscheidung erscheinen. Gilt für Nach Wartezeit."),
             ["Cards/ActiveGridSpacing_*"] = Pair("Horizontal and vertical spacing of active cards.", "Waagerechter und senkrechter Abstand aktiver Karten."),
             ["Cards/ActiveOffset_*"] = Pair("Position of active cards relative to this board.", "Position aktiver Karten relativ zu diesem Brett."),
             ["Cards/AssetOffset_*"] = Pair("Position of the board model only. Card slots and attached controls stay in place.", "Position nur des Brettmodells. Kartenmulden und angedockte Steuerelemente bleiben an ihrem Platz."),
