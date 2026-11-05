@@ -7,6 +7,33 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// <summary>Parallel off-axis views through the actual window rectangle; no toe-in or gaze movement.</summary>
 internal static class MenuDepthProjection
 {
+    /// <summary>Finite unit winding normal of a physical window, independent of pixel/world scale.
+    /// Normalize each axis before taking its cross: a valid millimeter-per-pixel host otherwise
+    /// produces an area below Unity's absolute Vector3.Normalize cutoff. Explicit rescaling also
+    /// keeps very small/large finite bases away from squared-magnitude underflow/overflow.</summary>
+    internal static Vector3 PlaneNormal(Transform plane)
+    {
+        if (plane == null
+            || !TryNormalizeDirection(plane.TransformVector(Vector3.right), out Vector3 right)
+            || !TryNormalizeDirection(plane.TransformVector(Vector3.up), out Vector3 up)
+            || !TryNormalizeDirection(Vector3.Cross(right, up), out Vector3 normal))
+            return Vector3.zero;
+        return normal;
+    }
+
+    private static bool TryNormalizeDirection(Vector3 value, out Vector3 direction)
+    {
+        direction = Vector3.zero;
+        if (!Finite(value)) return false;
+        float largest = Mathf.Max(Mathf.Abs(value.x), Mathf.Max(Mathf.Abs(value.y), Mathf.Abs(value.z)));
+        if (!(largest > 0f)) return false;
+        Vector3 scaled = value / largest;
+        float length = Mathf.Sqrt(Vector3.Dot(scaled, scaled));
+        if (!(length > 0f) || float.IsNaN(length) || float.IsInfinity(length)) return false;
+        direction = scaled / length;
+        return Finite(direction);
+    }
+
     /// <summary>Physical head pixels, limited by an optional intermediate UI raster.</summary>
     internal static Vector2 PixelFootprint(RectTransform graphic, MenuDepthEye eye, Camera? raster = null)
     {
