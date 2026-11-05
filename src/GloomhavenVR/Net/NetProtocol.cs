@@ -632,7 +632,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 758;
+    public const ushort ModBuild = 759;
+
+    // ModBuild759 — preserve original confirmations at small world scales.
+    // Generic blackout guards recognize exact producer-owned confirmation leases
+    // instead of hiding their native canvases again immediately after reveal.
+    // Recover a distant progression story through a finite shared flight, yielding
+    // to native closure, manual grips, opening/authority changes and room making.
+    // Additional action explanations are owner-authored Always/Never/AfterDelay
+    // hints (default five minutes); remote boards show the same accepted text.
+    // Original decisions, common world metrics and the wire grammar are unchanged.
 
     // ModBuild758 — comprehensive SP/MP progression-safety review.
     // Isolate every mod event/mode observer so one failure cannot consume another
