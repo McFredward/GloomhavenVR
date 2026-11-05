@@ -15,6 +15,8 @@ namespace GloomhavenVR.WorldUI
     internal static class CanvasConversion
     {
         internal static readonly List<ConvertedPanel> ActivePanels = new();
+        // A newly revealed native popup has not committed a narrowed hit frame.
+        internal static bool TryGetHitRect(Canvas canvas, out Rect rect) { rect=default; return false; }
     }
     // Explicit already-engaged panel resources. The production .6 coordinator,
     // registry, source renders and head presentation execute unchanged.
@@ -28,6 +30,8 @@ namespace GloomhavenVR.WorldUI
             internal long MenuDepthBytes, VramBytes; internal int RtW, RtH, Msaa = 1;
             internal string Window = "actual test window"; internal Rect Frame;
             internal int Layer;
+            internal bool ActualGeometry760;
+            internal GameObject? DisplayGo;
         }
         private sealed class TransformIdentityComparer : IEqualityComparer<Transform>
         {
@@ -53,9 +57,15 @@ namespace GloomhavenVR.WorldUI
         private static void Reallocate(Entry entry, Rect frame, ReallocTrigger trigger)
             => throw new System.Exception("Unexpected fixture mono allocation; original fixed target fits both actual budgets.");
         private static RenderTexture DisplayTexture(Entry entry) => entry.Rt;
-        private static void SyncDisplayPose(Entry entry) { }
+        private static void SyncDisplayPose(Entry entry) { if(entry.ActualGeometry760) SyncDisplayPose760(entry); }
         private static void NoteCaptureCompleted(Entry entry) { }
-        private static void SyncProjection(Entry entry) { }
+        private static void SyncProjection(Entry entry) { if(entry.ActualGeometry760) SyncProjection760(entry); }
+        internal static void ActualGeometry(Entry entry)
+        {
+            entry.ActualGeometry760=true;entry.CamGo=entry.Cam.gameObject;entry.DisplayGo=entry.DisplayImage.gameObject;
+            entry.Cam.transform.SetParent(entry.Panel.HostRect,false);SyncProjection(entry);SyncDisplayPose(entry);
+        }
+        internal static void OriginalMono(Entry entry) => RestoreMenuDepthMono(entry);
         internal static Entry BindHead(RectTransform root, Camera capture, RenderTexture target, RawImage image)
         {
             var panel = new ConvertedPanel { HostRect = root, Target = root, HostGo = root.gameObject };
