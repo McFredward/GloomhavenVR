@@ -366,8 +366,9 @@ internal static class BurnCommitWatch
                 "StartCoroutine being refused on an inactive hand object — look for a 'Coroutine couldn't " +
                 "be started' line, and for a 'BURN COMMIT RESCUE' line just above this one. If the RESCUE " +
                 "line is present and this one still fired, the coroutine started and something ELSE " +
-                "interrupted it. Inspect the original WaitUntil at CardsHandUI.cs:1103, native " +
-                "callback exceptions and cancellation/replacement evidence before assigning a " +
+                "interrupted it. THE NEXT SUSPECT IS THE original WaitUntil at CardsHandUI.cs:1103; " +
+                "this search marker does not establish a cause. Inspect native callback " +
+                "exceptions and cancellation/replacement evidence before assigning a " +
                 "cause. Successful original CancelAnimateCardLost invokes the original callback; " +
                 "its returned UI animation flag alone does not prove rule/network completion. " +
                 "AnimateCardsLost's own 'yield return new WaitUntil(() => animations.Count == 0)' " +
