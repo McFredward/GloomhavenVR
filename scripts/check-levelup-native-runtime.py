@@ -50,6 +50,32 @@ def method(source, signature):
     return source[start:end]
 
 
+def editor_batches(cases, batch_size):
+    """Bound loaded variant assemblies while preserving every original case/order."""
+    if batch_size < 1:
+        raise ValueError('Editor batch size must be positive')
+    return [cases[start:start + batch_size] for start in range(0, len(cases), batch_size)]
+
+
+def case_result_coverage(text, cases):
+    """An editor exit alone cannot certify that all selected controls executed."""
+    expected = [case['name'] for case in cases]
+    completed = []
+    for line in text.splitlines():
+        for prefix in ('PASS negative control ', 'PASS ', 'FAIL '):
+            if line.startswith(prefix):
+                completed.append(line[len(prefix):].split(':', 1)[0])
+                break
+    return {
+        'completed': completed,
+        'missing': [name for name in expected if name not in completed],
+        'duplicates': sorted({name for name in completed if completed.count(name) != 1}),
+        'unexpected': [name for name in completed if name not in expected],
+        'failed': any(line.startswith('FAIL ') for line in text.splitlines()),
+        'ordered': completed == expected,
+    }
+
+
 def main():
     def terminated(signum, frame): raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminated)
@@ -58,12 +84,16 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/levelup-native-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--case', action='append')
+    parser.add_argument('--editor-batch-size', type=int, default=12,
+                        help='Maximum compiled variants loaded by one fresh editor process (default: 12).')
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
     parser.add_argument('--confirmation-placement-only', action='store_true', help='Run only original cropped/root/nested confirmation placement; requires explicit --case selection.')
     parser.add_argument('--popup-scale-only', action='store_true', help='Run only perspective original confirmation placement/input across world scales; requires explicit --case selection.')
     parser.add_argument('--update-dialog-only', action='store_true', help='Run only update dialog ordering/pixel coverage; requires explicit --case selection.')
     args = parser.parse_args()
+    if args.editor_batch_size < 1:
+        parser.error('--editor-batch-size must be positive')
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
     root = args.source_root.resolve(); fixture = ROOT / 'scripts/levelup-native-runtime'
@@ -514,40 +544,75 @@ def main():
         for name in ('TMPro.cginc', 'TMPro_Properties.cginc'): shutil.copyfile(shaders / name, project / 'Assets/Resources/OriginalShaders' / name)
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {name: '1.0.0' for name in ('com.unity.modules.ui', 'com.unity.modules.imgui', 'com.unity.modules.jsonserialize', 'com.unity.modules.physics', 'com.unity.modules.imageconversion')}}))
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-        path = run / 'manifest.json'; path.write_text(json.dumps(manifest, indent=2) + '\n')
-        command = [str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'LevelUpRunner.Start', '-levelUpManifest', str(path), '-logFile', str(run / 'unity.log')]
-        if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', *command]
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=env); reaped = False
-        # Preserve the original14-case budget of30 seconds per variant as the
-        # ownership/foreground control inventory grows. This is only the editor
-        # completion limit; every pixel/callback/control oracle remains intact.
-        editor_timeout = max(420, 30 * len(cases))
+        (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        batches = editor_batches(manifest['cases'], args.editor_batch_size)
+        if not batches:
+            raise RuntimeError('No selected native variants; an empty execution cannot pass')
+        # Compilation, variant bodies, original editor runner and case order stay
+        # unchanged. Mono cannot unload the 94 distinct variant assemblies inside
+        # one editor domain; restarting between bounded groups releases that RSS.
+        plans = [{'index': index + 1, 'cases': [case['name'] for case in batch],
+                  'seconds': max(420, 30 * len(batch))} for index, batch in enumerate(batches)]
         (run / 'editor-budget.json').write_text(json.dumps({
-            'cases': len(cases), 'seconds': editor_timeout,
-            'formula': 'max(420,30*case_count)',
-            'reason': 'The old420s limit cut off an active32/39-case pass before the remaining controls.'}, indent=2) + '\n')
-        editor_timed_out=False
-        try: result = process.wait(timeout=editor_timeout)
-        except subprocess.TimeoutExpired:
-            editor_timed_out=True
-            raise
-        finally:
-            try: os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError: pass
-            process.wait(); reaped = True
-            (run/'editor-exit.json').write_text(json.dumps({'returncode':process.returncode,'timed_out':editor_timed_out,'budget_seconds':editor_timeout},indent=2)+'\n')
-            editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
-            if editor_dll.exists(): shutil.copyfile(editor_dll, assemblies / 'Assembly-CSharp-Editor.dll')
-            (run / 'executed-pins.json').write_text(json.dumps({str(p.relative_to(run)): hashlib.sha256(p.read_bytes()).hexdigest() for folder in (assemblies, run / 'harmony-runtime') for p in folder.glob('*.dll')}, indent=2) + '\n')
-            editor = compilers.cleanup_project_editors(project, args.unity, launcher_reaped=True)
-            (run / 'editor-cleanup.json').write_text(json.dumps(editor, indent=2) + '\n')
-            if editor['remaining']: raise RuntimeError('Exact private editor failed to stop')
-            compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=True)
-            (run / 'compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
-            if compiler['remaining'] or compiler['refused']: raise RuntimeError('Exact private compiler failed to stop safely')
-        report = Path(manifest['result'])
-        if report.is_file(): print(report.read_text(), end='')
-        if result or not report.is_file(): raise RuntimeError('Unity failed: ' + str(run / 'unity.log'))
+            'cases': len(cases), 'batch_size': args.editor_batch_size,
+            'seconds': sum(plan['seconds'] for plan in plans),
+            'formula': 'per batch: max(420,30*case_count)', 'batches': plans,
+            'reason': 'Fresh editor domains bound retained variant assemblies; all original case oracles remain unchanged.'}, indent=2) + '\n')
+        report = Path(manifest['result']); report.write_text('')
+        exits = []
+        for plan, batch_cases in zip(plans, batches):
+            batch = run / 'batches' / ('batch-' + str(plan['index']).zfill(3)); batch.mkdir(parents=True)
+            batch_manifest = dict(manifest, result=str(batch / 'results.txt'), evidence=str(batch), cases=batch_cases)
+            path = batch / 'manifest.json'; path.write_text(json.dumps(batch_manifest, indent=2) + '\n')
+            command = [str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'LevelUpRunner.Start', '-levelUpManifest', str(path), '-logFile', str(batch / 'unity.log')]
+            if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', *command]
+            process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=env); reaped = False
+            editor_timeout = plan['seconds']; editor_timed_out = False
+            try:
+                process.wait(timeout=editor_timeout)
+            except subprocess.TimeoutExpired:
+                editor_timed_out = True
+                raise
+            finally:
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait(); reaped = True
+                batch_report = Path(batch_manifest['result'])
+                text = batch_report.read_text() if batch_report.is_file() else ''
+                coverage = case_result_coverage(text, batch_cases)
+                verdict = dict(plan, returncode=process.returncode, timed_out=editor_timed_out,
+                               budget_seconds=editor_timeout, report_present=batch_report.is_file(), **coverage)
+                verdict['passed'] = process.returncode == 0 and not editor_timed_out and not coverage['failed'] and coverage['ordered']
+                exits.append(verdict)
+                (batch / 'editor-exit.json').write_text(json.dumps(verdict, indent=2) + '\n')
+                with report.open('a') as combined:
+                    combined.write(text)
+                    if text and not text.endswith('\n'): combined.write('\n')
+                    if not verdict['passed']:
+                        combined.write('FAIL batch-' + str(plan['index']).zfill(3) + ': ' + json.dumps(verdict, sort_keys=True) + '\n')
+                # Root fields retain the previous receipt contract; details are
+                # per batch and survive even timeout, interruption or later failure.
+                (run / 'editor-exit.json').write_text(json.dumps({
+                    'returncode': next((item['returncode'] or 1 for item in exits if not item['passed']), 0),
+                    'timed_out': any(item['timed_out'] for item in exits),
+                    'budget_seconds': sum(plan['seconds'] for plan in plans),
+                    'batch_size': args.editor_batch_size,
+                    'complete': len(exits) == len(batches) and all(item['ordered'] for item in exits),
+                    'batches': exits}, indent=2) + '\n')
+                editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
+                if editor_dll.exists():
+                    shutil.copyfile(editor_dll, batch / 'Assembly-CSharp-Editor.dll')
+                    shutil.copyfile(editor_dll, assemblies / 'Assembly-CSharp-Editor.dll')
+                (run / 'executed-pins.json').write_text(json.dumps({str(p.relative_to(run)): hashlib.sha256(p.read_bytes()).hexdigest() for folder in (assemblies, run / 'harmony-runtime') for p in folder.glob('*.dll')}, indent=2) + '\n')
+                editor = compilers.cleanup_project_editors(project, args.unity, launcher_reaped=True)
+                (batch / 'editor-cleanup.json').write_text(json.dumps(editor, indent=2) + '\n')
+                if editor['remaining']: raise RuntimeError('Exact private editor failed to stop')
+                compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=True)
+                (batch / 'compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
+                if compiler['remaining'] or compiler['refused']: raise RuntimeError('Exact private compiler failed to stop safely')
+            if text: print(text, end='', flush=True)
+        if any(not item['passed'] for item in exits):
+            raise RuntimeError('Unity batch failed; all completed results retained: ' + str(run / 'batches'))
         code = 0
         print(('PARTIAL PASS' if args.case or args.narrative_only or args.card_list_only else 'PASS') + ': ' + str(len(cases)) + ' actual native/Unity variants; ' + str(run))
     finally:
