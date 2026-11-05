@@ -89,7 +89,7 @@ def main():
    ('hint-empty-action-dock',progress,'&& _halfBuffer.Count > 0','', 'Empty long-rest dock does not advertise a card action'),
    ('hint-finish-action',progress,'&& !CardsGameApi.CanConfirm()','', 'Live End Turn or Continue does not compete with a choose-action instruction'),
    ('help-no-delay',clock,'now - _since >= Math.Max(0f, delaySeconds)','true','Delayed text is not shown on first native choice'),
-   ('help-short-delay',clock,'now - _since >= Math.Max(0f, delaySeconds)','now - _since >= 20f','Five-minute delay must not be shortened'),
+   ('help-short-delay',clock,'now - _since >= Math.Max(0f, delaySeconds)','now - _since >= 20f','Configured delay must not be shortened'),
    ('help-ignore-response',clock,'|| _response != response','', 'One accepted card response restarts the delay even when prompt wording stays the same'),
    ('help-ignore-card-swap',progress,'changed = !ReferenceEquals(cards[i], _progressHelpRound[i]);','changed = false;','Same-count card swap is still a meaningful response'),
    ('help-reset-on-hide',progress,'bool shown = _progressHelpClock.Observe','if (!_tray.IsVisible) _progressHelpClock.Reset();\n        bool shown = _progressHelpClock.Observe','Board visibility and modal/head presentation do not restart the decision clock'),

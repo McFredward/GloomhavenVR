@@ -63,7 +63,7 @@ internal sealed partial class CardsDriver
         }
 
         // Only an accepted native card selection changes this snapshot. Fan/board/head
-        // movement and widget recreation cannot restart the five-minute observation.
+        // movement and widget recreation cannot restart the configured observation.
         int response = automatic ? 0 : ProgressHelpResponse(actor);
         object? decisionActor = automatic ? wait?.m_StateWaitActor : actor;
         bool shown = _progressHelpClock.Observe(hint, owner, wait, decisionActor,

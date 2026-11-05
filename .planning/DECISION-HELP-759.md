@@ -3,7 +3,7 @@
 Class B: bounded presentation/configuration change on dev 074f42adb (Build758).
 The control board's optional explanatory text has three owner preferences: Always,
 Never, and After a delay. New PC and standalone profiles both default to a
-300-second delay. Cards & Hand exposes the mode and, only for delayed mode, its
+150-second delay (maintainer follow-up: 2.5 minutes). Cards & Hand exposes the mode and, only for delayed mode, its
 0–3600-second interval. Existing profiles receive these new defaults. EN/DE names,
 mode labels and player-facing help are provided.
 

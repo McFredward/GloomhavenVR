@@ -188,10 +188,10 @@ internal static class Program
         GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint=null;
         CardsConfig.ProgressHelpMode.Value=GloomhavenVR.Defaults.ProgressHelpMode;
         CardsConfig.ProgressHelpDelaySeconds.Value=GloomhavenVR.Defaults.ProgressHelpDelaySeconds;
-        Check(CardsConfig.ProgressHelpMode.Value==ProgressHelpMode.AfterDelay&&CardsConfig.ProgressHelpDelaySeconds.Value==300,"New profiles default to delayed five-minute explanations");
+        Check(CardsConfig.ProgressHelpMode.Value==ProgressHelpMode.AfterDelay&&CardsConfig.ProgressHelpDelaySeconds.Value==150,"New profiles default to delayed 150-second explanations");
         Time.unscaledTime=0;driver.Help(hand);Check(driver.Banner==null,"Delayed text is not shown on first native choice");
-        Time.unscaledTime=299;driver.Help(hand);Check(driver.Banner==null,"Five-minute delay must not be shortened");
-        Time.unscaledTime=300;driver.Help(hand);Check(driver.Banner=="progress_choose_cards","Explanation appears at configured delay");
+        Time.unscaledTime=149;driver.Help(hand);Check(driver.Banner==null,"Configured delay must not be shortened");
+        Time.unscaledTime=150;driver.Help(hand);Check(driver.Banner=="progress_choose_cards","Explanation appears at configured delay");
         var remote=new GloomhavenVR.Net.RemotePickBanner();
         var packet=driver.Publish();CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Never;
         remote.Apply(packet.HasPickBanner?packet.PickBannerText:null);
@@ -235,7 +235,7 @@ internal static class Program
         GloomhavenVR.Core.Loc.CurrentLanguage="French";Check(GloomhavenVR.Core.Loc.ProgressHelpModeName(2)=="After a delay","Other UI languages keep readable English fallback");
         var clock=new DecisionHelpClock();var owner=new object();var wait=new object();var actor=new object();
         Check(!clock.Observe("choice",owner,wait,actor,1,0,0,ProgressHelpMode.AfterDelay,float.NaN),"Nonfinite configured delay uses the real shipped default");
-        Check(!clock.Observe("choice",owner,wait,actor,1,0,299,ProgressHelpMode.AfterDelay,float.PositiveInfinity),"Invalid delay does not shorten the default");
-        Check(clock.Observe("choice",owner,wait,actor,1,0,300,(ProgressHelpMode)99,float.NaN),"Unknown future mode falls back to delayed help like its label");
+        Check(!clock.Observe("choice",owner,wait,actor,1,0,149,ProgressHelpMode.AfterDelay,float.PositiveInfinity),"Invalid delay does not shorten the default");
+        Check(clock.Observe("choice",owner,wait,actor,1,0,150,(ProgressHelpMode)99,float.NaN),"Unknown future mode falls back to delayed help like its label");
     }
 }

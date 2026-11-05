@@ -1230,7 +1230,7 @@ internal static class CardsConfig
             "Required choices, buttons, native instructions and important alerts remain available.");
         ProgressHelpDelaySeconds = file.Bind("Cards", "ProgressHelpDelaySeconds", Defaults.ProgressHelpDelaySeconds,
             new ConfigDescription("Seconds without a response before extra board explanations appear in AfterDelay mode. " +
-                "Default 300 seconds (5 minutes). A real choice or a new decision restarts the wait; " +
+                "Default 150 seconds (2.5 minutes). A real choice or a new decision restarts the wait; " +
                 "looking or moving does not. Changes apply immediately.", new AcceptableValueRange<float>(0f, 3600f)));
         WantedSlotHint = file.Bind("Cards", "WantedSlotHint", Defaults.WantedSlotHint,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +

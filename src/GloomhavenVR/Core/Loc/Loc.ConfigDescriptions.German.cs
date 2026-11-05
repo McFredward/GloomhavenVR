@@ -1760,7 +1760,7 @@ internal static partial class Loc
                 + "Notwendige Auswahlmöglichkeiten, Tasten, Spielanweisungen und wichtige Meldungen bleiben verfügbar.",
             ["Cards/ProgressHelpDelaySeconds"] =
                 "Sekunden ohne Antwort, bevor bei Nach Wartezeit zusätzliche Brett-Erklärungen erscheinen. "
-                + "Vorgabe: 300 Sekunden (5 Minuten). Eine echte Auswahl oder eine neue Entscheidung startet die Wartezeit neu; "
+                + "Vorgabe: 150 Sekunden (2,5 Minuten). Eine echte Auswahl oder eine neue Entscheidung startet die Wartezeit neu; "
                 + "Umschauen und Bewegen tun das nicht. Änderungen wirken sofort.",
             ["Cards/FaceMipBake"] =
                 "Aliasing-Runde 3 (T3): das Spiel liefert seine Kartenbild-Sprite-Atlanten OHNE Mipmaps (FACE "
