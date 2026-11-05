@@ -46,7 +46,9 @@ def main():
       'offline-version-transition':block(texts['version'],'internal static void Tick('),
       'census-reset':block(texts['version'],'internal static void Reset('),
       'reward-reset':block(texts['reward'],'private static void ResetRewardPose(')}
-    assert 'RemoteMapStory.Reset();' in lifecycle['driver-disable']
+    # Peer-retirement executes the complete guarded teardown, including failures.
+    # This reward kernel binds that same reset owner and its exact lifecycle edge.
+    assert 'TickGuard.Run("Net.Disable.MapStory", RemoteMapStory.Reset, "Net");' in lifecycle['driver-disable']
     assert 'RemoteMapStory.Reset();' in lifecycle['flat-net-transition']
     assert 'RemoteMapStory.ResolveReward(_transport != null ? _transport.LocalPlayerId : 0);' in lifecycle['per-frame-resolution']
     assert 'if (_wasOnline)\n                Reset();' in lifecycle['offline-version-transition']

@@ -112,8 +112,11 @@ namespace GloomhavenVR.Cards
     }
     internal static class CardActionQueue
     {
-        internal static readonly Queue<(Action action, Action done)> Actions = new();
-        internal static void Enqueue(Action action, Action done) => Actions.Enqueue((action, done));
+        // This port drives ordinary native hand switches; the separate lifecycle
+        // suite executes cancellation against the actual production queue.
+        internal static readonly Queue<(Action action, Action done, Action? cancelled)> Actions = new();
+        internal static void Enqueue(Action action, Action done, Action? onCancelled = null) =>
+            Actions.Enqueue((action, done, onCancelled));
         internal static void Pump() { var work = Actions.Dequeue(); work.action(); work.done(); }
     }
     internal sealed class VRCard { internal bool IsHeld => false; }
