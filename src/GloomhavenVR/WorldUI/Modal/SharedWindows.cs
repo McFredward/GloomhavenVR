@@ -84,8 +84,9 @@ namespace GloomhavenVR.WorldUI;
 /// nicht synchronisiert werden".</item>
 /// <item><b>The hover card</b> — it has no grab bar and no X at all, so there is nothing to tint,
 /// and its pose is owned externally every frame ([[settle-gate-vs-external-writer]]).</item>
-/// <item><b>The scenario decision / results windows</b> (records 12/24/29) — those are cosmetic
-/// MIRRORS of a peer's own board, not a shared object. Nobody else's drag moves your copy.</item>
+/// <item><b>The per-character scenario decision prompts</b> (records 12/24/29) are cosmetic
+/// mirrors of that character's board. The public victory/defeat results are instead
+/// <see cref="SharedWindowKind.Results"/> and use the shared original results window.</item>
 /// </list></para>
 ///
 /// <para><b>WHY THIS LIVES IN <c>WorldUI</c> AND NOT IN <c>Net</c>.</b> The window chrome must not
@@ -192,6 +193,9 @@ internal enum SharedWindowKind : byte
 
     /// <summary>Native chest rewards: game-owned content/confirmation, shared VR pose on record73.</summary>
     RewardShowcase = 6,
+
+    /// <summary>The original scenario victory/defeat results, with shared public presentation.</summary>
+    Results = 7,
 }
 
 /// <summary>See <see cref="SharedWindowKind"/> for the whole design; this is the accessor both the
@@ -234,6 +238,9 @@ internal static class SharedWindows
     {
         if (window == null)
             return SharedWindowKind.None;
+
+        if (ReferenceEquals(ScenarioResultsNative.Window, window))
+            return SharedWindowKind.Results;
 
         if (ReferenceEquals(RewardShowcase.Window, window))
             return SharedWindowKind.RewardShowcase;
@@ -305,7 +312,8 @@ internal static class SharedWindows
             return false;               // singleplayer: every window is a private window
         return kind switch
         {
-            SharedWindowKind.ScenarioStory or SharedWindowKind.Video or SharedWindowKind.RewardShowcase => true,
+            SharedWindowKind.ScenarioStory or SharedWindowKind.Video or SharedWindowKind.RewardShowcase
+                or SharedWindowKind.Results => true,
             // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from
             // the game rather than assumed: a road/city event is raised from MapChoreographer on
             // the campaign map and its record travels in the map room's parchment frame like the
@@ -471,7 +479,8 @@ internal static class SharedWindows
         || GrabbedHere(SharedWindowKind.QuestConfirm)
         || GrabbedHere(SharedWindowKind.Encounter)
         || GrabbedHere(SharedWindowKind.Video)
-        || GrabbedHere(SharedWindowKind.RewardShowcase);
+        || GrabbedHere(SharedWindowKind.RewardShowcase)
+        || GrabbedHere(SharedWindowKind.Results);
 
     /// <summary>One kind's answer for <see cref="AnyGrabbedHere"/> — participation first, so a
     /// non-participating client never even looks for the window.</summary>
@@ -483,7 +492,7 @@ internal static class SharedWindows
 
     internal static bool AnyReleaseTurningHere()
     {
-        for (int value = 1; value <= 6; value++)
+        for (int value = 1; value <= (int)SharedWindowKind.Results; value++)
         {
             var kind = (SharedWindowKind)value;
             if (ParticipatesHere(kind) && TryGetGrab(kind, out GrabbableModal? grab)
@@ -497,6 +506,8 @@ internal static class SharedWindows
     {
         switch (kind)
         {
+            case SharedWindowKind.Results:
+                return ScenarioResultsNative.Window;
             case SharedWindowKind.RewardShowcase:
                 return RewardShowcase.Window;
             case SharedWindowKind.Video:
