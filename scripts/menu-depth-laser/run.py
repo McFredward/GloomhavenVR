@@ -39,7 +39,7 @@ def main():
         'MenuDepthDisplay.cs','MenuDepthHeadRaster.cs','MenuDepthHeadCarrier.cs','MenuDepthNativeUiScope.cs',
         'MenuDepthHeightfield.cs','MenuDepthGraphic.cs','MenuDepthCardPlane.cs','MenuDepthPerksCardClip.cs','MenuDepthCharacterSource.cs','MenuDepthCharacterProjection.cs']
     paths=[code/name for name in names]+[ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',
-        ROOT/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs',ROOT/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs',
+        ROOT/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs',ROOT/'src/GloomhavenVR/Hands/Interact/UguiRaycastCoordinates.cs',ROOT/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs',
         ROOT/'src/GloomhavenVR/Hands/HoverHaptics.cs',ROOT/'src/GloomhavenVR/Hands/Interact/IPokeable.cs']
     sources={p.name:p.read_text()for p in paths}
     hand_path=ROOT/'src/GloomhavenVR/Hands/VRHand.cs';hand=hand_path.read_text()
@@ -91,8 +91,8 @@ def main():
             '_rayWitnessCandidates[w] != null', 'same-frame pooled original replacement retains a live witness'),
         ('stale-source','MenuDepthCharacterSource.cs','_rayRenderedFrame < Time.frameCount - 1',
             '_rayRenderedFrame < -1000', 'source geometry expires when its actual capture stops drawing'),
-        ('permission-fallthrough','UguiPointer.cs','if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);',
-            'if (!any) any = TryRaycast(canvas!, screenPos, out topHit);', 'visible read-only card retains physical occlusion'),
+        ('permission-fallthrough','UguiPointer.cs','if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit, worldPlane: false);',
+            'if (!any) any = TryRaycast(canvas!, screenPos, out topHit, worldPlane: false);', 'visible read-only card retains physical occlusion'),
         ('skin-per-hand','MenuDepthCharacterSource.cs','if (_frame != Time.frameCount)',
             'if (_frame != -1234)', 'both hands share at most one potentially-hit skin bake'),
         ('native-raised-flat','ActualRayUgui.cs','if (WorldUI.CanvasConversion.TryGetHitRect(canvas,out _))',

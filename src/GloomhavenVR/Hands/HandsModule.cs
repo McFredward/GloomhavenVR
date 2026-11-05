@@ -43,6 +43,9 @@ internal sealed class HandsModule : IVRModule
             return;
         }
 
+        VRSession.Harmony?.PatchAll(typeof(GraphicRaycaster_SyntheticCoordinates));
+        VRSession.Harmony?.PatchAll(typeof(PointerInputModuleExtended_CapturedCoordinates));
+
         _driverGo = new GameObject("GloomhavenVR.HandsDriver");
         Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;

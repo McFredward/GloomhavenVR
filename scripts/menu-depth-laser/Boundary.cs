@@ -165,6 +165,10 @@ namespace GloomhavenVR.Hands.Interact
 }
 namespace GloomhavenVR.WorldUI
 {
+    // This suite exercises physical world panels, not the native flat-screen
+    // capture. Captured-source ownership is proved by its independent input suite.
+    internal static class FlatScreen
+    { internal static bool OwnsNativeUiPixels(Canvas? canvas,Camera? camera)=>false; }
     internal sealed class PanelGrabHandle : MonoBehaviour
     { internal bool CanGrab=true;internal Collider? BarCollider; }
     internal static class CanvasConversion

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>CS0649;CS0414;CS0436</NoWarn><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/Program.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/UnityEngine.UI.dll;$(GameManaged)/Unity.TextMeshPro.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/InControl.dll;$(GameManaged)/Utilities.dll;$(GameManaged)/Unity.InputSystem.dll" Condition="'$(CommonInput)' == 'true'"><Private>false</Private></Reference>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
+  </ItemGroup>
+</Project>

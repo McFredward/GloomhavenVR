@@ -70,7 +70,14 @@ private static bool ShouldWithholdUnstartedWindowClick(GameObject target,string 
     for signature in ['    internal void Press(Vector2 screenPos)', '    internal void Drag(Vector2 screenPos)',
                       '    internal void Release(Vector2 screenPos)', '    internal void Cancel()']:
         result += member(source, signature)
-    return result + '}\n'
+    # This suite installs no coordinate patch or captured-screen owner. Its
+    # original raycast eligibility is already a declared fixture input; the
+    # independent native-ui-pointer760 suite proves the real coordinate lease.
+    return result + '}\n' + '''internal static class UguiRaycastCoordinates {
+internal readonly struct Lease : System.IDisposable {public void Dispose(){}}
+internal static Lease EnterCaptured(PointerEventData data)=>default;
+}
+'''
 
 
 def upstream_source(ray, flat):
@@ -78,6 +85,7 @@ def upstream_source(ray, flat):
     guard = ray[brace + 1:ray.index('        PickPose pick =', brace)]
     result = '''using UnityEngine;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Core;
 namespace GloomhavenVR.Hands.Interact {
 internal sealed class RotationLaserLifetime {

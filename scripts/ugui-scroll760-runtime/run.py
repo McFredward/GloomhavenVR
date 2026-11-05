@@ -67,7 +67,7 @@ def main():
               'internal GameObject? Hovered=>_hovered;internal void SetFixtureHover(GameObject? target)=>_hovered=target;'
               'internal Vector2 FixtureScrollDelta=>GetData().scrollDelta;'
               + '\n'.join(block(pointer, signature) for signature in
-                  ['internal void Scroll(Vector2 scrollDelta)', 'private GameObject? ScrollTarget(GameObject start)', 'private PointerEventData GetData()'])
+                  ['internal void Scroll(Vector2 scrollDelta)', 'internal static GameObject? FindScrollTarget(GameObject start, List<Component> handlers)', 'private PointerEventData GetData()'])
               + '}internal sealed class RayUguiDriver {'
               'private readonly GloomhavenVR.Hands.VRHand _hand;private readonly UguiPointer _pointer;'
               'internal RayUguiDriver(GloomhavenVR.Hands.VRHand hand,UguiPointer pointer){_hand=hand;_pointer=pointer;}'

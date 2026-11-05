@@ -269,6 +269,19 @@ internal static class VirtualMouse
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
 
+    /// <summary>Read-only provenance for the original mouse module's captured-UI raycast.
+    /// Its position comes from the processed InputSystem device, not our queued
+    /// next-update shadow. A moving laser can legitimately have different values.</summary>
+    internal static bool OwnsProcessedPosition(Vector2 position)
+    {
+        if (!VRSession.IsRunning || _mouse == null || !_mouse.added || !_mouse.enabled
+            || !ReferenceEquals(Mouse.current, _mouse) || _parked || _lastDriveFrame < 0
+            || position == ParkPixel || Utilities.InputSystemUtilities.GetCurrentVirtualMouse() != null)
+            return false;
+        int age = Time.frameCount - _lastDriveFrame;
+        return age >= 0 && age <= ParkAfterFrames && _mouse.position.ReadValue() == position;
+    }
+
     /// <summary>
     /// Create (or adopt) the game's virtual mouse. Safe to call repeatedly.
     /// Returns false when InputManager does not exist yet (very early boot).

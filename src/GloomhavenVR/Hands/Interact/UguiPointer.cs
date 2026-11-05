@@ -204,6 +204,9 @@ internal sealed class UguiPointer
     /// modality gate stays intact.
     /// </summary>
     internal bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit)
+        => TryRaycast(canvas, screenPos, out topHit, worldPlane: true);
+
+    private bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit, bool worldPlane)
     {
         topHit = default;
 
@@ -246,7 +249,7 @@ internal sealed class UguiPointer
         PointerEventData data = GetData();
         data.position = screenPos;
 
-        bool any = TryRaycastTop(raycaster, data, out topHit);
+        bool any = TryRaycastTop(raycaster, data, out topHit, worldPlane ? canvas : null);
 
         List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas);
         if (nested != null)
@@ -261,7 +264,7 @@ internal sealed class UguiPointer
                 GraphicRaycaster? subRaycaster = sub.GetComponent<GraphicRaycaster>();
                 if (subRaycaster == null || !subRaycaster.isActiveAndEnabled)
                     continue;
-                if (TryRaycastTop(subRaycaster, data, out RaycastResult subTop)
+                if (TryRaycastTop(subRaycaster, data, out RaycastResult subTop, worldPlane ? canvas : null)
                     && (!any || Beats(subTop, topHit)))
                 {
                     topHit = subTop;
@@ -308,7 +311,9 @@ internal sealed class UguiPointer
                     || (inputCanvas != canvas && (nested == null || !nested.Contains(inputCanvas)))) continue;
                 GraphicRaycaster original = inputCanvas.GetComponent<GraphicRaycaster>();
                 if (original == null || !original.isActiveAndEnabled) continue;
-                _hits.Clear(); original.Raycast(data, _hits);
+                _hits.Clear();
+                using (UguiRaycastCoordinates.Enter(original, data))
+                    original.Raycast(data, _hits);
                 for (int i = 0; i < _hits.Count; i++)
                     if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
                     {
@@ -318,7 +323,7 @@ internal sealed class UguiPointer
                     }
             }
         }
-        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);
+        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit, worldPlane: false);
         if (any)
         {
             topHit.worldPosition = physicalPoint; topHit.distance = physicalDistance;
@@ -328,10 +333,11 @@ internal sealed class UguiPointer
     }
 
     /// <summary>Top hit of a single raycaster, if any.</summary>
-    private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)
+    private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top, Canvas? admittedHost = null)
     {
         _hits.Clear();
-        raycaster.Raycast(data, _hits);
+        using (UguiRaycastCoordinates.Enter(raycaster, data, admittedHost))
+            raycaster.Raycast(data, _hits);
         if (_hits.Count == 0)
         {
             top = default;
@@ -909,7 +915,7 @@ internal sealed class UguiPointer
     {
         if (_hovered == null)
             return;
-        GameObject? target = ScrollTarget(_hovered);
+        GameObject? target = FindScrollTarget(_hovered, _scrollHandlers);
         if (target == null)
             return;
         PointerEventData data = GetData();
@@ -925,15 +931,15 @@ internal sealed class UguiPointer
     /// Keep the nearest real wheel owner; skip only that exact empty adapter.
     /// Derived adapters and other IScrollHandlers retain their original priority.
     /// </summary>
-    private GameObject? ScrollTarget(GameObject start)
+    internal static GameObject? FindScrollTarget(GameObject start, List<Component> handlers)
     {
         for (Transform? current = start.transform; current != null; current = current.parent)
         {
-            _scrollHandlers.Clear();
-            current.GetComponents(_scrollHandlers);
-            for (int i = 0; i < _scrollHandlers.Count; i++)
+            handlers.Clear();
+            current.GetComponents(handlers);
+            for (int i = 0; i < handlers.Count; i++)
             {
-                Component component = _scrollHandlers[i];
+                Component component = handlers[i];
                 if (!(component is IScrollHandler) || component is Behaviour behaviour && !behaviour.isActiveAndEnabled)
                     continue;
                 if (component.GetType() == typeof(EventTrigger))
