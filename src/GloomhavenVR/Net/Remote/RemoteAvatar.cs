@@ -1947,12 +1947,14 @@ internal sealed class RemoteAvatar
         // "no sacrifice is lying in either recess", and a latched code would keep a face on a card
         // whose owner has already burnt or re-drawn it.
         PublicHandPickState? previousPick = _publicHandPick.Current(ScenarioManager.Scenario);
-        _publicHandPick.Observe(p.PublicHandPickSeen, p.PublicHandPick, ScenarioManager.Scenario);
+        _publicHandPick.Observe(p.PublicHandPickSeen, p.PublicHandPick, ScenarioManager.Scenario,
+            ScenarioManager.CurrentScenarioState?.Seed ?? 0,
+            PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID));
         PublicHandPickState? receivedPick = _publicHandPick.Current(ScenarioManager.Scenario);
         if (p.PublicHandPickSeen && !ReferenceEquals(previousPick, receivedPick))
             VRLog.Info("Net", receivedPick != null
                 ? $"PUBLIC HAND PICK received from player {PlayerId}: revision={receivedPick.Revision}, actor={receivedPick.ActorId}, round={receivedPick.Round}, phase={receivedPick.Phase}, occupied=0x{receivedPick.Occupied:X1}, named=0x{receivedPick.Named:X1}. Original pool provenance remains phase-gated."
-                : $"PUBLIC HAND PICK from player {PlayerId}: malformed picture cleared; no old original is reused.");
+                : $"PUBLIC HAND PICK from player {PlayerId}: unusable picture cleared; no old original is reused.");
         SacrificeSeatCode0 = p.HasSacrificeSeat ? p.SacrificeSeatCode0 : (byte)0;
         SacrificeSeatCount0 = p.HasSacrificeSeat ? p.SacrificeSeatCount0 : (byte)0;
         // Item 8: absent record == nothing dimmed. The sender omits the record for an empty mask,

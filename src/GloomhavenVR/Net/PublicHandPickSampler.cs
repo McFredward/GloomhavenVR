@@ -15,7 +15,10 @@ internal static class PublicHandPickSampler
     internal static PublicHandPickState? Sample()
     {
         object? scenario = ScenarioManager.Scenario;
-        if (!ReferenceEquals(_scenario, scenario)) { _scenario = scenario; _current = null; }
+        bool changedScenario = !ReferenceEquals(_scenario, scenario);
+        _scenario = scenario;
+        int seed = ScenarioManager.CurrentScenarioState?.Seed ?? 0;
+        ulong key = PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID);
         int actorId = 0, round = 0;
         byte phase = 0, occupied = 0, named = 0;
         PublicHandPickState.Seat left = default, right = default;
@@ -47,12 +50,13 @@ internal static class PublicHandPickSampler
             }
         }
         if (occupied == 0) { actorId = round = 0; phase = 0; }
-        if (_current == null && occupied == 0) return null;
-        if (_current != null && _current.ActorId == actorId && _current.Round == round && _current.Phase == phase
+        if (_current == null && occupied == 0 && !changedScenario) return null;
+        if (!changedScenario && _current != null && _current.ScenarioSeed == seed && _current.ScenarioKey == key
+            && _current.ActorId == actorId && _current.Round == round && _current.Phase == phase
             && _current.Occupied == occupied && _current.Named == named
             && _current.Left.Same(in left) && _current.Right.Same(in right)) return _current;
         if (++_revision == 0) _revision++;
-        _current = new PublicHandPickState(_revision, actorId, round, phase, occupied, named, left, right);
+        _current = new PublicHandPickState(_revision, actorId, round, phase, occupied, named, left, right, seed, key);
         return _current;
     }
 }

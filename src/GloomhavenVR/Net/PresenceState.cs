@@ -1941,8 +1941,8 @@ internal static class PresenceSerializer
     // Exact recent and durable dismissal origins122: 7774 + 4741 = 12515 bytes.
     // Opening-scoped move order123:12515 +183 =12698 bytes. Allocation retains257 spare;
     // the unchanged bounded12800-byte envelope leaves102 bytes.
-    // Public hand-pick124 adds at most33 bytes:12698→12731, still under12800.
-    public const int MaxSize = 12988;
+    // Public hand-pick124 adds at most45 bytes:12698→12743, still under12800.
+    public const int MaxSize = 13000;
 
     // ---- write --------------------------------------------------------------------------
 

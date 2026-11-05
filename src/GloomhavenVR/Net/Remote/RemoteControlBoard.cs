@@ -2030,7 +2030,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     {
         card = null;
         PublicHandPickState? state = _owner.PublicHandPick;
-        if (state == null || actor == null || state.ActorId != NetFigures.StableActorId(actor)
+        if (state == null || !state.MatchesScenario(ScenarioManager.CurrentScenarioState?.Seed ?? 0,
+                PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID))
+            || actor == null || state.ActorId != NetFigures.StableActorId(actor)
             || state.Round != (ScenarioManager.CurrentScenarioState?.RoundNumber ?? -1)
             || state.Phase != (byte)PhaseManager.PhaseType || (state.Occupied & (1 << slot)) == 0)
             return false;

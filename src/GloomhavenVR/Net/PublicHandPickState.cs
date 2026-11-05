@@ -5,11 +5,12 @@ namespace GloomhavenVR.Net;
 /// permission. Private choices carry only anonymous occupancy or a tombstone.</summary>
 internal sealed class PublicHandPickState
 {
-    internal const int HeaderBytes = 15;
+    internal const int HeaderBytes = 27;
     internal const int SeatBytes = 8;
     internal const int MaxPayloadBytes = HeaderBytes + 2 * SeatBytes;
     internal readonly uint Revision;
-    internal readonly int ActorId, Round;
+    internal readonly int ActorId, Round, ScenarioSeed;
+    internal readonly ulong ScenarioKey;
     internal readonly byte Phase, Occupied, Named;
     internal readonly Seat Left, Right;
 
@@ -27,19 +28,33 @@ internal sealed class PublicHandPickState
     }
 
     internal PublicHandPickState(uint revision, int actorId, int round, byte phase,
-        byte occupied, byte named, Seat left = default, Seat right = default)
+        byte occupied, byte named, Seat left = default, Seat right = default, int scenarioSeed = 0, ulong scenarioKey = 0)
     { Revision = revision; ActorId = actorId; Round = round; Phase = phase;
-      Occupied = occupied; Named = named; Left = left; Right = right; }
+      Occupied = occupied; Named = named; Left = left; Right = right;
+      ScenarioSeed = scenarioSeed; ScenarioKey = scenarioKey; }
 
     internal bool Valid => Revision != 0 && Round >= 0 && (Occupied & ~3) == 0
         && (Named & ~Occupied) == 0 && (ActorId != 0 || Occupied == 0)
         && (Named == 0 || Phase != 0 && ActorId != 0)
         && ((Named & 1) != 0 ? Left.Valid : Left.Empty)
         && ((Named & 2) != 0 ? Right.Valid : Right.Empty);
+    internal bool MatchesScenario(int seed, ulong key) => ScenarioKey != 0 && key != 0
+        && ScenarioSeed == seed && ScenarioKey == key;
+    /// <summary>Deterministic namespace, not a unique run/connection epoch. Exact same save
+    /// seed+ID replay is deliberately indistinguishable; local lifetime/order still apply.</summary>
+    internal static ulong ScenarioFingerprint(string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return 0;
+        ulong value = 14695981039346656037UL;
+        foreach (char c in id!) { value = unchecked((value ^ (byte)c) * 1099511628211UL);
+            value = unchecked((value ^ (byte)(c >> 8)) * 1099511628211UL); }
+        return value == 0 ? 1UL : value;
+    }
     internal int PayloadBytes => HeaderBytes + ((Named & 1) != 0 ? SeatBytes : 0)
         + ((Named & 2) != 0 ? SeatBytes : 0);
     internal bool SamePicture(PublicHandPickState? other) => other != null
         && ActorId == other.ActorId && Round == other.Round && Phase == other.Phase
+        && ScenarioSeed == other.ScenarioSeed && ScenarioKey == other.ScenarioKey
         && Occupied == other.Occupied && Named == other.Named
         && Left.Same(in other.Left) && Right.Same(in other.Right);
     internal static bool Newer(uint incoming, uint current) => incoming != current
@@ -53,6 +68,9 @@ internal sealed class PublicHandPickState
         AvatarSerializer.WriteU32(buffer, ref at, unchecked((uint)ActorId));
         AvatarSerializer.WriteU32(buffer, ref at, (uint)Round);
         buffer[at++] = Phase; buffer[at++] = Occupied; buffer[at++] = Named;
+        AvatarSerializer.WriteU32(buffer, ref at, unchecked((uint)ScenarioSeed));
+        AvatarSerializer.WriteU32(buffer, ref at, (uint)ScenarioKey);
+        AvatarSerializer.WriteU32(buffer, ref at, (uint)(ScenarioKey >> 32));
         if ((Named & 1) != 0) WriteSeat(buffer, ref at, in Left);
         if ((Named & 2) != 0) WriteSeat(buffer, ref at, in Right);
         return at - start;
@@ -73,11 +91,14 @@ internal sealed class PublicHandPickState
         int actor = unchecked((int)AvatarSerializer.ReadU32(buffer, ref at));
         int round = unchecked((int)AvatarSerializer.ReadU32(buffer, ref at));
         byte phase = buffer[at++], occupied = buffer[at++], named = buffer[at++];
+        int seed = unchecked((int)AvatarSerializer.ReadU32(buffer, ref at));
+        ulong key = AvatarSerializer.ReadU32(buffer, ref at);
+        key |= (ulong)AvatarSerializer.ReadU32(buffer, ref at) << 32;
         int wanted = HeaderBytes + ((named & 1) != 0 ? SeatBytes : 0) + ((named & 2) != 0 ? SeatBytes : 0);
         if (length != wanted || (named & ~3) != 0) return false;
         Seat left = (named & 1) != 0 ? ReadSeat(buffer, ref at) : default;
         Seat right = (named & 2) != 0 ? ReadSeat(buffer, ref at) : default;
-        var candidate = new PublicHandPickState(revision, actor, round, phase, occupied, named, left, right);
+        var candidate = new PublicHandPickState(revision, actor, round, phase, occupied, named, left, right, seed, key);
         if (at != end || !candidate.Valid) return false;
         state = candidate; return true;
     }
@@ -97,14 +118,17 @@ internal sealed class PublicHandPickInbox
     private object? _scenario;
     private uint _revision;
     private PublicHandPickState? _state;
-    internal void Observe(bool seen, PublicHandPickState? incoming, object? scenario)
+    internal void Observe(bool seen, PublicHandPickState? incoming, object? scenario, int seed = 0, ulong key = 0)
     {
         if (!ReferenceEquals(_scenario, scenario))
         { _scenario = scenario; _state = null; }
         if (!seen) return;
         if (incoming == null || !incoming.Valid) { _state = null; return; }
+        if (incoming.Occupied != 0 && !incoming.MatchesScenario(seed, key))
+        { _state = null; return; }
         // Keep the accepted sequence floor across native scenario replacement.
-        // A delayed packet from its previous scenario cannot become its first picture.
+        // Together with the native namespace check this rejects a previously accepted old picture.
+        // A replay with identical seed+ID is not a new namespace; normal packet order still applies.
         if (_revision != 0 && !PublicHandPickState.Newer(incoming.Revision, _revision)) return;
         _revision = incoming.Revision; _state = incoming;
     }

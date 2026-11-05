@@ -10,23 +10,23 @@ internal static class PublicHandPickVectors
         t.Case("761:124 public hand-pick original pool provenance is bounded and byte-exact");
         var left = new PublicHandPickState.Seat(0x0c0b0a09, 4, 12);
         var right = new PublicHandPickState.Seat(0x100f0e0d, 0x8001, 7);
-        var picture = new PublicHandPickState(0x04030201, 0x08070605, 9, 5, 3, 3, left, right);
+        var picture = new PublicHandPickState(0x04030201, 0x08070605, 9, 5, 3, 3, left, right, 0x14131211, 0x1c1b1a1918171615UL);
         var bytes = new byte[PresenceSerializer.MaxSize];
         int size = PresenceSerializer.Write(new PresenceState { PublicHandPick = picture }, bytes);
-        var tail = new byte[33]; Array.Copy(bytes, size - tail.Length, tail, 0, tail.Length);
-        t.Wire(Hex.Bytes("7C 1F 01 02 03 04 05 06 07 08 09 00 00 00 05 03 03 09 0A 0B 0C 04 00 0C 00 0D 0E 0F 10 01 80 07 00"), tail, 33,
+        var tail = new byte[45]; Array.Copy(bytes, size - tail.Length, tail, 0, tail.Length);
+        t.Wire(Hex.Bytes("7C 2B 01 02 03 04 05 06 07 08 09 00 00 00 05 03 03 11 12 13 14 15 16 17 18 19 1A 1B 1C 09 0A 0B 0C 04 00 0C 00 0D 0E 0F 10 01 80 07 00"), tail, 45,
             "124 golden binds both physical seats to their original pool without changing39");
         t.True(PresenceSerializer.TryRead(bytes, size, out var decoded) && decoded.PublicHandPickSeen
             && decoded.PublicHandPick?.SamePicture(picture) == true && decoded.PublicHandPick.Revision == picture.Revision,
             "full presence independently decodes124");
-        t.Equal(31, picture.PayloadBytes, "maximum payload is31 bytes");
-        t.True(12731 <= ExtrasFragments.MaxSnapshotBytes, "new documented maximum fits unchanged12800 reassembly bound");
-        t.True(PublicHandPickState.TryRead(tail, 2, 31, out var direct) && direct?.SamePicture(picture) == true,
+        t.Equal(43, picture.PayloadBytes, "maximum payload is43 bytes");
+        t.True(12743 <= ExtrasFragments.MaxSnapshotBytes, "new documented maximum fits unchanged12800 reassembly bound");
+        t.True(PublicHandPickState.TryRead(tail, 2, 43, out var direct) && direct?.SamePicture(picture) == true,
             "direct decoder accepts the independent golden");
-        for (int length = 0; length < 31; length++)
+        for (int length = 0; length < 43; length++)
             t.True(!PublicHandPickState.TryRead(tail, 2, length, out _), "truncated124 cannot publish a partial original " + length);
-        t.True(!PublicHandPickState.TryRead(tail, -1, 31, out _), "negative byte offset refused");
-        t.True(!PublicHandPickState.TryRead(tail, int.MaxValue, 31, out _), "overflowing byte offset refused");
+        t.True(!PublicHandPickState.TryRead(tail, -1, 43, out _), "negative byte offset refused");
+        t.True(!PublicHandPickState.TryRead(tail, int.MaxValue, 43, out _), "overflowing byte offset refused");
         t.True(!new PublicHandPickState(0, 1, 0, 1, 0, 0).Valid, "revision zero refused");
         t.True(!new PublicHandPickState(1, 1, -1, 1, 0, 0).Valid, "negative native round refused");
         t.True(!new PublicHandPickState(1, 0, 0, 1, 1, 1, left).Valid, "provenance without actor refused");
@@ -37,8 +37,8 @@ internal static class PublicHandPickVectors
         t.Case("761:124 anonymous choices and explicit release carry no provenance");
         var anonymous = new PublicHandPickState(5, 1, 0, 1, 3, 0);
         size = PresenceSerializer.Write(new PresenceState { PublicHandPick = anonymous }, bytes);
-        var empty = new byte[17]; Array.Copy(bytes, size - 17, empty, 0, 17);
-        t.Wire(Hex.Bytes("7C 0F 05 00 00 00 01 00 00 00 00 00 00 00 01 03 00"), empty, 17,
+        var empty = new byte[29]; Array.Copy(bytes, size - 29, empty, 0, 29);
+        t.Wire(Hex.Bytes("7C 1B 05 00 00 00 01 00 00 00 00 00 00 00 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00"), empty, 29,
             "anonymous snapshot contains only actor/phase/revision/occupancy");
         var release = new PublicHandPickState(6, 0, 0, 0, 0, 0);
         size = PresenceSerializer.Write(new PresenceState { PublicHandPick = release }, bytes);
@@ -48,20 +48,20 @@ internal static class PublicHandPickVectors
         t.True(PresenceSerializer.TryRead(bytes, legacySize, out decoded) && !decoded.PublicHandPickSeen,
             "legacy absence is distinct from an explicit124 release");
         size = PresenceSerializer.Write(new PresenceState { PublicHandPick = picture }, bytes);
-        bytes[size - 33] = 254;
+        bytes[size - 45] = 254;
         t.True(PresenceSerializer.TryRead(bytes, size, out decoded) && !decoded.PublicHandPickSeen,
             "unknown reader skips the whole new TLV by its original length grammar");
 
         t.Case("761:124 owner receipt rejects reordering, slot reuse and scenario/rejoin stale state");
         var inbox = new PublicHandPickInbox(); object scenario = new();
-        inbox.Observe(true, picture, scenario);
+        inbox.Observe(true, picture, scenario, picture.ScenarioSeed, picture.ScenarioKey);
         t.True(ReferenceEquals(inbox.Current(scenario), picture), "first exact owner picture accepted");
-        inbox.Observe(true, new PublicHandPickState(picture.Revision - 1, 1, 0, 1, 0, 0), scenario);
+        inbox.Observe(true, new PublicHandPickState(picture.Revision - 1, 1, 0, 1, 0, 0), scenario, picture.ScenarioSeed, picture.ScenarioKey);
         t.True(ReferenceEquals(inbox.Current(scenario), picture), "old packet cannot replace current seats");
-        inbox.Observe(true, new PublicHandPickState(picture.Revision, 1, 0, 1, 0, 0), scenario);
+        inbox.Observe(true, new PublicHandPickState(picture.Revision, 1, 0, 1, 0, 0), scenario, picture.ScenarioSeed, picture.ScenarioKey);
         t.True(ReferenceEquals(inbox.Current(scenario), picture), "same revision cannot reuse another actor or slot");
         var tombstone = new PublicHandPickState(picture.Revision + 1, 0, 0, 0, 0, 0);
-        inbox.Observe(true, tombstone, scenario); inbox.Observe(true, picture, scenario);
+        inbox.Observe(true, tombstone, scenario); inbox.Observe(true, picture, scenario, picture.ScenarioSeed, picture.ScenarioKey);
         t.True(ReferenceEquals(inbox.Current(scenario), tombstone), "late named packet cannot resurrect cleared seats");
         inbox.Observe(false, null, scenario);
         t.True(ReferenceEquals(inbox.Current(scenario), tombstone), "unrelated legacy packet cannot undo the ordered release");
@@ -70,13 +70,29 @@ internal static class PublicHandPickVectors
         inbox.Observe(false, null, nextScenario);
         inbox.Observe(true, picture, nextScenario);
         t.True(inbox.Current(nextScenario) == null, "previous scenario sequence cannot become the new scenario picture");
-        var nextPicture = new PublicHandPickState(picture.Revision + 2, 1, 0, 1, 3, 0);
-        inbox.Observe(true, nextPicture, nextScenario);
+        var lateOld = new PublicHandPickState(picture.Revision + 2, 1, 0, 1, 3, 0,
+            scenarioSeed: picture.ScenarioSeed, scenarioKey: picture.ScenarioKey);
+        inbox.Observe(true, lateOld, nextScenario, 17, 29);
+        t.True(inbox.Current(nextScenario) == null, "unseen newer old-namespace packet cannot establish seats");
+        var nextPicture = new PublicHandPickState(picture.Revision + 3, 1, 0, 1, 3, 0,
+            scenarioSeed: 17, scenarioKey: 29);
+        inbox.Observe(true, nextPicture, nextScenario, 17, 29);
         t.True(ReferenceEquals(inbox.Current(nextScenario), nextPicture), "new scenario accepts the next owner revision");
         var rejoined = new PublicHandPickInbox();
+        rejoined.Observe(true, picture, scenario, picture.ScenarioSeed, picture.ScenarioKey);
+        t.True(ReferenceEquals(rejoined.Current(scenario), picture), "fresh peer accepts current exact native namespace");
+        rejoined = new PublicHandPickInbox();
         t.True(rejoined.Current(scenario) == null, "new peer inbox has no inherited original");
         t.True(PublicHandPickState.Newer(1, uint.MaxValue) && !PublicHandPickState.Newer(uint.MaxValue, 1),
             "wrapping revision retains monotonic half-range order");
+        object sameSaveReload = new();
+        inbox.Observe(false, null, sameSaveReload, 17, 29);
+        t.True(inbox.Current(sameSaveReload) == null, "same save namespace replay conservatively clears its local lifetime");
+        inbox.Observe(true, nextPicture, sameSaveReload, 17, 29);
+        t.True(inbox.Current(sameSaveReload) == null, "same namespace replay cannot reuse an already accepted revision");
+        t.True(PublicHandPickState.ScenarioFingerprint("Scenario_1") == PublicHandPickState.ScenarioFingerprint("Scenario_1")
+            && PublicHandPickState.ScenarioFingerprint("Scenario_1") != PublicHandPickState.ScenarioFingerprint("Scenario_2"),
+            "deterministic scenario namespace fingerprint does not use randomized runtime hash");
         inbox.Observe(true, null, nextScenario);
         t.True(inbox.Current(nextScenario) == null, "malformed known124 clears an old named picture");
     }
