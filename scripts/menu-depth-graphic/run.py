@@ -2,6 +2,7 @@
 """Source-bound original menu illustration mesh, GPU and typed native binding proof."""
 from pathlib import Path
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -161,7 +162,15 @@ def main():
                     # Mono FileInfo.Length reports a symlink's own byte length.
                     # Hardlinks retain real-file packaging semantics without a
                     # second regenerable copy of the 515 prepared companions.
-                    os.link(corpus / entry['depth_file'], staged / entry['depth_file'])
+                    try:
+                        os.link(corpus / entry['depth_file'], staged / entry['depth_file'])
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        # RAM-backed worktrees can borrow the immutable corpus
+                        # from another filesystem. A real copy preserves the
+                        # same FileInfo semantics; other link failures stay fatal.
+                        shutil.copyfile(corpus / entry['depth_file'], staged / entry['depth_file'])
                 counts = {'fields': len(corpus_data['images']), 'narratives': len(corpus_data['narrative_configs']),
                           'artwork': len(corpus_data['artwork']),
                           'defaults': len({a['native_field'] for a in corpus_data['artwork'] if a.get('native_field')}),
