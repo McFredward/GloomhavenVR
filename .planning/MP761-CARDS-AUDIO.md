@@ -100,7 +100,42 @@ prove which ear a particular headset heard. Evidence JSON records native raw
 prefixes, object/asset hashes and original serialized source values. A narrow actual-actor
 producer scope and original pooled generation ownership are under review;
 UI/listener/voice behavior, native clip/volume/pitch/loop/delay/rolloff and stop
-callbacks must remain intact. No audio implementation is present in this checkpoint.
+callbacks must remain intact. NativeFigureAudio/NativeFigureAudioPatches now wrap the four original figure
+producers (SFXOnEnable, FootstepSound, AudioEffectPlayer, SFX-only PlayAudio).
+Admission requires VR and an exact actual ActorBehaviour ancestor with a live
+native Actor association. Original PlayAudioSubItem receipts identify every real
+source/layer generation, including unscoped reuse of the same object/item/clip in
+the same ClockStone timestamp. Binding happens after original AudioItem overrides.
+The original source follows its exact emitter and authored local offset; global
+figure requests use the emitter position. The implementation changes only world
+position: no reparent, stop, duplicate request, clip, pan, blend, volume, pitch,
+loop, delay, distance, doppler or rolloff writes. Actor reassignment, destroyed or
+inactive producer/source, VR-off and actual reuse revoke only the follow receipt.
+The original producer still owns native StopOnDisable and other stop behavior.
+
+Native Unity proof `figure-audio-runtime/run-a3sf_ppg` passes21 production
+assertions using unchanged publisher SFXOnEnable/AudioEffectPlayer/AudioController/
+AudioObject and real Unity AudioSources. Synthetic stereo probe waveform replaces
+the copyrighted clip; native delayed start, subitem loop, original stop and source
+settings execute. The old detached-position and stale-actor controls fail exactly.
+Its pool-generation control failed at the stronger later same-frame assertion,
+so its expected failure was corrected without changing production or case inputs.
+Bounded `run-5i6dhxg4` passes that control and the additional VR-off control. Earlier
+nullable fixture compilation and a pool-reuse oracle error are preserved: native
+useExistingAudioObj deliberately ignores worldPosition, so the oracle now snapshots
+its actual original transform before verifying stale follow cannot move it. No
+production workaround was added for that fixture error. All processes are reaped
+and canonical cleanup receipts retained. This is not physical ear/HMD output,
+full gameplay actor animation, original waveform quality or Photon qualification.
+
+Functional public-pick `run-2qtcfzgf` compiles the actual native PhaseType enum,
+exact production sampler/provenance/codec/inbox, remote resolver and existing
+flight-cache methods.35 assertions and6 causal controls pass: exact two Hand
+originals, cancel/tombstone/rejoin, private naming separation, donor supply pool,
+actor/phase/round/context/roster refusal, before/after-empty flight order, consumed
+memory and ordinary-round control. Native actor/widget/ownership/render inputs
+are explicit ports; native selection callbacks and final pixels are not executed.
+This predates the final hand-only/atomic occupancy review and will be extended.
 
 Remote recess-body source audit was sent to the MR lane: `RemoteBoardCard` wraps
 all three back/fallback/body materials with `BoardVisual.Unlit`, which chooses
