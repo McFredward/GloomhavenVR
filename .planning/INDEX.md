@@ -1,5 +1,12 @@
 # Planning index
 
+Updated2026-11-06: Build760 integrates maximum-zoom depth, starting-card scrolling,
+desktop-independent native frame/capture and scoped VR input repairs. See
+MP760-INTEGRATION.md for complete unique classC coverage, bounded repairs,
+retained failures, proof relocation and hardware limits; MP760-DISPLAY.md,
+MP760-INPUT-REVIEW.md and POPUP760-CONSUMER.md hold the owned source/native/pixel
+reviews. The new ten-point paired759 report is next, in separate761 worktrees.
+
 Updated2026-11-05: Build759 fixes the observed same-frame confirmation blackout,
 animates critical-story recovery with finite shared fast-cadence publication,
 and makes optional board explanations owner-configurable (default150s).

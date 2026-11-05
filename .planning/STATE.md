@@ -1,3 +1,25 @@
+**Window/input integration, Build760,2026-11-06.**
+
+Starting-card overview scrolling now reaches the native list over pointer-only
+card EventTriggers. Native full-screen windows keep their authored frame and
+canonical16:9 capture domain independently of desktop aspect/window mode; quality
+preserves both prior raster axes. Exact synthetic/captured input leases and
+physical world-panel bounds remove desktop mouse/mono-viewport gating. Original
+native callbacks, permissions, shared placement/resize and actor authority stay
+intact. Scale-free window-plane normalization repairs the remaining maximum-zoom
+confirmation depth failure. Two existing progress-help settings gain EN/DE help.
+
+ClassC complete unique aggregate:280 local IDs (93 audited prior,3 frozen-worker,
+184 fresh/continued),16 sources,306740 actual wire assertions; final strict
+Release/Debug0W0E10.00/10.04s. Six central failures are retained with their bounded
+successful repairs/continuation. Native level-up94 variants are80 completed plus
+14 source-identical passes after kernel-confirmed OOM, not a fabricated fresh
+complete invocation. Compiled20 changed/6 added,32 resources unchanged, no surface
+removals. See MP760-INTEGRATION.md and the owned display/input/popup reviews.
+Hardware759 is the cause/evidence input, not HMD/Photon acceptance of760. The
+maintainer deleted debug; current compressed proof is retained outside it under
+ignored `.planning/validation/build760`. Dev only; no ZIP/release.
+
 **Confirmation and progression presentation, Build759, 2026-11-05.**
 
 The new758 hardware replay identifies the real remaining popup failure: the

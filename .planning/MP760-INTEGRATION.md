@@ -1,6 +1,6 @@
 # Build760 combined window/input integration
 
-Status: implementation and final qualification in progress; not delivered.
+Status: source and aggregate class-C qualification complete; dev delivery checkpoint,2026-11-06.
 
 ## Authorized scope and evidence
 
@@ -76,7 +76,75 @@ pins and other agents' work remain untouched.
 
 ## Final qualification
 
-Pending final input-lane commit and review, strict Release/Debug builds, fresh
-source gates, complete unique local coverage with justified input-bound reuse,
-actual byte-exact wire goldens, bundle/surface/compiled review, final source pins,
-dev push and owned cleanup. No local release archive is requested.
+Runtime freeze5ac9d0649, with the final two-entry EN/DE help-content repair
+6e183c5f1. The extra compiled Loc difference contains only those two dictionary
+entries; existing keys/behavior stay identical. All other postfreeze corrections
+are fixture-only dependency/extraction, cross-filesystem staging or bounded
+editor execution changes, and developer prose.
+
+The final inventory is280 local IDs,121 hosted IDs and16 source gates.
+Qualified **complete unique local coverage** combines93 independently audited
+input-bound prior obligations,3 unchanged frozen-worker obligations (plane math,
+wheel routing, world coordinates), and184 fresh/continued obligations. This is
+an aggregate, not a new successful complete invocation. Every fresh report/log
+SHA was checked. The183-ID central run took3137.1s and remains failed: six entries
+failed, then received bounded qualification as follows:
+
+- Board rules: exact original pointer-overload reflection repair; full suite passes.
+- Stereo movie: actual native viewport helper and a narrowed capture-field import;
+  full suite passes. No invented scrub state or weakened movie oracle.
+- Graphic corpus: actual-byte copy only for EXDEV instead of a hardlink across
+  the RAM/source filesystem boundary; full suite passes.
+- Map retirement: original Valid/Repin predicates and missing design-frame field
+  imported into the console fixture; full suite passes.
+- Player setting help: two missing EN/DE entries for existing delayed explanations;
+  complete content/self-control suite passes.
+- Native level-up: kernel-confirmed global OOM killed Unity137 at15.4GB RSS after
+  eighty completed PASS+END receipts. The original remains failed. Fourteen
+  remaining variants pass in fresh default12+2 editor batches;672 case-source
+  files and the original editor runner match byte-for-byte. Exact94-case order,
+  no gaps/duplicates, exit status, cleanup and aggregate coverage were independently
+  audited. Future complete runs use bounded12-case editor domains, preserving all
+  source/pixel/callback/control oracles and failures.
+
+The first reuse audit missed NPC666's transitive production-body import. Its
+prior result was invalidated, the patch-free lease boundary was explicitly
+ported, and the complete containing suite reran successfully. Final retained
+count is93, not94. This correction and every failed attempt are preserved.
+
+Final help follow-up: strict Release/Debug0W0E10.00/10.04s; fresh16/16 source
+gates23.68s; actual byte-exact wire executable306740 assertions6.85s. Bundle
+format and docs-i18n pass. Surface672 unchanged config keys;278→280 patches
+(the two expected input transpilers);4849→4852 log markers, no removals.
+Original guard terminal continuation reports20 changed files/types plus6 additions
+and no removals; scope review attributes eight networking forms solely to
+inlined759→760 advertisement/compatibility values. All32 embedded resources
+retain identical paths and SHA bytes. The additional Loc form is exactly two
+help pairs. Wire layout/version, native actor authority and original callbacks
+remain unchanged. The guard's changed-form exit1 is expected and reviewed;
+it is not used to conceal a failed checker.
+
+Windows/OpenXR headset appearance, real window-manager conversion and live
+Photon outcomes remain hardware acceptance boundaries. The supplied paired
+logs/screenshots establish759 inputs, not a760 headset pass. GL/Vulkan consumer,
+original-native callback and explicit-provider/fragment ports retain the limits
+recorded in the owned reviews. No ZIP/release is requested.
+
+## Evidence relocation and cleanup
+
+The maintainer deliberately deleted main `debug` during qualification. Needed
+current proof was checksum-secured outside that tree under ignored
+`.planning/validation/build760/`; old debug data is not repopulated. Retained
+worker/checkpoint archives and their original member/hash receipts are under
+`retained-input-proof/`. The earlier checkpoint CAS preserves179312 files;
+current input/math/display archives preserve their owned proofs and failures.
+
+Current qualification run is `integration760/run-xxpmmdwx` in its owned RAM
+worktree. Completed bulky evidence was moved with every-file SHA verification
+to the validation staging tree; visible original paths remain aliases until
+final archival. The completed NPC661 source counterfactual is independently
+CAS-archived with7978 files/3599984175 original bytes. Final aggregate reports,
+source/capture inputs, failures and compiled review are retained; regenerable
+caches use the existing completion-cleanup API. Only owned worktrees/processes
+and private ADB5076 are retired after delivery. Other agents' active work and
+shared game references stay untouched.
