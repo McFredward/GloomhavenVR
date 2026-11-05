@@ -1951,6 +1951,8 @@ internal sealed class RemoteAvatar
             ScenarioManager.CurrentScenarioState?.Seed ?? 0,
             PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID));
         PublicHandPickState? receivedPick = _publicHandPick.Current(ScenarioManager.Scenario);
+        if (RevealGate.IsSecretSelectionPhase || p.PublicHandPickSeen && receivedPick == null)
+            _controlBoard.ClearPublicHandPickFaces();
         if (p.PublicHandPickSeen && !ReferenceEquals(previousPick, receivedPick))
             VRLog.Info("Net", receivedPick != null
                 ? $"PUBLIC HAND PICK received from player {PlayerId}: revision={receivedPick.Revision}, actor={receivedPick.ActorId}, round={receivedPick.Round}, phase={receivedPick.Phase}, occupied=0x{receivedPick.Occupied:X1}, named=0x{receivedPick.Named:X1}. Original pool provenance remains phase-gated."

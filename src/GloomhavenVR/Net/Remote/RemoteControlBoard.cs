@@ -29,9 +29,10 @@ namespace GloomhavenVR.Net;
 /// ANTI-CHEAT (the linchpin): the card FRONTS are shown ONLY when
 /// <see cref="RevealGate.ShowRoundCardFronts"/> is true — i.e. never during the game's own secret
 /// <c>SelectAbilityCardsOrLongRest</c> phase for a remote actor. Otherwise the cards show BACKS.
-/// We never transmit card identities; the cards are read locally from the already-host-replicated
-/// <c>CPlayerActor.CharacterClass</c>, and turned face-up strictly on the game's authoritative
-/// reveal — so this opens no new cheat vector.
+/// Originals are read from the already-host-replicated <c>CPlayerActor.CharacterClass</c>.
+/// Public hand picks additionally publish exact original-pool provenance in124. That IS identity,
+/// so the sender requires both public naming and public face permission before its lookup;
+/// selection carries anonymous occupancy only. Local and remote reveal rules remain separate.
 ///
 /// VISIBILITY (<see cref="NetModule.RemoteBoards"/>, a purely LOCAL rendering choice):
 ///   Off             → render nothing;
@@ -52,10 +53,10 @@ namespace GloomhavenVR.Net;
 /// card-back texture (<c>CardMesh</c>), drawn unlit. The slot widget itself lives in
 /// <see cref="RemoteBoardCard"/>, shared with the active-card column.
 ///
-/// NOTHING NEW GOES ON THE WIRE for any of this. The card identities were already available locally
-/// in the host-replicated <c>CPlayerActor.CharacterClass</c> — the same read that fed the old
-/// name+initiative panel. All that changed is how that identity is DRAWN, so the cheat surface is
-/// bit-for-bit the one <see cref="RevealGate"/> already governed.
+/// Ordinary round-card identities still come from the host-replicated model. Record124 supplies
+/// only the physical public hand-pick association that native local selection does not replicate;
+/// class-pool provenance resolves against original local assets and never sends private selection
+/// identity. Record39 retains its separate original Discard/Burn seat grammar.
 ///
 /// FULL BOARD PARITY (standing user requirement: "ALLE Widgets … sollen auch beim fremden
 /// Controllboard sichtbar und synchronisiert sein", round 3: "1:1 genau so, wie der Spieler sein
@@ -814,6 +815,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     private readonly CAbilityCard?[] _latchedFaces = new CAbilityCard?[SlotCount];
     private readonly CAbilityCard?[] _publicPickFaces = new CAbilityCard?[SlotCount];
+    private readonly bool[] _departedPublicPick = new bool[SlotCount];
+    private PublicHandPickState? _publicPickContext;
+    private object? _publicPickScenario;
 
     /// <summary>
     /// The character <see cref="_latchedFaces"/> was filled for. THE SECOND RESET, added with the
@@ -2030,24 +2034,56 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     {
         card = null;
         PublicHandPickState? state = _owner.PublicHandPick;
-        if (state == null || !state.MatchesScenario(ScenarioManager.CurrentScenarioState?.Seed ?? 0,
-                PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID))
-            || actor == null || state.ActorId != NetFigures.StableActorId(actor)
-            || state.Round != (ScenarioManager.CurrentScenarioState?.RoundNumber ?? -1)
-            || state.Phase != (byte)PhaseManager.PhaseType || (state.Occupied & (1 << slot)) == 0)
+        if (!PublicPickContextMatches(state, actor) || (state!.Occupied & (1 << slot)) == 0)
             return false;
         if ((state.Named & (1 << slot)) != 0 && !RevealGate.IsSecretSelectionPhase
-            && RevealGate.ShowRoundCardFronts(actor))
+            && RevealGate.ShowRoundCardFronts(actor!))
         {
             PublicHandPickState.Seat seat = slot == 0 ? state.Left : state.Right;
             card = CardAppearanceProvenance.Resolve(seat.SourceActorId, seat.PoolSeat, seat.PoolCount);
-            CCharacterClass? owner = actor.CharacterClass;
+            CCharacterClass? owner = actor!.CharacterClass;
             if (card != null && (owner == null || !(owner.HandAbilityCards.Contains(card)
                 || owner.RoundAbilityCards.Contains(card) || owner.DiscardedAbilityCards.Contains(card)
                 || owner.LostAbilityCards.Contains(card) || owner.PermanentlyLostAbilityCards.Contains(card))))
                 card = null;
         }
         return true;
+    }
+
+    private static bool PublicPickContextMatches(PublicHandPickState? state, CPlayerActor? actor) =>
+        state != null && state.MatchesScenario(ScenarioManager.CurrentScenarioState?.Seed ?? 0,
+            PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID))
+        && actor != null && state.ActorId == NetFigures.StableActorId(actor)
+        && state.Round == (ScenarioManager.CurrentScenarioState?.RoundNumber ?? -1)
+        && state.Phase == (byte)PhaseManager.PhaseType;
+
+    private int PublicPickOccupancy(CPlayerActor? actor, int original) =>
+        PublicPickContextMatches(_owner.PublicHandPick, actor) ? _owner.PublicHandPick!.BoardSlots : original;
+
+    /// <summary>Only124-owned faces, including their just-departed memory. Normal round-card
+    /// latches and legacy39 identities keep their existing lifetime.</summary>
+    internal void ClearPublicHandPickFaces()
+    {
+        for (int i = 0; i < SlotCount; i++)
+        {
+            _publicPickFaces[i] = null;
+            if (_departedPublicPick[i]) { _departedFace[i] = null; _departedPublicPick[i] = false; }
+        }
+        _publicPickContext = null; _publicPickScenario = null;
+    }
+    private void ValidatePublicPickFaces()
+    {
+        if (_publicPickContext == null) return;
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+        if (!ReferenceEquals(_publicPickScenario, ScenarioManager.Scenario)
+            || !PublicPickContextMatches(_publicPickContext, actor) || RevealGate.IsSecretSelectionPhase)
+            ClearPublicHandPickFaces();
+    }
+    private void PreservePublicPickDeparture(int slot)
+    {
+        if (_publicPickFaces[slot] == null) return;
+        NoteRecessDeparture(slot, _publicPickFaces[slot]);
+        _publicPickFaces[slot] = null;
     }
 
     private bool TryResolveSacrifice(int slot, CPlayerActor? actor, out CAbilityCard? card)
@@ -2237,6 +2273,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     internal bool TryTakeDepartedFace(int slot, CardFxAnchor destination, out CAbilityCard? card,
                                       out DepartedFaceVerdict verdict)
     {
+        ValidatePublicPickFaces();
         card = null;
         verdict = DepartedFaceVerdict.NothingLatched;
         float now = Time.unscaledTime;
@@ -2348,6 +2385,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             taken = _departedFace[index];
             _departedFace[index] = null;
+            _departedPublicPick[index] = false;
             return taken != null;
         }
     }
@@ -2409,6 +2447,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             return;
         }
         _departedFace[slot] = face;
+        _departedPublicPick[slot] = ReferenceEquals(face, _publicPickFaces[slot]);
         _departedAt[slot] = now;
     }
 
@@ -2564,7 +2603,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // reading it here is exactly how a board that is supposed to be empty keeps two anonymous
         // card backs. Forcing the mask to 0 rather than to -1 matters: -1 would fall through to the
         // legacy MODEL derivation, which for a null actor is empty too but for the wrong reason.
-        int wire = exhausted ? 0 : _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;
+        int wire = exhausted ? 0 : PublicPickOccupancy(actor,
+            _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1);
+        ValidatePublicPickFaces();
         SeatedHandCardExcess = 0;   // recomputed below once both counts exist; never stale
         _slotOccupiedMask = 0;
         _slotFaceMask = 0;
@@ -2726,6 +2767,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 if (compact && (wire & (1 << i)) != 0) next++;
                 continue;
             }
+            if (PublicPickContextMatches(_owner.PublicHandPick, actor)
+                && (_owner.PublicHandPick!.Occupied & (1 << i)) == 0)
+                PreservePublicPickDeparture(i);
             if ((wire & (1 << i)) == 0)
             {
                 _cards[i].Set(null, showFronts, actor); // empty recess — and it stays empty
@@ -2801,12 +2845,15 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                     _slotPickSeatMask |= 1 << i;
                 else
                     _slotPickBackMask |= 1 << i;
-                _pickSeatRule = "extension record 39 named a seat and this client resolved it in "
-                    + "its own copy of that pile arc; the FACE was then chosen by "
+                _pickSeatRule = (publicHandPick
+                    ? "extension record124 named the exact public Hand original; the FACE was then chosen by "
+                    : "extension record39 named a native pile seat; the FACE was then chosen by ")
                     + RevealGate.RuleText(pickRule);
                 LogRecessFaceRule(i, sacrifice, pickFront, pickRule, actor);
                 _cards[i].Set(sacrifice, pickFront, actor);
                 _publicPickFaces[i] = publicHandPick && pickFront ? sacrifice : null;
+                if (_publicPickFaces[i] != null)
+                { _publicPickContext = _owner.PublicHandPick; _publicPickScenario = ScenarioManager.Scenario; }
                 if (_cards[i].FlightTransferred)
                 {
                     SuppressBurnRecess(i);

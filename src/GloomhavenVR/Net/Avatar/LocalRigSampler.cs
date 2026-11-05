@@ -1146,11 +1146,13 @@ internal static class LocalRigSampler
     /// </summary>
     internal static bool OwnedByPresentedCharacter(CardsHandUI hand)
     {
-        CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
-        if (shown == null && RevealGate.InScenario)
-            shown = Board.CharacterFocus.PresentedActor;
+        CPlayerActor? shown = PresentedForCardSeats;
         return shown != null && ReferenceEquals(hand.PlayerActor, shown);
     }
+
+    /// <summary>The same presented actor used by the existing record39 seat producer.</summary>
+    internal static CPlayerActor? PresentedForCardSeats => Cards.ItemsPile.Current?.OwnerActor
+        ?? (RevealGate.InScenario ? Board.CharacterFocus.PresentedActor : null);
 
     /// <summary>Seat <paramref name="widget"/> in its owner's DISCARD or BURNT arc —
     /// <c>CardsGameApi.GetPileArcWidgets</c>, the identical call the receiver re-walks — and encode

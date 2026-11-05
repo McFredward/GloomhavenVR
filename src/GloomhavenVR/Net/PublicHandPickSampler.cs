@@ -20,10 +20,14 @@ internal static class PublicHandPickSampler
         int seed = ScenarioManager.CurrentScenarioState?.Seed ?? 0;
         ulong key = PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID);
         int actorId = 0, round = 0;
-        byte phase = 0, occupied = 0, named = 0;
+        byte phase = 0, occupied = 0, named = 0, boardSlots = 0;
+        PlayTray? tray = PlayTray.Current;
         PublicHandPickState.Seat left = default, right = default;
-        if (scenario != null && RevealGate.InScenario)
+        if (scenario != null && RevealGate.InScenario && tray != null)
         {
+            CPlayerActor? presented = LocalRigSampler.PresentedForCardSeats;
+            actorId = presented == null ? 0 : NetFigures.StableActorId(presented);
+            boardSlots = actorId == 0 ? (byte)0 : (byte)(tray.OccupiedSlotMask & 3);
             round = ScenarioManager.CurrentScenarioState?.RoundNumber ?? 0;
             int nativePhase = (int)PhaseManager.PhaseType;
             phase = nativePhase > 0 && nativePhase <= byte.MaxValue ? (byte)nativePhase : (byte)0;
@@ -31,7 +35,8 @@ internal static class PublicHandPickSampler
             {
                 (CardsHandUI? hand, AbilityCardUI? widget) = CardsDriver.PickFieldSeat(slot);
                 CPlayerActor? actor = hand?.PlayerActor;
-                if (hand == null || actor == null || widget?.AbilityCard == null
+                if ((boardSlots & (1 << slot)) == 0 || widget?.CardType != CardPileType.Hand
+                    || hand == null || actor == null || widget?.AbilityCard == null
                     || !LocalRigSampler.OwnedByPresentedCharacter(hand)) continue;
                 int id = NetFigures.StableActorId(actor);
                 if (id == 0 || actorId != 0 && actorId != id) continue;
@@ -49,14 +54,14 @@ internal static class PublicHandPickSampler
                 named |= (byte)(1 << slot);
             }
         }
-        if (occupied == 0) { actorId = round = 0; phase = 0; }
+        if (actorId == 0) { round = 0; phase = 0; boardSlots = 0; }
         if (_current == null && occupied == 0 && !changedScenario) return null;
         if (!changedScenario && _current != null && _current.ScenarioSeed == seed && _current.ScenarioKey == key
             && _current.ActorId == actorId && _current.Round == round && _current.Phase == phase
-            && _current.Occupied == occupied && _current.Named == named
+            && _current.Occupied == occupied && _current.Named == named && _current.BoardSlots == boardSlots
             && _current.Left.Same(in left) && _current.Right.Same(in right)) return _current;
         if (++_revision == 0) _revision++;
-        _current = new PublicHandPickState(_revision, actorId, round, phase, occupied, named, left, right, seed, key);
+        _current = new PublicHandPickState(_revision, actorId, round, phase, occupied, named, left, right, seed, key, boardSlots);
         return _current;
     }
 }

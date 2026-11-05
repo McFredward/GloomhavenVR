@@ -22,7 +22,7 @@ produce one back and one different public front; neither is the selected pair.
 The original native selections are private local UI until the native commit,
 so a receiver cannot reconstruct this pair from its ordinary round-card model.
 
-New additive record124 states the owner's actual physical pick seats. It reuses
+New additive record124 states the owner's actual physical Hand-pick seats. Native Discard/Burn picks retain record39 identity. It reuses
 the original class-pool provenance resolver, without card IDs or names. That
 provenance **is identity**: sampling must pass both existing public naming and
 public face permission before even entering its lookup. Private selection only
@@ -52,12 +52,27 @@ Approved public pick fronts feed the **existing** departed-face/flight cache,
 using a separate memory from ordinary round-card latching. The ordinary empty
 seat edge retires that memory; the flight can claim it before or after the next
 board pass. No additional flight producer, gameplay selection, phase advance,
-ACK or callback is introduced. Body/material/MR shader state is unchanged.
+ACK or callback is introduced.
 
-Wire budget:27-byte header, plus8 bytes per named original;29..45 total bytes
-including TLV. The documented maximum becomes12743, within unchanged12800
-reassembly and864-byte datagram bounds. The allocation-only buffer grows45 to
-13000, preserving its257-byte margin. Older readers skip124 by length. IDs116
+The final review found that an ordered124 identity alone could still lose to an
+old record4 physical occupancy packet: Presence extras are arrival-deduplicated,
+not sender-time ordered. Record124 therefore includes its own complete BoardSlots
+physical mask and keeps the presented actor/context even when its Hand mask is
+empty. Matching124 occupancy is adopted before the original empty/compaction
+branches. Any later normal round placement changes that same124 revision too,
+so a tombstone cannot hide subsequent ordinary cards. Record124 claims identity
+only for widget.CardType==Hand, and never shadows legacy39 pile identity.
+Hand-to-Discard commit transfers the previously approved Hand face separately to
+the existing departure cache before view content changes. That permits a valid
+flight before the local native discard model catches up, without drawing a stale
+front on a new unknown occupant. Private phase, native actor/context loss and
+unusable records immediately clear124-owned live and departed faces; ordinary
+round latches retain their prior behavior. Body/material/MR shader state is unchanged.
+
+Wire budget:28-byte header, plus8 bytes per named original;30..46 total bytes
+including TLV. The documented maximum becomes12744, within unchanged12800
+reassembly and864-byte datagram bounds. The allocation-only buffer grows46 to
+13001, preserving its257-byte margin. Older readers skip124 by length. IDs116
 through123 were already assigned and were not reused despite CLAUDE's old tally.
 
 ## Validation checkpoint
@@ -143,3 +158,26 @@ Sprites/Default, and uses a rectangular quad with silhouette alpha. This differs
 from local `CardMesh`'s punched opaque Standard body. A blanket alpha/material
 change would fill transparent corners or break materialisation. The MR lane owns
 the corresponding design; this checkpoint changes no alpha or shader state.
+
+
+## Final cards checkpoint
+
+`public-hand-pick-runtime/run-1595sflw`:46 production assertions plus10 exact
+causal controls pass, with native PhaseType/CardPileType declarations imported.
+The added coverage includes Hand-only versus legacy pile ownership, ordered fill
+and empty overriding older ordinary occupancy, subsequent ordinary placement,
+Hand-to-Discard departure before model catchup, private/actor/scenario invalidation
+before the next board pass and invalid-record departure clearing. Native widget,
+ownership and renderer inputs remain explicit ports. Adoption guards bind the
+actual production occupancy and departure calls, not an unused helper.
+
+`mp761-public-pick/run-v8v720q9`: full plugin source-only Compile0W0E and101
+focused wire assertions pass, including unchanged39 vectors and byte-exact124
+46-byte maximum. The immediately preceding run caught namespace validation
+clearing an already accepted newer receipt before checking revision order;
+valid old/duplicate packets are now refused before context invalidation. Its
+failed wire evidence is retained in `run-axl_8m_k`. This is not the integrator's
+complete strict build/source/local gate and does not claim native callback,
+Photon delivery or HMD picture qualification. A further audio hierarchy correction
+is in progress; the prior ancestor-only audio fixture is inadequate for actual
+native rat admission and is superseded below when complete.

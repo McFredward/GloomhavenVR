@@ -197,9 +197,9 @@ internal static class NetProtocol
     /// the unchanged shared window poses. Six bounded30-byte rows plus a count; automatic rows also bind the observed release.</summary>
     public const byte ExtIdSharedWindowMoveOrder = 123;
     /// <summary>Owner public hand-pick seats: revisionU32, presented actorI32,
-    /// native roundI32, phaseU8, occupied/named masksU8; each named seat adds original
+    /// native roundI32, phaseU8, hand occupied/named masksU8, atomic board occupancyU8; each named seat adds original
     /// source actorI32 and class-pool seat/countU16. Native seedI32 + deterministic
-    /// scenario-ID fingerprintU64 fence a scenario namespace (not a unique run).27..43 payload bytes. Provenance
+    /// scenario-ID fingerprintU64 fence a scenario namespace (not a unique run).28..44 payload bytes. Provenance
     /// is identity: emit only under existing public naming AND face permission;
     /// private phases carry anonymous occupancy or an explicit empty tombstone.
     /// Older readers skip124 by length. Record39 remains byte/semantic exact.</summary>
