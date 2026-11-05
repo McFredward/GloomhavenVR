@@ -176,7 +176,8 @@ internal sealed partial class FlatScreen
 
         if (_scrubRt == null)
         {
-            _scrubRt = new RenderTexture(Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24)
+            Vector2Int raster = NativeUiViewport.Raster(Screen.width, Screen.height);
+            _scrubRt = new RenderTexture(raster.x, raster.y, 24)
             {
                 name = "GloomhavenVR.DesktopScrubSink",
                 antiAliasing = 1,

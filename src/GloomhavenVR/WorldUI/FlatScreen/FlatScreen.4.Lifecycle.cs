@@ -417,8 +417,9 @@ internal sealed partial class FlatScreen
             // Plain colour RT (RenderTextureReadWrite.Default). The campaign map's darkness is NOT a
             // colorspace issue (the rig renders in Gamma, so sRGB read/write is a no-op) — the map is
             // rendered bright by the mod's own forward albedo camera (FlatScreenStereo MAP ALBEDO RENDER).
+            Vector2Int raster = NativeUiViewport.Raster(Screen.width, Screen.height);
             _rt = FlatScreenStereo.CreateColorRt(
-                Mathf.Max(Screen.width, 1280), Mathf.Max(Screen.height, 720), 24, "GloomhavenVR.FlatScreenRT");
+                raster.x, raster.y, 24, "GloomhavenVR.FlatScreenRT");
             _rt.Create();
             VRLog.Info("WorldUI", $"FlatScreen base RT created: {FlatScreenStereo.DescribeRt(_rt)}.");
         }

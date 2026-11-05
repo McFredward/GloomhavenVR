@@ -19,18 +19,20 @@ internal static class NativeWindowFrame
         Canvas? canvas = target.GetComponentInParent<Canvas>();
         Canvas? root = canvas != null ? canvas.rootCanvas : null;
         CanvasScaler? scaler = root != null ? root.GetComponent<CanvasScaler>() : null;
-        if (root == null || !(root.transform is RectTransform frame) || scaler == null
+        if (root == null || root.renderMode == RenderMode.WorldSpace || scaler == null
             || scaler.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize)
             return Vector2.zero;
         Vector2 design = scaler.referenceResolution;
         if (!Valid(design)) return Vector2.zero;
-        Vector2 size = target.rect.size;
         bool stretches = (target.anchorMin - Vector2.zero).sqrMagnitude < 1e-8f
             && (target.anchorMax - Vector2.one).sqrMagnitude < 1e-8f
             && Mathf.Abs(target.sizeDelta.x) <= 64f && Mathf.Abs(target.sizeDelta.y) <= 64f;
-        bool fills = Mathf.Abs(size.x - frame.rect.width) <= 64f
-            && Mathf.Abs(size.y - frame.rect.height) <= 64f;
-        return stretches || fills ? design : Vector2.zero;
+        // A root screen-space Canvas is sized by its native camera adapter.
+        // Equal bounds alone never prove a fixed-size popup is full-screen.
+        bool nativeRoot = ReferenceEquals(root.transform, target);
+        if (nativeRoot) return design;
+        Vector2 insetFrame = design + target.sizeDelta;
+        return stretches && Valid(insetFrame) ? insetFrame : Vector2.zero;
     }
 
     internal static bool Valid(Vector2 size) => size.x >= 64f && size.y >= 64f
