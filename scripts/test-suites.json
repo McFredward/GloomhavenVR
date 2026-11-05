@@ -3154,6 +3154,29 @@
       "weight": 12
     },
     {
+      "id": "ugui-coordinates760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-coordinates760-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "native-ui-pointer760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-coordinates760-runtime/run.py",
+        "--common"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
       "id": "menu-depth-character",
       "command": [
         "python3",

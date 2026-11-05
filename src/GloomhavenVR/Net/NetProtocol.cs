@@ -644,6 +644,17 @@ internal static class NetProtocol
     // ESC -> owned confirmation -> ESC capture transition; RGB alone is not
     // sufficient because a permissive GL driver can still paint NaN depth.
 
+    // The same undelivered760 candidate also fixes new-character card scrolling:
+    // pointer-only plain EventTriggers yield wheel input to the actual ancestor
+    // handler, retaining explicitly authored/custom wheel handlers. Floated native
+    // full-screen roots keep their original authored design frame; their16:9
+    // capture domain no longer follows desktop aspect, preserving raster density.
+    // Exact pointer/caster and owned captured-camera leases bypass only OS mouse
+    // remapping. Admitted world panels use their committed physical interaction
+    // bounds rather than the desktop mono viewport. Genuine/native input and
+    // unowned canvases keep their original route; native filters and callbacks
+    // remain authoritative. No desktop camera/projection or wire change.
+
     // ModBuild759 — preserve original confirmations at small world scales.
     // Generic blackout guards recognize exact producer-owned confirmation leases
     // instead of hiding their native canvases again immediately after reveal.
