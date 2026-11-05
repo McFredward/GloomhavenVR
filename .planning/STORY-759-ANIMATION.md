@@ -89,3 +89,39 @@ All owned processes are reaped and canonical `cleanup_completed_run` removes
 regenerable project caches after successful and failed invocations. Existing
 qualified Build758 gate results are inherited only for unchanged inputs; final
 integration validates the union with the parallel workers.
+
+## Integration follow-up: actual sender cadence
+
+The integration review found a real sender gap: scenario-story recovery was neither
+an ordinary hand grab nor map room-making, so its new local flight would otherwise
+publish only through the ordinary 5 Hz extras gate (about three source poses during
+0.62 seconds). Correct register authority alone did not select the fast sender gate.
+
+A per-window publication reference now retains only the last valid recovery sample.
+Each actual picture sample extends its send deadline by `2 / SendRateHz` (about
+0.133 seconds), including the final endpoint. A new `StoryRecoverySendDue` read
+reuses the exact current lifetime, identity, grip and authority predicate from the
+flight writer. Hiding, closing, replacing or losing the pose permission immediately
+revokes that pulse. Expiry removes the per-window reference; no static deadline,
+claim lease or footprint polling is prolonged.
+
+Exactly one OR was added to the existing `sharedWindowDue` expression in
+`NetAvatarDriver`. Its original rig-interval cap remains outside the OR, so recovery
+gets at most the existing 15 Hz route and returns to the normal 5 Hz path after its
+short endpoint tail. Card visibility, native callbacks, sampling keys, snapshot
+content and wire grammar are unchanged.
+
+Follow-up proof: **106 Unity assertions plus four new compiled cadence controls**
+pass; the earlier 93/16 evidence remains separately retained for the unchanged
+motion/permission behavior. Shared-window-reflow's full containing suite passes
+**84 runtime assertions, seven additional assertions executing the actual extracted
+sender expression, and all seven existing compiled controls** (25.3 seconds).
+The expression is converted to scalar boundary inputs from shipping source, rather
+than reimplemented in a parallel boolean policy; source pins include its actual
+sender and recovery owners. New controls remove the pulse, endpoint tail, tail
+expiry or native/manual interruption gate. The entire production plugin Compile
+target is again **0 warnings/0 errors**, 13.7 seconds (13.9 seconds invocation).
+
+The focused follow-up adds no hardware or complete-gate claim. Canonical cleanup
+has completed after each invocation, retaining source bindings, failures, results,
+mutation files and rendered evidence. Final integration owns the source-gate union.

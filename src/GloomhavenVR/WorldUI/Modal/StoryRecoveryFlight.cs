@@ -14,6 +14,7 @@ internal sealed class StoryRecoveryFlight
     internal readonly SharedWindowKind Kind;
     internal readonly bool Online, SharedClaim;
     internal readonly Vector3 From, Target;
+    internal float SendUntil;
     private readonly Quaternion _fromRotation, _targetRotation;
     private readonly float _startedAt, _arc;
 

@@ -69,6 +69,10 @@ def main():
    ('flight-native-close','ModalFallback.StoryRecovery.cs','&& wp.Window != null && wp.Window.IsOpen && ReflowVisible(wp)','&& wp.Window != null && true && ReflowVisible(wp)','native close stops flight without reopening the window'),
    ('flight-panel-replaced','ModalFallback.StoryRecovery.cs','!ReferenceEquals(flight.Panel, wp.Panel)','false','replaced presentation cancels the previous flight'),
    ('flight-transport-transition','ModalFallback.StoryRecovery.cs','flight.SharedClaim != (online && SharedWindowMoves.Active)','false','transport activation cancels an unclaimed old flight'),
+   ('flight-no-cadence','ModalFallback.StoryRecovery.cs','flight.SendUntil = now + 2f / NetProtocol.SendRateHz;','flight.SendUntil = now;','active story flight requests the existing fast send gate'),
+   ('flight-no-endpoint-tail','ModalFallback.StoryRecovery.cs','flight.SendUntil = now + 2f / NetProtocol.SendRateHz;','flight.SendUntil = now + .001f;','final story endpoint retains two rig intervals to publish'),
+   ('flight-permanent-cadence','ModalFallback.StoryRecovery.cs','now < flight.SendUntil','true','finite publication tail returns to idle cadence'),
+   ('flight-hidden-cadence','ModalFallback.StoryRecovery.cs','&& StoryRecoveryMayWrite(wp, flight, online, author)','&& true','manual/native/authority interruption revokes fast publication'),
   ]
   variants=[('production','','','','')]+controls
   if a.case:variants=[v for v in variants if v[0] in a.case];assert len(variants)==len(a.case)

@@ -88,6 +88,7 @@ namespace GloomhavenVR.WorldUI {
  internal UIWindow Window=new();internal ConvertedPanel Panel=new();internal GrabbableModal? Grab;
  internal StoryRecoveryDwell StoryRecovery=new();internal Vector3 StoryRecoverySeat;
  internal StoryRecoveryFlight? StoryRecoveryFlight;
+ internal StoryRecoveryFlight? StoryRecoveryPublication;
  internal object? SpawnAnchor;internal bool PoseRePlaceDone,ReflowCancelled;
  }
  private static readonly List<WindowPanel> Converted=new();private const float WindowDistanceMeters=.95f;internal static SharedWindowKind Kind=SharedWindowKind.ScenarioStory;
@@ -97,6 +98,7 @@ namespace GloomhavenVR.WorldUI {
  internal static WindowPanel Add(Transform root){var w=new WindowPanel{Panel=new ConvertedPanel{HostGo=root.gameObject},Grab=new GrabbableModal{Root=root}};Converted.Clear();Converted.Add(w);return w;}
  internal static void PollAt(float now){_nextStoryRecoveryPoll=0;TickStoryRecovery(now);}
  internal static void FrameAt(float now)=>TickStoryRecovery(now);
+ internal static bool FastAt(float now)=>StoryRecoverySendDueAt(now);
  }
 }
 

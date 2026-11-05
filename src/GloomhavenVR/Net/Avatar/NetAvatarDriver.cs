@@ -1491,7 +1491,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
         // no single last-sent pose to diff here and why the grab is the right superset.
         bool sharedWindowDue = (WorldUI.SharedWindows.AnyGrabbedHere()
-                               || WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving)
+                               || WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving
+                               || WorldUI.ModalFallback.StoryRecoverySendDue)
                                && _extrasAccumulator >= fastInterval;
 
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the

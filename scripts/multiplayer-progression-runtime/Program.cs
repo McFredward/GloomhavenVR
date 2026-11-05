@@ -67,8 +67,10 @@ public static class ProgressionTests {
  SharedWindowMoves.MayBegin=true;ModalFallback.PollAt(26);
  Check(wp.StoryRecoveryFlight!=null&&wp.Grab.Moves==0&&SharedWindowMoves.Claims==1,
   "single author starts a flight without teleporting the native story");
+ Check(!ModalFallback.FastAt(26),"no fast publication before the first actual picture sample");
  int reads=SpawnRing.Reads;ModalFallback.FrameAt(26.02f);
  Check(wp.Grab.Moves==1,"story flight samples before the four-Hz admission poll");
+ Check(ModalFallback.FastAt(26.02f),"active story flight requests the existing fast send gate");
  Vector3 previous=frame.transform.position;
  for(int i=2;i<=9;i++){
   ModalFallback.FrameAt(26+i*.033f);
@@ -93,6 +95,8 @@ public static class ProgressionTests {
  ModalFallback.FrameAt(26.7f);
  Check(Vector3.Distance(frame.transform.position,new Vector3(0,6,1.5f))<.001f&&wp.Window.IsOpen,
   "recovery ends at its captured host target without changing native continuation");
+ Check(ModalFallback.FastAt(26.7f)&&ModalFallback.FastAt(26.8f),"final story endpoint retains two rig intervals to publish");
+ Check(!ModalFallback.FastAt(26.84f),"finite publication tail returns to idle cadence");
  int moves=wp.Grab.Moves;ModalFallback.PollAt(35);Check(wp.Grab.Moves==moves,"ordinary readable window remains fixed");
  Object.DestroyImmediate(ink);Object.DestroyImmediate(material);
  // The real consumer track renders between actual automatic claim samples, then
@@ -122,8 +126,9 @@ public static class ProgressionTests {
   if(scenario==6)SharedWindowSpawnBridge.IsInitialAuthor=false;
   if(scenario==7)wp.Panel.RenderHidden=true;
   if(scenario==8)SharedWindowMoves.Owner.SetAutomaticAuthor(2,now+3.11f);
-  ModalFallback.FrameAt(now+3.12f);
   string[] reasons={"local grip interrupts flight at its last visible sample","new remote grip interrupts the actual automatic claim","opening room-making wins over an old recovery flight","native close stops flight without reopening the window","replaced presentation cancels the previous flight","new native opening retires the previous automatic flight","placement author loss cancels flight","hidden native story cancels flight","automatic authority transfer cancels flight"};
+  Check(!ModalFallback.FastAt(now+3.11f),reasons[scenario]+"; manual/native/authority interruption revokes fast publication");
+  ModalFallback.FrameAt(now+3.12f);
   Check(wp.StoryRecoveryFlight==null&&wp.Grab.Moves==before&&frame.transform.position==stopped,reasons[scenario]);
   if(scenario==1)Check(SharedWindowMoves.Observer.LocalPhase==SharedWindowMovePhase.Held,
    "flight cancellation does not release the winning remote manual grip");

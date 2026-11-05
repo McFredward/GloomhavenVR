@@ -9,6 +9,35 @@ internal static partial class ModalFallback
 {
     private static float _nextStoryRecoveryPoll;
 
+    /// <summary>Reuse the existing rig-rate shared-window send gate only while a valid
+    /// flight publishes poses, plus two rig intervals for its final endpoint. No claim,
+    /// playfield measurement or native continuation is touched by this cheap read.</summary>
+    internal static bool StoryRecoverySendDue => StoryRecoverySendDueAt(Time.unscaledTime);
+
+    private static bool StoryRecoverySendDueAt(float now)
+    {
+        bool online = SharedWindows.SessionIsOnline();
+        bool author = !online || SharedWindowSpawnBridge.IsInitialAuthor;
+        foreach (WindowPanel wp in Converted)
+        {
+            StoryRecoveryFlight? flight = wp.StoryRecoveryPublication;
+            if (flight != null && now < flight.SendUntil && StoryRecoveryMayWrite(wp, flight, online, author))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool StoryRecoveryMayWrite(WindowPanel wp, StoryRecoveryFlight flight, bool online, bool author)
+    {
+        if (flight.Online != online || flight.SharedClaim != (online && SharedWindowMoves.Active)
+            || !StoryRecoveryEligible(wp, author)
+            || !ReferenceEquals(flight.Window, wp.Window) || !ReferenceEquals(flight.Panel, wp.Panel)
+            || !ReferenceEquals(flight.Grab, wp.Grab) || SharedWindows.KindOf(wp.Window) != flight.Kind
+            || flight.SharedClaim && (!SharedWindowMoves.MayWrite(flight.Kind)
+                    || !SharedWindowMoves.HasLocalClaim(flight.Kind))) return false;
+        return true;
+    }
+
     /// <summary>The maintainer's753 report explicitly permits this narrow lost-story rescue.
     /// Only the common placement author moves it; native continuation remains untouched.</summary>
     private static void TickStoryRecovery(float now)
@@ -20,17 +49,18 @@ internal static partial class ModalFallback
         foreach (WindowPanel wp in Converted)
         {
             StoryRecoveryFlight? flight = wp.StoryRecoveryFlight;
-            if (flight == null) continue;
-            if (flight.Online != online || flight.SharedClaim != (online && SharedWindowMoves.Active)
-                || !StoryRecoveryEligible(wp, author)
-                || !ReferenceEquals(flight.Window, wp.Window) || !ReferenceEquals(flight.Panel, wp.Panel)
-                || !ReferenceEquals(flight.Grab, wp.Grab) || SharedWindows.KindOf(wp.Window) != flight.Kind
-                || flight.SharedClaim && (!SharedWindowMoves.MayWrite(flight.Kind)
-                    || !SharedWindowMoves.HasLocalClaim(flight.Kind)))
+            if (flight == null)
+            {
+                if (wp.StoryRecoveryPublication != null && now >= wp.StoryRecoveryPublication.SendUntil)
+                    wp.StoryRecoveryPublication = null;
+                continue;
+            }
+            if (!StoryRecoveryMayWrite(wp, flight, online, author))
             {
                 // Do not publish Released: the winning claim may now be a real local
                 // or remote grab. Cancellation leaves the last visible pose untouched.
                 wp.StoryRecoveryFlight = null;
+                wp.StoryRecoveryPublication = null;
                 wp.StoryRecovery.Tick(false, false, false, now);
                 continue;
             }
@@ -38,6 +68,8 @@ internal static partial class ModalFallback
             PanelPoseWatch.Announce(wp.Panel, PanelPoseWatch.Writer.StoryRecovery,
                 "finite recovery of a progression story outside the measured playfield");
             flight.Grab.SnapFrameTo(position, rotation);
+            flight.SendUntil = now + 2f / NetProtocol.SendRateHz;
+            wp.StoryRecoveryPublication = flight;
             if (!complete) continue;
             wp.StoryRecoveryFlight = null;
             wp.StoryRecoverySeat = flight.Target;
