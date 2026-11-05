@@ -5,7 +5,9 @@ Bind unchanged production UguiPointer raycast/merge/sort methods, the actual sta
 order resolver, full transfer helper and registry. Fixture ledgers model exact
 conversion writer operations; original Unity Images, Buttons, GraphicRaycasters,
 CanvasGroups and EventSystem run natively. Tracking and broader panel conversion
-are explicit boundaries. The companion flat-confirmation-lifecycle suite binds
+are explicit boundaries. No coordinate Harmony patch is installed here; its
+lease is inert and the independent ugui-coordinates760-runtime suite tests that
+helper. The companion flat-confirmation-lifecycle suite binds
 actual game confirmation controllers and native fade callbacks; this proof does
 not substitute active flags for geometric hit testing or native disablement.
 """
@@ -35,6 +37,9 @@ def cleanup_generated(run):
 def method(text, signature):
     start = text.index('    ' + signature)
     brace = text.index('{', start)
+    arrow = text.find('=>', start, brace)
+    if arrow >= 0:
+        return text[start:text.index(';', arrow) + 1]
     depth = 1
     end = brace + 1
     while depth:
@@ -55,6 +60,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 namespace GloomhavenVR.Hands.Interact;
+// This patch-free fixture retains original native coordinates. The complete
+// coordinate lease and transformed native raycaster are qualified separately.
+internal static class UguiRaycastCoordinates {
+internal readonly struct Lease : System.IDisposable {public void Dispose(){}}
+internal static Lease Enter(GraphicRaycaster caster,PointerEventData data,Canvas? admittedHost=null)=>default;
+}
 internal sealed class UguiPointer {
 private readonly bool _farRay=true;
 private readonly HandSide _side=HandSide.Left;
@@ -66,7 +77,8 @@ private PointerEventData GetData()=>_data??=new PointerEventData(EventSystem.cur
 private bool TryAimRay(out Vector3 origin,out Vector3 direction){origin=direction=default;return false;}
 '''
     for signature in ('internal bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit)',
-                      'private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)',
+                      'private bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit, bool worldPlane)',
+                      'private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top, Canvas? admittedHost = null)',
                       'private static bool Beats(in RaycastResult challenger, in RaycastResult incumbent)',
                       'private static int StableOrder(in RaycastResult hit)'):
         bound_pointer += method(pointer, signature) + '\n'
