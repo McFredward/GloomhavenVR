@@ -124,6 +124,100 @@ native hand is temporarily absent; it does not prove which remote peer failed.
   declared cosmetic/native subsystem ports, including historical757 method
   controls and same-ID replacement tests.
 
-Final integrated strict builds, allsource/complete local suites and golden
-vectors remain pending at this checkpoint. No partial worker result is labeled
-a complete gate or hardware acceptance.
+Final integrated qualification is recorded below. Worker-only proof is not
+labeled a complete gate or hardware acceptance.
+
+## Frozen-union review and integration findings
+
+The first strict integration build exposed a real compile dependency introduced
+by reading `PlayerRegistry.JoiningPlayers.Count` directly: its public property's
+element type belongs to Bolt. The guard now obtains the actual static property
+through cached reflection and reads its original collection through `ICollection`.
+This preserves the native joining refusal without adding a transport dependency.
+The native fixture now represents the real get-only property. The focused
+repair passes2026 assertions and all nine compiling controls plus the source
+control. The original compiler failure and the intervening import-placement
+error remain recorded, not relabeled as passes.
+
+Three independent read-only reviews of the merged runtime at `93e7f3ca8` found no
+additional concrete regression: mandatory banner priorities and real wait-object
+lifetimes; native joining/property, optional tutorial replay and failed-fan
+confirmation ownership; and deferred first placement, per-window recovery,
+peer identity retirement and event snapshot ordering. These are source reviews,
+not additional hardware, Photon or line-coverage claims.
+
+The complete integration invocation uses that frozen runtime. An older
+town-service interaction fixture initially lacks the new failed-fan capability,
+native confirmation latch and warning facade, so its positive compilation fails.
+Its boundary-only repair leaves all production input hashes unchanged. The
+containing suite and controls pass after repair; unrelated successful suite
+evidence is retained. Final aggregate coverage and elapsed times follow below.
+
+The multiplayer-progression fixture also retained a source assertion and mutation
+for the former hand-count cue argument after its executable cases had migrated
+to the shared actor rule. Bind both real consumers to `MustRestInsteadOfPlay` and
+make the causal control incorrectly request a cue for a non-required rest. This
+is another fixture-only repair; its complete suite and controls require a focused
+rerun, without repeating unchanged successful groups. That rerun passes44
+Unity/geometry/pixel assertions and all eight compiling controls in19.3s.
+
+Two later fixture bindings also require adaptation: the late-join queue port
+must accept the new separate cancellation notification, and the shared-reward
+lifecycle source pin must identify the now-guarded `RemoteMapStory.Reset` call.
+The actual queue/cancellation and complete guarded peer teardown have their own
+executed lifecycle coverage. These fixtures retain their original normal-handoff
+and reward-election assertions. Complete reruns pass47/six and29/six
+assertions/controls in25.8s and22.8s respectively. The interaction fixture's
+complete repair passes7915 native-UI/Unity assertions and73 controls in105.0s.
+
+## Final qualification, 2026-11-05
+
+Runtime candidate `386fe1706`, Build758, reviewed against the qualified757
+compiled baseline (`cd827d688` is its documentation descendant). The initial
+runtime freeze is `93e7f3ca8`; later production changes are restricted to one
+diagnostic literal in BurnCommitWatch. Preserve `THE NEXT SUSPECT IS THE` as an
+existing search marker while explicitly refusing to call it a proven cause.
+Fresh strict builds, allsource gates and surface/compiled checks cover that
+bounded repair. No native behavior, codec, protocol, asset or configuration input
+changes after the freeze. Four fixture files account for all other input deltas.
+
+- Qualified coverage includes **all276 local suite IDs**, **16 source suites**,
+  **306739 byte-exact wire assertions**, bundle format and bilingual-doc checks.
+  Every selected passing log is verified against its original report's SHA256.
+- The original complete invocation remains failed: after5411.6s, the disk guard
+  stopped it with170 passes, two fixture failures and104 unfinished groups.
+  Its continuation passed36 more before another storage stop at698.1s. A private
+  RAM worktree completed the remaining68 in926.7s:65 passed; the two later fixture
+  failures and one PowerShell environment failure have qualified focused passes.
+  This is complete **aggregate coverage**, not a newly successful whole invocation.
+- The PowerShell packaging failure was missing `DOTNET_ROOT` for the already
+  installed runtime. With the explicit environment, its20 tests pass in9.2s;
+  no production/test source changed for that retry. All four fixture repairs
+  retain their original failed attempts and complete containing-suite controls.
+- Final strict Release/Debug builds pass with **zero warnings/errors**,16.0s each.
+  Final16-source execution is32.7s (34.0s orchestration). The original source
+  pass, scheduler19 passes/two expected skips and worker focused proof are retained.
+- Compiled comparison accounts for21 existing runtime/diagnostic types, nine
+  exact build/tool-identity-only types and seven new types, with no lost type.
+  The synthesized project differs only in relative HintPath depth; reference
+  names/order remain identical. All32 embedded resources are byte-identical.
+  Independent Cards, windows/peer and map/town/tutorial reviews find no unintended
+  difference. Both module registration orders retain their existing entries.
+- Surface:670 configuration keys unchanged; Harmony attributes274→278; log
+  tokens4846→4849. Nothing is removed. New markers are `CARD ANIMATION CANCEL
+  COMPLETED`, `PROGRESSION WAIT` and `PROGRESSION WAIT CLEARED`. The initial wait
+  anomaly is bounded at normal level; completion detail remains at Debug.
+
+Proof is retained in ignored `debug/deadlock758/integration/`, including
+`final-qualified-coverage.json`, `qualified-log-identities.json`,
+`compiled-final-review.json` and exact input/toolchain manifests. Closed own-run
+folders are archived losslessly with individual member size/SHA256 verification
+and restoration indexes. Hardware inputs, shared game references, other agents'
+worktrees and the main shared compiled baseline are untouched. Temporary RAM
+proof is copied and verified before retirement; no local release ZIP is produced.
+
+No new headset or live Photon acceptance is claimed. Original native exceptions,
+driver failures and missing network acknowledgments remain authoritative and
+cannot safely be converted into guessed success. Issue27's historical turn
+incident is still not matched to a failing captured transition; these independent
+repairs and passive diagnostics do not establish its cause or its hardware cure.

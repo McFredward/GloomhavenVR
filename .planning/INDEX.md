@@ -1,10 +1,11 @@
 # Planning index
 
-Updated2026-11-04: Build758 integrates the comprehensive SP/MP progression
+Updated2026-11-05: Build758 integrates the comprehensive SP/MP progression
 review. Independently proven lifecycle, cancellation, confirmation and fallback
 repairs plus player guidance are detailed in DEADLOCK-758-REVIEW.md and the
-three owned reviews. Final classC integration validation is recorded in STATE.md;
-worker passes alone are not a complete gate. The historical Issue27 incident
+three owned reviews. Final classC qualification covers276 local IDs,16 sources,
+306739 wire assertions and compiled/surface review; interrupted invocations and
+bounded repairs are recorded separately in STATE.md. The historical Issue27 incident
 remains causally unresolved; no fabricated acknowledgment or forced choice is
 used to hide it. Passive map stalls remain open in MP746-PERFORMANCE.md.
 

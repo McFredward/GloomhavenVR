@@ -1,4 +1,4 @@
-**Progression safety review, Build758, 2026-11-04 — final integration pending.**
+**Progression safety review, Build758, 2026-11-05.**
 
 The full SP/MP review inventories1170 production C# sources and traces critical
 input, choice, native UI lifecycle, cancellation, session/peer and startup paths.
@@ -9,8 +9,22 @@ historical cause. No fake ACK, forced choice/phase, private-card disclosure or
 save rewrite is introduced. Existing owner-authored status transport mirrors
 the new ordinary-choice and delayed automatic-wait guidance.
 
-Focused proof is complete; classC final union check, strict builds, source/surface
-and compiled comparison remain pending. Dev only, no release or local ZIP.
+ClassC qualification covers all276 local IDs,16 sources,306739 byte-exact wire
+assertions, bundle and bilingual guides. Disk guards interrupted two invocations;
+unchanged passing evidence is retained and only unfinished/affected groups are
+continued. Four fixture repairs and one .NET environment correction have full
+containing-suite passes. All276 selected logs match their original SHA256.
+Final strict Release/Debug0W0E16.0/16.0s; final sources32.7s. Compiled scope is21
+existing runtime/diagnostic types, nine identity-only types, seven new types and
+one decompiler HintPath-depth artifact; no lost type,32resources exact.
+Surface670/274→278/4846→4849 has no removals. A final bounded diagnostic-literal
+repair retains the old search marker without asserting a cause; runtime/codec
+proof for unchanged inputs survives. Detailed timings, failures and source pins
+are in DEADLOCK-758-REVIEW.md and ignored debug/deadlock758/integration/.
+
+Own caches are cleared and evidence archived with verified restoration indexes;
+shared inputs/other agents are untouched. No new headset/Photon acceptance or
+Issue27 cause is claimed. Dev only, no release or local ZIP.
 
 **Initiative planes / inert held-info copies, Build757, 2026-11-04.**
 
