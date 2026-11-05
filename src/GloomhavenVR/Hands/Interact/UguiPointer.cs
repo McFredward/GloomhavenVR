@@ -72,6 +72,7 @@ internal sealed class UguiPointer
     private readonly HandSide _side;    // this pointer's hand — source of the depth aim ray
     private readonly bool _farRay;      // laser (true) vs fingertip poke (false)
     private readonly List<RaycastResult> _hits = new(16);
+    private readonly List<Component> _scrollHandlers = new(4);
 
     private PointerEventData? _pointerData;
     private GameObject? _hovered;
@@ -908,10 +909,46 @@ internal sealed class UguiPointer
     {
         if (_hovered == null)
             return;
+        GameObject? target = ScrollTarget(_hovered);
+        if (target == null)
+            return;
         PointerEventData data = GetData();
         data.scrollDelta = scrollDelta;
-        ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.scrollHandler);
+        ExecuteEvents.Execute(target, data, ExecuteEvents.scrollHandler);
         data.scrollDelta = Vector2.zero;
+    }
+
+    /// <summary>
+    /// Native card hover uses EventTrigger for enter/exit, but that component
+    /// implements every pointer interface even when its Scroll entry is absent.
+    /// ExecuteHierarchy consequently stops on the card without moving its list.
+    /// Keep the nearest real wheel owner; skip only that exact empty adapter.
+    /// Derived adapters and other IScrollHandlers retain their original priority.
+    /// </summary>
+    private GameObject? ScrollTarget(GameObject start)
+    {
+        for (Transform? current = start.transform; current != null; current = current.parent)
+        {
+            _scrollHandlers.Clear();
+            current.GetComponents(_scrollHandlers);
+            for (int i = 0; i < _scrollHandlers.Count; i++)
+            {
+                Component component = _scrollHandlers[i];
+                if (!(component is IScrollHandler) || component is Behaviour behaviour && !behaviour.isActiveAndEnabled)
+                    continue;
+                if (component.GetType() == typeof(EventTrigger))
+                {
+                    var entries = ((EventTrigger)component).triggers;
+                    bool handlesScroll = false;
+                    for (int e = 0; e < entries.Count; e++)
+                        if (entries[e].eventID == EventTriggerType.Scroll) { handlesScroll = true; break; }
+                    if (!handlesScroll)
+                        continue;
+                }
+                return current.gameObject;
+            }
+        }
+        return null;
     }
 
     /// <summary>Pointer-up (+ click when released over the same handler).</summary>
