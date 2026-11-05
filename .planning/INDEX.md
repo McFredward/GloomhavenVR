@@ -1,6 +1,12 @@
 # Planning index
 
-Updated2026-11-05: Build758 integrates the comprehensive SP/MP progression
+Updated2026-11-05: Build759 fixes the observed same-frame confirmation blackout,
+animates critical-story recovery with finite shared fast-cadence publication,
+and makes optional board explanations owner-configurable (default150s).
+The bounded final union reuses the qualified758 checkpoint for unchanged areas;
+see the three new focused reviews and STATE.md for proof and limits.
+
+Build758 integrates the comprehensive SP/MP progression
 review. Independently proven lifecycle, cancellation, confirmation and fallback
 repairs plus player guidance are detailed in DEADLOCK-758-REVIEW.md and the
 three owned reviews. Final classC qualification covers276 local IDs,16 sources,
@@ -17,6 +23,9 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [POPUP-SCALE-759-REVIEW.md](POPUP-SCALE-759-REVIEW.md) | Current confirmation blackout cause, actual image/input proof and bounded final union qualification |
+| [DECISION-HELP-759.md](DECISION-HELP-759.md) | Three owner-local explanation modes, final150s default and existing remote banner provenance |
+| [STORY-759-ANIMATION.md](STORY-759-ANIMATION.md) | Finite critical-story recovery flight, grip/authority gates and actual15Hz sender consumer |
 | [DEADLOCK-758-REVIEW.md](DEADLOCK-758-REVIEW.md) | Integrated progression-safety findings, ownership boundaries, guidance and final validation |
 | [DEADLOCK-758-CARDS.md](DEADLOCK-758-CARDS.md) | Complete Cards/Board audit, original cancellation and queued-lifetime repairs, input guidance and secondary render/data review |
 | [DEADLOCK-758-WINDOWS.md](DEADLOCK-758-WINDOWS.md) | Required-window recovery, actual confirmation pixels and exception-safe peer retirement |

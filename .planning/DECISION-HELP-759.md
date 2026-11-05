@@ -30,7 +30,7 @@ There are no wire-format, protocol-version, remote-card, native-game or unmodded
 client behavior changes. Wire exemptions explicitly document these derived owner
 results.
 
-## Qualified verification
+## Qualified verification of the initial 300-second candidate
 
 - Final strict Release build: 0 warnings, 0 errors, 10.30 seconds.
 - Final complete source group: 16/16 passing, 32.8 seconds. This is the full source
@@ -70,6 +70,26 @@ Unity/TMP/native API ports; these establish visibility provenance, not Photon
 latency or final headset pixels. The option does not change renderer geometry.
 No hardware outcome or complete local/golden gate is claimed. The integrator
 qualifies the final union against the current Build758 evidence.
+
+## Maintainer default correction: 150 seconds
+
+Before delivery, the maintainer shortened the default to **150 seconds (2.5
+minutes)**. The shipped constant, malformed-value fallback, English/German
+descriptions and default-boundary assertions agree. The explicit configurable
+300-second automatic-wait case remains a valid custom-value test.
+
+The final containing production replay passes all462 assertions, including
+149/150-second default and malformed-value boundaries, owner/remote appearance,
+native banner precedence and custom intervals. Its affected compiling
+`help-short-delay` control passes; the private selected-control runner preserves
+the exact original script and its selection provenance. This is a focused
+continuation, not a fresh full23-control invocation. The other22 controls retain
+their preceding qualified proof for unchanged clock/control logic. The final
+compiled delta from the initial candidate is exactly four types: Defaults,
+CardsConfig, Loc and DecisionHelpClock; their only behavior/data changes are the
+300→150 value/fallback and corresponding descriptions. Final strict Debug and
+Release, all16 source gates, actual golden vectors and compiled/surface checks
+pass. See POPUP-SCALE-759-REVIEW.md for union qualification and timing.
 
 ## Evidence and cleanup
 

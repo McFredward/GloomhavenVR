@@ -1,3 +1,30 @@
+**Confirmation and progression presentation, Build759, 2026-11-05.**
+
+The new758 hardware replay identifies the real remaining popup failure: the
+same-frame generic blackout disables an already producer-owned confirmation.
+The eight ownership/admission/retirement checks now recognize that exact lease.
+Actual source-bound sweep and final-head pixels, original native geometry and
+laser/graphic input expose the old defect and pass its focused correction.
+Historical753 origin placement alone was not a complete explanation.
+
+Critical lost-story recovery now uses a fixed-target0.62s flight, yielding to
+native lifetime, grips, authority/transport changes and room making. Its existing
+shared sender receives a finite15Hz pulse and endpoint tail, then returns to5Hz.
+Extra board explanations have Always/Never/AfterDelay modes, a final default
+**150s (2.5 minutes)** and owner-authored remote visibility on the existing banner.
+Native choices/important instructions and the20s attention arrow remain intact.
+
+ClassB: qualified affected runtime/pixel/control evidence plus final strict
+Release/Debug0W0E9.66/9.96s, sources16/16,306740 wire assertions, compiled review
+and no surface removals. Nine behavior types/nine metadata types/three additions;
+existing32 resources unchanged. The default-only follow-up replays462 assertions
+and its affected control; unchanged controls and unrelated local IDs reuse the
+qualified758 checkpoint. This is not a fresh complete-local invocation. See
+POPUP-SCALE-759-REVIEW.md, DECISION-HELP-759.md and STORY-759-ANIMATION.md.
+No new HMD/Photon claim. The tiny absolute0.02 capture-glyph diagnostic remains
+explicitly unqualified, separate from the recorded1.15-scale blackout repair.
+Dev only, no release/local ZIP; owned caches/worktrees retire after proof capture.
+
 **Progression safety review, Build758, 2026-11-05.**
 
 The full SP/MP review inventories1170 production C# sources and traces critical
