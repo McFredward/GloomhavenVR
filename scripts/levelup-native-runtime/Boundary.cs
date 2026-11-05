@@ -210,6 +210,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel
     {
         internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal Canvas HostCanvas=null!;
+        internal Vector2 NativeDesignFrame=Vector2.zero; // No full-screen admission in this native-owner fixture.
         internal GraphicRaycaster HostRaycaster=null!;internal bool IsAlive=>Target!=null;
         internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false,HideBackground=false,KeepBackgroundHidden=false;
         internal Func<Graphic,bool>? BackgroundFilter=null;

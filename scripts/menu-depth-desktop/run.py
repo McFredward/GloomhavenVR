@@ -188,16 +188,34 @@ internal static class MenuDepthCharacterRotation
     sources['ReadyFrame746.cs'] = ('using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI; '
         'namespace GloomhavenVR.WorldUI; internal static partial class PanelSupersample {\n' + frame_body + '\n}')
     sources['ReadyBadge746.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs').read_text()
+    frame_file = source_root / 'src/GloomhavenVR/WorldUI/Conversion/NativeWindowFrame.cs'
+    sources['NativeWindowFrame.cs'] = frame_file.read_text()
+    sources['NativeUiViewport.cs'] = (frame_file.parent/'NativeUiViewport.cs').read_text()
+    frame_core = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
+    frame_fit = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
+    assert frame_core.count('panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);') == 1
+    frame_select = frame_core[frame_core.index('        // Rect size while still under'):frame_core.index('        // Bug #7 (pause-menu height)')]
+    frame_seat = frame_core[frame_core.index('        target.SetParent(hostRect, worldPositionStays: false);'):frame_core.index('        target.localPosition = new Vector3(target.localPosition.x, target.localPosition.y, 0f);')+len('        target.localPosition = new Vector3(target.localPosition.x, target.localPosition.y, 0f);')]
+    assert 'NativeWindowFrame.Repin(t, panel.NativeDesignFrame)' in frame_fit
+    sources['NativeFrameConversion760.cs'] = ('using UnityEngine; namespace GloomhavenVR.WorldUI; internal static class NativeFrameConversion760 {'
+        'private sealed class FrameState { internal Vector2 NativeDesignFrame,SharedDesignFrame=Vector2.zero; }'
+        'private static class SharedWindowSize { internal static bool IsArmed(FrameState panel)=>false; }'
+        'internal static Vector2 Convert(RectTransform target,RectTransform hostRect) {var panel=new FrameState();'
+        +'panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);'+frame_select+frame_seat+'return panel.NativeDesignFrame;}'
+        'internal static void Maintain(RectTransform target,Vector2 design){NativeWindowFrame.Repin(target,design);}}')
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Sharpness' / name for name in
                ('PanelSupersample.1.Core.cs', 'PanelSupersample.2.Capture.cs', 'PanelSupersample.4.Content.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
-    inputs += [popup_source,blackout_source,ray_source,visible_source]
+    inputs += [flat/'FlatScreen.3.Desktop.cs',flat/'FlatScreen.4.Lifecycle.cs']
+    for allocation in inputs[-2:]:
+        assert 'NativeUiViewport.Raster(Screen.width, Screen.height)' in allocation.read_text(), 'Native viewport allocation binding drift: '+str(allocation)
+    inputs += [popup_source,blackout_source,ray_source,visible_source,frame_file,frame_file.parent/'NativeUiViewport.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs',ROOT/'scripts/mp760-display/export_creation.py']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
-    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation','head-popup')) for name in args.case)
+    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation','head-popup','head-window-viewport','head-window-native')) for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
     wants_popup760 = not args.case or any(name.startswith('head-popup760') for name in args.case)
@@ -207,7 +225,21 @@ internal static class MenuDepthCharacterRotation
         inputs += [ROOT/'ressources/GH_Data'/name for name in ('level1','level6','level9','resources.assets','resources.assets.resS')]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
+    wants_viewport760 = not args.case or any(name.startswith(('head-window-viewport','head-window-native')) for name in args.case)
+    if wants_viewport760:
+        pins.append({'path':str(ROOT/'ressources/GH_Data/level9'),'sha256':hashlib.sha256((ROOT/'ressources/GH_Data/level9').read_bytes()).hexdigest()})
     variants = [
+        ('head-window-native760', '', '', '', ''),
+        ('head-window-native-old760', 'NativeUiViewport.cs',
+         'return new Vector2Int(blocks * 16, blocks * 9);', 'return new Vector2Int(Mathf.Max(width,1280),Mathf.Max(height,720));',
+         'native captured Canvas keeps its authored frame across desktop aspect and every match mode'),
+        ('head-window-viewport760', '', '', '', ''),
+        ('head-window-viewport-old760', 'NativeFrameConversion760.cs',
+         'panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);', 'panel.NativeDesignFrame = Vector2.zero;',
+         'both original opposite-edge quest cards fit fully inside the same physical window'),
+        ('head-window-viewport-drift760', 'NativeFrameConversion760.cs',
+         'NativeWindowFrame.Repin(target,design);', '/* injected native viewport writer not repaired */',
+         'both original opposite-edge quest cards fit fully inside the same physical window'),
         ('head-popup760', '', '', '', ''),
         ('head-popup760-old-normal', 'MenuDepthDisplay.cs',
          'Vector3 normal = MenuDepthProjection.PlaneNormal(plane);\n            RectInt region',
@@ -513,6 +545,10 @@ internal static class MenuDepthCharacterRotation
             for pin in json.loads((run / 'native-tmp-inputs/decoder-pins.json').read_text())['files']:
                 if pin['path'] not in pinned:
                     pins.append(pin); pinned.add(pin['path'])
+        if wants_viewport760:
+            exported=subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),str(ROOT/'scripts/mp760-display/export_creation.py'),str(ROOT),str(run/'native-creation-inputs')],capture_output=True,text=True,timeout=180)
+            (run/'native-creation-export.log').write_text(exported.stdout+exported.stderr)
+            if exported.returncode: raise RuntimeError('Native creation export failed: '+str(run/'native-creation-export.log'))
         if wants_popup760:
             # Execute the existing read-only exporter through the confirmation
             # and ESC declarations; unrelated narrative/card-list exports stop here.
@@ -566,7 +602,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadPopup760' if name.startswith('head-popup760') else 'HeadPopupLow759' if name == 'head-popup-low759' else 'HeadPopup759' if name.startswith('head-popup') else 'HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadNativeViewport760' if name.startswith('head-window-native') else 'HeadWindowViewport760' if name.startswith(('head-window-viewport','head-window-native')) else 'HeadPopup760' if name.startswith('head-popup760') else 'HeadPopupLow759' if name == 'head-popup-low759' else 'HeadPopup759' if name.startswith('head-popup') else 'HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

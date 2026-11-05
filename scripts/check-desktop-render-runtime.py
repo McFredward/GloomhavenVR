@@ -85,6 +85,7 @@ def run_suite(args, run):
         'Budget.cs': (args.source_root/'src/GloomhavenVR/Core/NativeCameraRenderBudget.cs').read_text(),
         'Cadence.cs': (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/PanelMaintenanceCadence.cs').read_text(),
         'Desktop.cs': desktop,
+        'NativeUiViewport.cs': (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/NativeUiViewport.cs').read_text(),
         'Policy.cs': (flat/'FrameDesktopPolicy.cs').read_text(),
         'StereoPolicy.cs': (args.source_root/'src/GloomhavenVR/Core/VRCameraPolicy.cs').read_text(),
         'CaptureRender.cs': (flat/'FlatScreen.7.CaptureRender.cs').read_text(),
@@ -209,7 +210,7 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     source_files += [args.source_root/'src/GloomhavenVR'/name for name in (
         'Core/NativeCameraRenderBudget.cs', 'Core/VRCameraPolicy.cs',
         'Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs', 'Rig/VRRigDriver.HeadCamera.cs',
-        'WorldUI/Conversion/PanelMaintenanceCadence.cs', 'WorldUI/Conversion/CanvasConversion.3.Fit.cs',
+        'WorldUI/Conversion/NativeUiViewport.cs', 'WorldUI/Conversion/PanelMaintenanceCadence.cs', 'WorldUI/Conversion/CanvasConversion.3.Fit.cs',
         'WorldUI/Conversion/CanvasConversion.2.Adopt.cs', 'WorldUI/Conversion/CanvasConversion.1.Core.cs',
         'WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs', 'WorldUI/Conversion/ConvertedPanel.cs')]
     input_files = source_files + [Path(__file__).resolve(), ROOT/'scripts/menu-depth-character/project_compilers.py'] + sorted(fixture.rglob('*.cs')) + [fixture/'Desktop.csproj']
