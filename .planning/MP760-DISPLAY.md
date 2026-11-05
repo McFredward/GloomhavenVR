@@ -88,6 +88,11 @@ The paired hardware, original anchors, source frame selection and independent
 consumer pixels establish the causal layout correction; final headset behavior
 still needs the maintainer's combined test.
 
+Dependent existing productions also pass with only explicit source/field ports:
+`desktop-render-runtime/run-_wbro2v4`169 assertions and
+`levelup-native-runtime/run-7m_pza8d`1207 assertions. These are selected production
+variants, not new passes of their complete control inventories.
+
 Final strict production Release `Compile` completed with0 warnings/errors in
 13.22s (`run-74nm1i4r`, DLL retained). This is not a complete local gate.
 Dependent desktop/native-owner fixture results are recorded in the delivery
