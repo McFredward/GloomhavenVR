@@ -3132,6 +3132,17 @@
       "weight": 10
     },
     {
+      "id": "window-plane-normal",
+      "command": [
+        "bash",
+        "scripts/window-plane-normal-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
       "id": "menu-depth-character",
       "command": [
         "python3",

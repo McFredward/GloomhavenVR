@@ -632,7 +632,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 759;
+    public const ushort ModBuild = 760;
+
+    // ModBuild760 — retain complete windows at maximum zoom-in.
+    // A native millimeter-per-pixel host made raw unit-axis cross products
+    // smaller than Unity's absolute Normalize cutoff, producing a zero plane
+    // normal and undefined 0/0 reconstructed UI depth. Explicit scale-free
+    // axis/cross normalization supplies the shared head, mono and flat-menu
+    // consumers without changing window size, pose, native choice or protocol.
+    // Regression proof includes real environment depth and the complete
+    // ESC -> owned confirmation -> ESC capture transition; RGB alone is not
+    // sufficient because a permissive GL driver can still paint NaN depth.
 
     // ModBuild759 — preserve original confirmations at small world scales.
     // Generic blackout guards recognize exact producer-owned confirmation leases
