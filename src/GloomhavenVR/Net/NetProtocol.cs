@@ -196,6 +196,13 @@ internal static class NetProtocol
     /// <summary>Atomic opening identity, manual claim order and pose-sample sequence for
     /// the unchanged shared window poses. Six bounded30-byte rows plus a count; automatic rows also bind the observed release.</summary>
     public const byte ExtIdSharedWindowMoveOrder = 123;
+    /// <summary>Owner public hand-pick seats: revisionU32, presented actorI32,
+    /// native roundI32, phaseU8, occupied/named masksU8; each named seat adds original
+    /// source actorI32 and class-pool seat/countU16.15..31 payload bytes. Provenance
+    /// is identity: emit only under existing public naming AND face permission;
+    /// private phases carry anonymous occupancy or an explicit empty tombstone.
+    /// Older readers skip124 by length. Record39 remains byte/semantic exact.</summary>
+    public const byte ExtIdPublicHandPick = 124;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

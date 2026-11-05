@@ -580,6 +580,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private UseBarWidgetState[]? _lastSentUseBarWidgets;
     private bool _lastSentShortRest;
     private int _lastSentSeatCode0 = -1;
+    private PublicHandPickState? _lastSentPublicHandPick;
     private int _lastSentSeatCode1 = -1;
 
     /// <summary>Change edge for the SPENT-HALF record (41). Initialised to an impossible mask so
@@ -2150,6 +2151,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         WorldUI.Surfaces.UseBarsSurface.SampleDecisionAttribution(out int decisionActor, out bool decisionPending, out bool decisionVisible);
         bool decisionAttributionChanged = decisionActor != _lastSentDecisionActor
             || decisionPending != _lastSentDecisionPending || decisionVisible != _lastSentDecisionVisible;
+        PublicHandPickState? publicHandPick = PublicHandPickSampler.Sample();
+        bool publicHandPickChanged = !ReferenceEquals(publicHandPick, _lastSentPublicHandPick);
         bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
                                     || seatCode1 != _lastSentSeatCode1;
         bool spentHalfChanged = spentMask != _lastSentSpentMask;
@@ -2178,7 +2181,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && !emptyFanHintChanged && !tuningChanged && !itemClipChanged && !dismissChanged
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
-            && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
+            && !publicHandPickChanged && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
             && !fanSourceChanged && !shortRestChanged && !decisionHighlightChanged && !damagePreviewChanged && !decisionAttributionChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
@@ -2210,6 +2213,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentItemCount = itemsCount;
 
         var extras = default(PresenceState);
+        extras.PublicHandPick = publicHandPick;
+        _lastSentPublicHandPick = publicHandPick;
 
         // The mode, proximity preview and counted public seat are one owner-authored picture.
         // Emit edges immediately and repeat current state on cadence; absence clears a remote

@@ -813,6 +813,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// never whether one may be shown.
     /// </summary>
     private readonly CAbilityCard?[] _latchedFaces = new CAbilityCard?[SlotCount];
+    private readonly CAbilityCard?[] _publicPickFaces = new CAbilityCard?[SlotCount];
 
     /// <summary>
     /// The character <see cref="_latchedFaces"/> was filled for. THE SECOND RESET, added with the
@@ -2023,6 +2024,30 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// principle. Naming a DISCARD or BURNT card grants nothing on its own: the face still has to
     /// pass the gate, and in the secret window it does not.</para>
     /// </summary>
+    /// <summary>Claim a real pick recess even when its public original is not yet
+    /// resolvable. Never fill that physical pick with an unrelated round card.</summary>
+    private bool TryResolvePublicHandPick(int slot, CPlayerActor? actor, out CAbilityCard? card)
+    {
+        card = null;
+        PublicHandPickState? state = _owner.PublicHandPick;
+        if (state == null || actor == null || state.ActorId != NetFigures.StableActorId(actor)
+            || state.Round != (ScenarioManager.CurrentScenarioState?.RoundNumber ?? -1)
+            || state.Phase != (byte)PhaseManager.PhaseType || (state.Occupied & (1 << slot)) == 0)
+            return false;
+        if ((state.Named & (1 << slot)) != 0 && !RevealGate.IsSecretSelectionPhase
+            && RevealGate.ShowRoundCardFronts(actor))
+        {
+            PublicHandPickState.Seat seat = slot == 0 ? state.Left : state.Right;
+            card = CardAppearanceProvenance.Resolve(seat.SourceActorId, seat.PoolSeat, seat.PoolCount);
+            CCharacterClass? owner = actor.CharacterClass;
+            if (card != null && (owner == null || !(owner.HandAbilityCards.Contains(card)
+                || owner.RoundAbilityCards.Contains(card) || owner.DiscardedAbilityCards.Contains(card)
+                || owner.LostAbilityCards.Contains(card) || owner.PermanentlyLostAbilityCards.Contains(card))))
+                card = null;
+        }
+        return true;
+    }
+
     private bool TryResolveSacrifice(int slot, CPlayerActor? actor, out CAbilityCard? card)
     {
         card = null;
@@ -2256,9 +2281,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // "which recess emptied" is the very thing that is not known; reaching into both live
             // latches there would be the guess the destination test below exists to refuse. The
             // deliberate refusals below are untouched: with slot >= 0 they were already unreachable.
-            if (slot >= 0 && slot < SlotCount && _latchedFaces[slot] != null)
+            if (slot >= 0 && slot < SlotCount && (_latchedFaces[slot] ?? _publicPickFaces[slot]) != null)
             {
-                card = _latchedFaces[slot];
+                card = _latchedFaces[slot] ?? _publicPickFaces[slot];
                 _claimedFaceId[slot] = card!.CardInstanceID;
                 _claimedAt[slot] = now;
                 verdict = DepartedFaceVerdict.LiveLatch;
@@ -2569,7 +2594,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             for (int i = 0; i < _latchedFaces.Length; i++)
             {
-                _latchedFaces[i] = null;
+                _latchedFaces[i] = _publicPickFaces[i] = null;
                 _cards[i].ClearFlightTransfer();
             }
         }
@@ -2577,6 +2602,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             for (int i = 0; i < _latchedFaces.Length; i++)
             {
+                _publicPickFaces[i] = null;
                 CAbilityCard? held = _latchedFaces[i];
                 if (held != null
                     && !RevealGate.IsPubliclyRevealedCard(actor, held.CardInstanceID))
@@ -2713,7 +2739,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 // instant at which this client still knows which card the owner is now flying into
                 // a pile. Report item 5; see the DEPARTED FACE block above for why the flight
                 // cannot ask anywhere else.
-                NoteRecessDeparture(i, _latchedFaces[i]);
+                NoteRecessDeparture(i, _latchedFaces[i] ?? _publicPickFaces[i]);
+                _publicPickFaces[i] = null;
                 _latchedFaces[i] = null;
                 continue;
             }
@@ -2737,7 +2764,15 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             //   • the owner accepts and it burns ⇒ BURN/ACTIVE EXCEPTION, a FRONT, because the card
             //     lands in LostAbilityCards before the burn artwork starts;
             //   • a long-rest / recover pick     ⇒ ACTION PHASE, a FRONT, as it always was.
-            if (TryResolveSacrifice(i, actor, out CAbilityCard? sacrifice) && sacrifice != null)
+            bool publicHandPick = TryResolvePublicHandPick(i, actor, out CAbilityCard? sacrifice);
+            if (publicHandPick && sacrifice == null)
+            {
+                _cards[i].SetAnonymousBack();
+                _latchedFaces[i] = _publicPickFaces[i] = null;
+                _slotPickBackMask |= 1 << i;
+                continue;
+            }
+            if ((publicHandPick || TryResolveSacrifice(i, actor, out sacrifice)) && sacrifice != null)
             {
                 // THE SAME ONE CALL THE ORDINARY ROUND CARD BELOW MAKES, and that identity is the
                 // point rather than a coincidence: now that SacrificedCard is no longer exempt,
@@ -2769,6 +2804,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                     + RevealGate.RuleText(pickRule);
                 LogRecessFaceRule(i, sacrifice, pickFront, pickRule, actor);
                 _cards[i].Set(sacrifice, pickFront, actor);
+                _publicPickFaces[i] = publicHandPick && pickFront ? sacrifice : null;
                 if (_cards[i].FlightTransferred)
                 {
                     SuppressBurnRecess(i);
@@ -2807,6 +2843,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 LogSacrificeSeat(i, sacrifice, actor, pickFront, pickRule);
                 continue;
             }
+            _publicPickFaces[i] = null;
             CAbilityCard? card = null;
             while (compact && next < SlotCount && card == null)
                 card = _ordered[next++];

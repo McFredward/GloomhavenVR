@@ -1144,7 +1144,7 @@ internal static class LocalRigSampler
     /// <c>RevealGate.InScenario</c> for the same reason the held-card sampler guards it: a presented
     /// actor left standing after a finished scenario must not name a list nobody is holding.</para>
     /// </summary>
-    private static bool OwnedByPresentedCharacter(CardsHandUI hand)
+    internal static bool OwnedByPresentedCharacter(CardsHandUI hand)
     {
         CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
         if (shown == null && RevealGate.InScenario)
