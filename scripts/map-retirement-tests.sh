@@ -6,7 +6,7 @@ project="$repo_root/tests/GloomhavenVR.MapRetirementTests/GloomhavenVR.MapRetire
 source_file="${MAP_RETIREMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs}"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-python3 - "$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs" "$mutation_dir/ConversionFrame.fixture" <<'PYFRAME'
+python3 - "$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs" "$mutation_dir/ConversionFrame.fixture" "$repo_root/src/GloomhavenVR/WorldUI/Conversion/NativeWindowFrame.cs" <<'PYFRAME'
 from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
@@ -18,6 +18,20 @@ while depth:
     end += 1
 Path(sys.argv[2]).write_text('using UnityEngine;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\npublic static partial class CanvasConversion\n{\n'
     + source[start:end] + '\ninternal static bool ReassertForFixture(ConvertedPanel panel) => ReassertConversionFrame(panel, out _);\n}\n')
+# Bind the actual pure frame predicates used by the imported conversion method.
+# Native scaler/root discovery is covered by the Unity window-frame fixture.
+frame = Path(sys.argv[3]).read_text()
+with Path(sys.argv[2]).open('a') as output:
+    output.write('internal static class NativeWindowFrame {\n')
+    start = frame.index('    internal static bool Valid(')
+    output.write(frame[start:frame.index(';', start) + 1] + '\n')
+    start = frame.index('    internal static bool Repin(')
+    opening = frame.index('{', start)
+    depth, end = 1, opening + 1
+    while depth:
+        depth += (frame[end] == '{') - (frame[end] == '}')
+        end += 1
+    output.write(frame[start:end] + '\n}\n')
 PYFRAME
 native_root="$repo_root/decompiled/GH.Runtime"
 if [[ ! -d "$native_root" ]]; then
