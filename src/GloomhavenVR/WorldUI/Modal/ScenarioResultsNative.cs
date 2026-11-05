@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GLOOM;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -18,7 +19,7 @@ internal static class ScenarioResultsNative
         if (manager == null || window == null) { parts = default; return false; }
         var adventure = manager as UINewAdventureResultsManager;
         UIReadyToggle? ready = null;
-        if (window.IsOpen && Singleton<UIReadyToggle>.IsInitialized)
+        if (window.IsOpen && FFSNetwork.IsOnline && Singleton<UIReadyToggle>.IsInitialized)
         {
             UIReadyToggle candidate = Singleton<UIReadyToggle>.Instance;
             if (candidate != null && candidate.readyUpToggleState == EReadyUpToggleStates.NotSet
@@ -30,6 +31,22 @@ internal static class ScenarioResultsNative
             adventure?.header != null ? adventure.header.highlightAnimator : null,
             adventure?.showStatsAnimation, ready);
         return true;
+    }
+
+    internal static HelpBox? ClientWaitHelp
+    {
+        get
+        {
+            if (!FFSNetwork.IsClient || !Singleton<HelpBox>.IsInitialized) return null;
+            HelpBox help = Singleton<HelpBox>.Instance;
+            // This singleton serves many unrelated tips. Only the exact native
+            // results wait-for-host message yields to the common public picture.
+            if (help == null || help.myWindow == null || !help.myWindow.IsOpen || help.m_HelpInfo == null)
+                return null;
+            return help.m_HelpInfo.keybaordLines == LocalizationManager.GetTranslation("Consoles/GUI_WAIT_FOR_HOST_TIP")
+                && help.m_HelpInfo.keyboardTitle == LocalizationManager.GetTranslation("Consoles/GUI_MULTIPLAYER_TIP_TITLE")
+                ? help : null;
+        }
     }
 
     /// <summary>Stable native modules. A binding excludes another declared module's root;
