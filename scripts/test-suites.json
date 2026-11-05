@@ -3143,6 +3143,17 @@
       "weight": 12
     },
     {
+      "id": "ugui-scroll760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-scroll760-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
       "id": "menu-depth-character",
       "command": [
         "python3",
