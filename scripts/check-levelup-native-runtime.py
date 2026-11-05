@@ -61,12 +61,33 @@ def main():
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
     parser.add_argument('--confirmation-placement-only', action='store_true', help='Run only original cropped/root/nested confirmation placement; requires explicit --case selection.')
+    parser.add_argument('--popup-scale-only', action='store_true', help='Run only perspective original confirmation placement/input across world scales; requires explicit --case selection.')
     parser.add_argument('--update-dialog-only', action='store_true', help='Run only update dialog ordering/pixel coverage; requires explicit --case selection.')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
     root = args.source_root.resolve(); fixture = ROOT / 'scripts/levelup-native-runtime'
     originals = {name: (root / 'src/GloomhavenVR/WorldUI' / relative).read_text() for name, relative in FILES.items()}
+    ray_source=root/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
+    ray=ray_source.read_text()
+    ray_kernels=[method(ray,signature) for signature in ('private static bool TryIntersect(', 'private static void HitCorners(', 'private static Vector2 ToScreen(')]
+    hit_start=ray.index('private static Rect HitRectOf(');ray_kernels.append(ray[hit_start:ray.index(';',hit_start)+1])
+    originals['PopupRay759.cs']=('using UnityEngine;namespace GloomhavenVR.Hands.Interact {internal static class PopupRay759 {'
+        'private static readonly Vector3[] Corners=new Vector3[4];'
+        'internal static bool Test(Canvas canvas,Vector3 origin,Vector3 direction,float maxDist,out float dist,out Vector3 point)=>TryIntersect(canvas,origin,direction,maxDist,out dist,out point);'
+        +'\n'.join(ray_kernels)+'}}')
+    visible_source=root/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs'
+    originals['VisibleUiSurface.cs']=visible_source.read_text()
+    blackout_source=root/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.11.PreConvertHide.cs'
+    blackout=blackout_source.read_text();start=blackout.index('private static bool HasPreConvertPresentation(')
+    predicate=blackout[start:blackout.index(';',start)+1]
+    hide=method(blackout,'private static void PreConvertHide(UIWindow window)')
+    gate=hide[hide.index('        if (HasPreConvertPresentation(window))'):hide.index('        // ModBuild 232:')]
+    writes=hide[hide.index('        int switched = 0;'):hide.index('        // Fallback for a window')]
+    originals['PopupBlackout759.cs']=('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.WorldUI {internal static class PopupBlackout759 {'
+        'private sealed class PreHiddenWindow {internal readonly List<Canvas> Canvases=new();}'
+        'private static readonly List<Canvas> PreHideScratch=new();private static bool IsConverted(UIWindow window)=>false;'
+        +predicate+'internal static void Sweep(UIWindow window){var entry=new PreHiddenWindow();'+gate+writes+'}}}')
     originals['Loc.CardList.cs'] = (root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs').read_text()
     modal = root / 'src/GloomhavenVR/WorldUI/Modal'
     screen = (modal / 'ModalFallback.12.ScreenBind.cs').read_text()
@@ -285,6 +306,9 @@ def main():
         if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
         cases.append((name,{key:originals[key].replace(before,after)},expected))
     changes = [
+        ('confirmation-cropped-owner-blackout', 'PopupBlackout759.cs',
+         'IsConverted(window) || ConfirmationOnOwner.IsOwned(window)', 'IsConverted(window)',
+         'actual native owner lease prevents the original blackout sweep from disabling its pooled canvas'),
         ('update-dialog-order-omitted', 'SelfUpdateDialog.cs',
          'CanvasConversion.RegisterStandalonePanelOrder(_orderPanel);', '/* original order-zero dialog */',
          'nearer update dialog conceals the farther overlay rod in final pixels'),
@@ -378,7 +402,7 @@ def main():
         cases.append((name, {file: originals[file].replace(before, after)}, expected))
     if args.card_list_only and (not args.case or any(name != 'production' and not name.startswith('card-list-') for name in args.case)):
         parser.error('--card-list-only requires explicit production/card-list case selection')
-    if args.confirmation_placement_only and (args.card_list_only or args.narrative_only or not args.case
+    if (args.confirmation_placement_only or args.popup_scale_only) and (args.card_list_only or args.narrative_only or not args.case
             or any(name != 'production' and not name.startswith('confirmation-cropped-owner-') for name in args.case)):
         parser.error('--confirmation-placement-only requires explicit production/confirmation-cropped-owner case selection')
     if args.update_dialog_only and (args.card_list_only or args.narrative_only or args.confirmation_placement_only or not args.case
@@ -396,7 +420,7 @@ def main():
     print('Evidence: ' + str(run), flush=True)
     log = run / 'completion.log'; log.write_text('Evidence: ' + str(run) + '\n')
     code = 1; reaped = True; project = run / 'unity'; process = None
-    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-levelup-', dir='/tmp'))
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-levelup-', dir=os.environ.get('TMPDIR','/tmp')))
     (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     spec = importlib.util.spec_from_file_location('project_compilers', ROOT / 'scripts/menu-depth-character/project_compilers.py')
     compilers = importlib.util.module_from_spec(spec); spec.loader.exec_module(compilers)
@@ -408,10 +432,11 @@ def main():
         result = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(fixture / 'export_inputs.py'), str(root), str(inputs)], capture_output=True, text=True)
         (run / 'native-export.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCroppedConfirmation754' if args.confirmation_placement_only else 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunPopupScale759' if args.popup_scale_only else 'RunCroppedConfirmation754' if args.confirmation_placement_only else 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
         hashes = {}
         for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs', root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in (ray_source,visible_source,blackout_source):hashes[str(file)]=hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case or args.narrative_only or args.card_list_only else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0', TMPDIR=str(compiler_temp))
         assemblies = run / 'executed-assemblies'; assemblies.mkdir()
@@ -426,6 +451,9 @@ def main():
             case_fixture = build / 'fixture'; case_fixture.mkdir()
             for original in fixture.glob('*.cs'): shutil.copyfile(original, case_fixture / original.name)
             boundary = (case_fixture / 'Boundary.cs').read_text()
+            # Extend only the declared fixture's no-nested-canvas input port;
+            # production pointer/surface bodies remain byte-exact below.
+            boundary=boundary.replace('internal static class UguiPokeSurfaces {','internal static partial class UguiPokeSurfaces {')
             namespace = 'NativeBoundary742_' + name.replace('-', '_')
             start = boundary.index('internal static class FFSNetwork')
             end = boundary.index('\nnamespace UnityEngine.UI', start)
