@@ -223,3 +223,17 @@ Its runner controls are strictly bound in Cards/full selection; narrative-only
 selection does not bind those unrelated new inventory mutations. The actual
 PointOfNoReturn expression is extracted unchanged, while only its surrounding
 curtain/standing inputs and native Hide callback binding are fixture ports.
+
+Build760 bounds the complete inventory to **12 compiled variants per fresh
+editor process** by default (`--editor-batch-size`). All selected variants compile
+once; their order, original runner, bodies and pixel/callback/control oracles are
+unchanged. One long-lived editor previously reached15.4GB resident memory and was
+killed by the kernel after80 of94 completed variants. Fresh process domains bound
+retained variant/Unity state without weakening assertions.
+
+Each batch retains its manifest, results, Unity log, case timings, return code
+and ownership cleanup. The combined report rejects missing, duplicate, foreign,
+reordered or failed results. Coverage completion alone is not a passing exit.
+A failed or interrupted original invocation remains failed; source-bound completed
+cases may support an explicitly recorded continuation, never a fabricated fresh
+complete-command pass.
