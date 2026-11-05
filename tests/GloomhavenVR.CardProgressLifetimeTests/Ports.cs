@@ -13,7 +13,7 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Core
 {
-    internal static class Loc { internal static string Mod(string key)=>key; }
+    internal static partial class Loc { internal static string CurrentLanguage="English"; internal static string Mod(string key)=>key; }
     internal static class VRLog
     {
         internal static int Errors;
@@ -29,7 +29,7 @@ namespace GloomhavenVR.Core
 namespace ScenarioRuleLibrary { internal static class NamespacePort { } }
 namespace GloomhavenVR.Core.Events
 {
-    internal static class ProgressWaitNotice { internal static string? CurrentHint; }
+    internal static class ProgressWaitNotice { internal static string? CurrentHint; internal static string? ImmediateHintKey=>CurrentHint; }
     internal static class VRModeStateMachine { internal static bool TargetingActive=false; }
 }
 namespace GloomhavenVR.Net
@@ -47,13 +47,15 @@ internal sealed class CPlayerActor
 }
 internal sealed class CharacterClass
 {
-    internal readonly List<int> HandAbilityCards=new(),RoundAbilityCards=new();
+    internal readonly List<int> HandAbilityCards=new();
+    internal readonly List<CAbilityCard> RoundAbilityCards=new();
 }
 internal sealed class CAbilityExtraTurn { internal enum EExtraTurnType { None,ExtraTurn } }
 internal sealed class CPhase { internal enum PhaseType { SelectAbilityCardsOrLongRest,Action,EndTurn,ActionSelection } }
 internal static class PhaseManager { internal static CPhase.PhaseType PhaseType=CPhase.PhaseType.SelectAbilityCardsOrLongRest; }
 internal sealed class Choreographer
-{ internal static Choreographer? s_Choreographer;internal bool ThisPlayerHasTurnControl=true; }
+{ internal static Choreographer? s_Choreographer;internal bool ThisPlayerHasTurnControl=true; internal CWaitState? m_WaitState=new();
+ internal sealed class CWaitState { internal CPlayerActor? m_StateWaitActor=null; } }
 internal sealed class AbilityCardUI
 {
     internal readonly CAbilityCard AbilityCard=new();
@@ -136,6 +138,8 @@ internal static class ProductionHooks
 }
 namespace GloomhavenVR.Cards
 {
+    internal sealed class Setting<T> { internal T Value; internal Setting(T value)=>Value=value; }
+    internal static class CardsConfig { internal static readonly Setting<ProgressHelpMode> ProgressHelpMode=new(GloomhavenVR.Defaults.ProgressHelpMode); internal static readonly Setting<float> ProgressHelpDelaySeconds=new(GloomhavenVR.Defaults.ProgressHelpDelaySeconds); }
     internal static partial class CardsGameApi
     {
         internal static CardsHandUI? LongRest;
@@ -170,7 +174,7 @@ namespace GloomhavenVR.Cards
     {
         internal bool IsVisible=true;
         internal PortRoot? Root=new();
-        internal string? Banner;
+        internal string? Banner; internal string? PickBannerText=>Banner;
         internal int Writes;
         internal void SetPickStatus(string? text,string? confirm,string? undo) { Banner=text;Writes++; }
         internal void CancelPendingSelections() { }
@@ -206,6 +210,8 @@ namespace GloomhavenVR.Cards
         internal bool Dirty => _dirty;
         internal bool Released => _sceneFacesReturned;
         internal string? Banner=>_tray.Banner;
+        internal GloomhavenVR.Net.BannerSnapshot Publish()=>GloomhavenVR.Net.OwnerBannerSampler.Publish(_tray);
+        internal void ForeignBanner(string? line)=>_tray.SetPickStatus(line,null,null);
         internal int Writes=>_tray.Writes;
         internal void Help(CardsHandUI? hand,bool visible=true,bool blocked=false,bool modal=false,bool burning=false,bool actions=true)
         { _tray.IsVisible=visible;_overlayGateBlocked=blocked;_modalInputBlocked=modal;_burnLayoutPending=burning;
@@ -223,4 +229,26 @@ namespace GloomhavenVR.Cards.Patches
 {
     internal static class PickFlowWatch
     { internal static int AnswerSeq=>0;internal static bool AnswerOutstandingFor(CardsHandUI hand,out float seconds){seconds=0;return false;}internal static void ClearAnswer() { } }
+}
+
+namespace UnityEngine {
+ internal static class Time { internal static float unscaledTime=>global::Time.unscaledTime; }
+ internal struct Vector2 {internal float x,y;internal Vector2(float x,float y){this.x=x;this.y=y;}}
+ internal struct Vector3 {internal float x,y,z;internal Vector3(float x,float y,float z){this.x=x;this.y=y;this.z=z;}}
+ internal static class Mathf {internal static float Abs(float f)=>Math.Abs(f);}
+}
+internal sealed class BannerNode {internal bool activeSelf=false;internal void SetActive(bool b)=>activeSelf=b;}
+internal sealed class BannerTransform {internal readonly BannerNode gameObject=new();internal UnityEngine.Vector3 localPosition=new(),localScale=new();}
+internal sealed class BannerLabel {internal string Text="";}
+namespace GloomhavenVR.Core {internal static class TmpFit {internal static UnityEngine.Vector2 PlateSizeFor(BannerLabel l,UnityEngine.Vector2 size,float padding,out string measurement){measurement="layout port";return size;}}}
+namespace GloomhavenVR.Cards {internal static class PlayTray {internal const float PickPlatePadding=0.01f;}}
+namespace GloomhavenVR.Net {
+ internal struct BannerSnapshot {internal bool HasPickBanner;internal string? PickBannerText;}
+ internal static class NetProtocol {internal const int PickBannerTextMaxBytes=160;}
+ internal static class RemoteBoardContent {internal static void SetText(BannerLabel label,string text)=>label.Text=text;}
+ internal sealed partial class RemotePickBanner {
+  private readonly BannerTransform _root=new(),_plate=new();private readonly BannerLabel _label=new();private string _shown="";
+  private static readonly UnityEngine.Vector2 PlateSize=new(0.1f,0.1f);
+  internal bool Visible=>_root.gameObject.activeSelf;internal string Text=>_label.Text;
+ }
 }

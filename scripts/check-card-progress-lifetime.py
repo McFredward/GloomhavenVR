@@ -22,6 +22,16 @@ def main():
    if path.is_file():bind(path,project/path.name)
   queue=sources/'CardActionQueue.cs';lifetime=sources/'NativeCardAnimationLifetime.cs';progress=sources/'CardsDriver.ProgressHelp.cs'
   bind(root/'src/GloomhavenVR/Cards/CardActionQueue.cs',queue);bind(root/'src/GloomhavenVR/Cards/Patches/NativeCardAnimationLifetime.cs',lifetime);bind(root/'src/GloomhavenVR/Cards/Driver/CardsDriver.ProgressHelp.cs',progress)
+  clock=sources/'DecisionHelpClock.cs';bind(root/'src/GloomhavenVR/Cards/DecisionHelpClock.cs',clock)
+  helploc=sources/'Loc.ProgressHelp.cs';bind(root/'src/GloomhavenVR/Core/Loc/Loc.ProgressHelp.cs',helploc)
+  defaults=sources/'Defaults.Cards.cs';bind(root/'src/GloomhavenVR/Defaults/Defaults.Cards.cs',defaults)
+  constants='\n'.join(line for line in defaults.read_text().splitlines() if re.search(r'const .* (ProgressHelpMode|ProgressHelpDelaySeconds) =',line))
+  assert constants.count('internal const ')==2
+  (project/'HelpDefaults.cs').write_text('namespace GloomhavenVR {internal static class Defaults {\n'+constants+'\n}}')
+  remote=sources/'RemotePickBanner.cs';bind(root/'src/GloomhavenVR/Net/Remote/RemotePickBanner.cs',remote)
+  sampler=sources/'NetAvatarDriver.cs';bind(root/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs',sampler)
+  sample=sampler.read_text();start=sample.index('string? bannerNow = trayNow != null ? trayNow.PickBannerText : null;');end=sample.index('if (bannerNow != _lastSentPickBanner)',start)
+  mirror=project/'MirrorMethods.cs';mirror.write_text('using UnityEngine;using GloomhavenVR.Core;\nnamespace GloomhavenVR.Net {internal sealed partial class RemotePickBanner {\n'+method(remote.read_text(),'public void Apply(string? line)')+'\n} internal static class OwnerBannerSampler {internal static BannerSnapshot Publish(Cards.PortTray? trayNow) {var extras=new BannerSnapshot();\n'+sample[start:end]+'\nreturn extras;}}}\n')
   parts=[]
   flow=(root/'src/GloomhavenVR/Cards/Driver/CardsDriver.6.Flows.cs').read_text()
   assert flow.index('if (UpdateItemDemandStatus(hand))')<flow.index('if (UpdatePanelDecisionStatus())')<flow.index('UpdateExhaustedStatus(hand);')<flow.index('UpdateProgressStatus(hand);')
@@ -53,7 +63,7 @@ def main():
   assert 'PatchAll(typeof(CardsHandUI_CancelAnimateCardLost_Lifetime))' in module.read_text()
   manifest={'sources':bindings,'native_runtime_sha256':hashlib.sha256(runtime.read_bytes()).hexdigest(),'ports':['Unity coroutine scheduling and animation/layout drawing endpoints','Native card/rule/network methods in queue caller ports counted, never executed or synthesized','Original native cancellation and tween clearing compiled unchanged except method name; actual production Harmony prefix/postfix invoked by reflection adapter','Native long-rest predicate source-bound; no rule continuation executed'],'hardware_verified':False,'live_network_verified':False}
   (run/'input-bindings.json').write_text(json.dumps(manifest,indent=2)+'\n')
-  command=['dotnet','run','--project',str(project/'CardProgressLifetime.csproj'),'-c','Release','--property:QueueSource='+str(queue),'--property:LifetimeSource='+str(lifetime),'--property:ProgressSource='+str(progress)]
+  command=['dotnet','run','--project',str(project/'CardProgressLifetime.csproj'),'-c','Release','--property:QueueSource='+str(queue),'--property:LifetimeSource='+str(lifetime),'--property:ProgressSource='+str(progress),'--property:HelpClockSource='+str(clock),'--property:HelpLocSource='+str(helploc)]
   def execute(name):
    result=subprocess.run(command,capture_output=True,text=True,env=env);output=result.stdout+result.stderr;(run/(name+'.log')).write_text(output)
    with log.open('a') as f:f.write(output)
@@ -75,9 +85,16 @@ def main():
    ('rest-counts-fan-only',driver,'+ actor.CharacterClass.RoundAbilityCards.Count < 2;','< 2;','Local and mirrored rest cue retain native hand+round/phase/extra-turn semantics'),
    ('rest-extra-turn',driver,'if (actor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None)','if (actor == null)','Local and mirrored rest cue retain native hand+round/phase/extra-turn semantics'),
    ('hint-foreign-target',progress,'&& Choreographer.s_Choreographer.ThisPlayerHasTurnControl','',"Another player's targeting never asks this player to click"),
-   ('hint-automatic-wait',progress,'line = ProgressWaitNotice.CurrentHint;','line = null;','Actual long-running automatic wait is never described as rest or card input'),
+   ('hint-automatic-wait',progress,'hint = ProgressWaitNotice.ImmediateHintKey;','hint = null;','Actual long-running automatic wait is never described as rest or card input'),
    ('hint-empty-action-dock',progress,'&& _halfBuffer.Count > 0','', 'Empty long-rest dock does not advertise a card action'),
    ('hint-finish-action',progress,'&& !CardsGameApi.CanConfirm()','', 'Live End Turn or Continue does not compete with a choose-action instruction'),
+   ('help-no-delay',clock,'now - _since >= Math.Max(0f, delaySeconds)','true','Delayed text is not shown on first native choice'),
+   ('help-short-delay',clock,'now - _since >= Math.Max(0f, delaySeconds)','now - _since >= 20f','Five-minute delay must not be shortened'),
+   ('help-ignore-response',clock,'|| _response != response','', 'One accepted card response restarts the delay even when prompt wording stays the same'),
+   ('help-ignore-card-swap',progress,'changed = !ReferenceEquals(cards[i], _progressHelpRound[i]);','changed = false;','Same-count card swap is still a meaningful response'),
+   ('help-reset-on-hide',progress,'bool shown = _progressHelpClock.Observe','if (!_tray.IsVisible) _progressHelpClock.Reset();\n        bool shown = _progressHelpClock.Observe','Board visibility and modal/head presentation do not restart the decision clock'),
+   ('help-steal-native-banner',progress,'if (resident != null && (!_progressStatusKey.HasValue || resident != _progressStatusKey.Value.line))','if (resident != null && resident.Length < 0)','Never cannot erase an existing mandatory native banner'),
+   ('help-viewer-config',mirror,'bool show = !string.IsNullOrEmpty(line);','bool show = !string.IsNullOrEmpty(line) && Cards.CardsConfig.ProgressHelpMode.Value != Cards.ProgressHelpMode.Never;','Remote banner uses owner visibility even when viewer help is Never'),
   ]
   # A queue tail enqueued during cancellation must survive; clearing again after callbacks loses it.
   variants[2]=('queue-drop-reentrant',queue,'catch (Exception ex) { VRLog.Error("Cards", $"Card action cancellation callback threw: {ex}"); }\n        }','catch (Exception ex) { VRLog.Error("Cards", $"Card action cancellation callback threw: {ex}"); }\n        }\n        Queue.Clear();','Reentrant cancellation enqueue belongs to next pump')

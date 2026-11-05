@@ -94,6 +94,9 @@ def main():
              "now - _since >= 20f", "now - _since >= float.PositiveInfinity",
              "prolonged turn closure gets specific guidance"),
         ]
+        controls.append(("instant-wait-side-effect", "ProgressWaitNotice.cs",
+             "? HintKey(owner, wait) : null;", "? (CurrentHint == null ? null : HintKey(owner, wait)) : null;",
+             "immediate help accessor describes an actual wait without its diagnostic delay"))
         for name, file, needle, replacement, expected in controls:
             for path, text in originals.items():
                 path.write_text(text)

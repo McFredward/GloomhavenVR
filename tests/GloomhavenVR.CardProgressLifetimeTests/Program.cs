@@ -11,7 +11,7 @@ internal static class Program
     { _checks++;if(!value)throw new InvalidOperationException(why); }
     private static void Main()
     {
-        QueueCases(); CallerCases(); NativeCancellationCases(); RestCueCases(); ProgressHelpCases();
+        QueueCases(); CallerCases(); NativeCancellationCases(); RestCueCases(); ProgressHelpCases(); DecisionDelayCases(); HelpLocaleCases();
         Console.WriteLine($"Card progress lifetime: {_checks} assertions passed.");
     }
     private static void QueueCases()
@@ -117,7 +117,7 @@ internal static class Program
         {
             var actor=new CPlayerActor();var hand=new CardsHandUI{PlayerActor=actor};
             for(int i=0;i<held;i++)actor.CharacterClass.HandAbilityCards.Add(i);
-            for(int i=0;i<laid;i++)actor.CharacterClass.RoundAbilityCards.Add(i);
+            for(int i=0;i<laid;i++)actor.CharacterClass.RoundAbilityCards.Add(new CAbilityCard());
             actor.SelectingCardsForExtraTurnOfType=extra?CAbilityExtraTurn.EExtraTurnType.ExtraTurn:CAbilityExtraTurn.EExtraTurnType.None;
             PhaseManager.PhaseType=phase;
             bool expected=phase==CPhase.PhaseType.SelectAbilityCardsOrLongRest&&!extra&&held+laid<2;
@@ -131,6 +131,7 @@ internal static class Program
 
     private static void ProgressHelpCases()
     {
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Always;
         var actor=new CPlayerActor();actor.CharacterClass.HandAbilityCards.AddRange(new[]{1,2});
         var hand=new CardsHandUI{PlayerActor=actor,Mode=CardHandMode.CardsSelection};
         var driver=new CardsDriver();PhaseManager.PhaseType=CPhase.PhaseType.SelectAbilityCardsOrLongRest;
@@ -140,7 +141,7 @@ internal static class Program
         int writes=driver.Writes;driver.Help(hand);Check(driver.Writes==writes,"Unchanged player help does not rewrite the banner each frame");
         actor.CharacterClass.HandAbilityCards.Clear();driver.Help(hand);
         Check(driver.Banner=="progress_rest_required","Genuinely insufficient card pool names legal rest alternative");
-        actor.CharacterClass.RoundAbilityCards.AddRange(new[]{1,2});hand.SelectionReady=true;
+        actor.CharacterClass.RoundAbilityCards.AddRange(new[]{new CAbilityCard(),new CAbilityCard()});hand.SelectionReady=true;
         driver.Help(hand);Check(driver.Banner=="progress_selection_other","Other owned characters can still need cards before shared confirm");
         CardsGameApi.MayConfirm=true;driver.Help(hand);
         Check(driver.Banner=="progress_selection_confirm","Live original confirm affordance has actionable guidance");
@@ -176,5 +177,65 @@ internal static class Program
         driver.Help(null);Check(driver.Banner==null,"Missing hand is not guessed into a required action");
         PhaseManager.PhaseType=CPhase.PhaseType.SelectAbilityCardsOrLongRest;hand.Mode=CardHandMode.CardsSelection;
         driver.Help(hand,burning:true);Check(driver.Banner==null,"An incomplete native burn must not advertise new card input");
+    }
+
+    private static void DecisionDelayCases()
+    {
+        var actor=new CPlayerActor();actor.CharacterClass.HandAbilityCards.AddRange(new[]{1,2});
+        var hand=new CardsHandUI{PlayerActor=actor,Mode=CardHandMode.CardsSelection};var driver=new CardsDriver();
+        var owner=new Choreographer();Choreographer.s_Choreographer=owner;
+        PhaseManager.PhaseType=CPhase.PhaseType.SelectAbilityCardsOrLongRest;
+        GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint=null;
+        CardsConfig.ProgressHelpMode.Value=GloomhavenVR.Defaults.ProgressHelpMode;
+        CardsConfig.ProgressHelpDelaySeconds.Value=GloomhavenVR.Defaults.ProgressHelpDelaySeconds;
+        Check(CardsConfig.ProgressHelpMode.Value==ProgressHelpMode.AfterDelay&&CardsConfig.ProgressHelpDelaySeconds.Value==300,"New profiles default to delayed five-minute explanations");
+        Time.unscaledTime=0;driver.Help(hand);Check(driver.Banner==null,"Delayed text is not shown on first native choice");
+        Time.unscaledTime=299;driver.Help(hand);Check(driver.Banner==null,"Five-minute delay must not be shortened");
+        Time.unscaledTime=300;driver.Help(hand);Check(driver.Banner=="progress_choose_cards","Explanation appears at configured delay");
+        var remote=new GloomhavenVR.Net.RemotePickBanner();
+        var packet=driver.Publish();CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Never;
+        remote.Apply(packet.HasPickBanner?packet.PickBannerText:null);
+        Check(remote.Visible&&remote.Text=="progress_choose_cards","Remote banner uses owner visibility even when viewer help is Never");
+        driver.Help(hand);packet=driver.Publish();remote.Apply(packet.HasPickBanner?packet.PickBannerText:null);
+        Check(driver.Banner==null&&!packet.HasPickBanner&&!remote.Visible,"Owner Never hides both local and existing remote banner immediately");
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Always;var nativeDriver=new CardsDriver();nativeDriver.Help(hand);
+        nativeDriver.ForeignBanner("mandatory element choice");CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Never;nativeDriver.Help(hand);
+        Check(nativeDriver.Banner=="mandatory element choice","Never cannot erase an existing mandatory native banner");
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Always;nativeDriver.Help(hand);
+        Check(nativeDriver.Banner=="mandatory element choice","Always cannot replace an existing mandatory native banner");
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Always;driver.Help(hand);Check(driver.Banner!=null,"Always applies immediately during an unchanged choice");
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.AfterDelay;CardsConfig.ProgressHelpDelaySeconds.Value=600;driver.Help(hand);
+        Check(driver.Banner==null,"Increasing configured delay immediately hides premature guidance");
+        Time.unscaledTime=600;driver.Help(hand);Check(driver.Banner!=null,"Updated delay retains actual native choice age");
+        actor.CharacterClass.RoundAbilityCards.Add(new CAbilityCard());driver.Help(hand);
+        Check(driver.Banner==null,"One accepted card response restarts the delay even when prompt wording stays the same");
+        Time.unscaledTime=1200;driver.Help(hand);Check(driver.Banner!=null,"Unchanged native choice eventually regains help");
+        actor.CharacterClass.RoundAbilityCards[0]=new CAbilityCard();driver.Help(hand);Check(driver.Banner==null,"Same-count card swap is still a meaningful response");
+        Time.unscaledTime=1500;driver.Help(hand,visible:false);driver.Help(hand,modal:true);driver.Help(hand,blocked:true);
+        Time.unscaledTime=1800;driver.Help(hand);Check(driver.Banner!=null,"Board visibility and modal/head presentation do not restart the decision clock");
+        owner.m_WaitState=new Choreographer.CWaitState();driver.Help(hand);Check(driver.Banner==null,"A new actual native decision context restarts the delay");
+        Time.unscaledTime=2400;driver.Help(hand);Check(driver.Banner!=null,"New decision owns its own complete delay");
+        driver.Help(null);Time.unscaledTime=5000;driver.Help(null);Check(driver.Banner==null,"An idle missing choice never creates explanations");
+        CardsConfig.ProgressHelpDelaySeconds.Value=300;
+        GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint="progress_finishing_turn";Time.unscaledTime=6000;driver.Help(null);
+        Time.unscaledTime=6299;driver.Help(null);Check(driver.Banner==null,"Actual automatic wait shares configured five-minute delay");
+        Time.unscaledTime=6300;driver.Help(null);Check(driver.Banner=="progress_finishing_turn","Automatic wait is explained after the same configurable interval");
+        Time.unscaledTime=1;driver.Help(null);Check(driver.Banner==null,"Clock rewind cannot inherit stale guidance");
+        CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Never;driver.Help(null);Check(driver.Banner==null,"Never also suppresses mod-authored automatic-wait text");
+        GloomhavenVR.Core.Events.ProgressWaitNotice.CurrentHint=null;CardsConfig.ProgressHelpMode.Value=ProgressHelpMode.Always;
+        PhaseManager.PhaseType=CPhase.PhaseType.EndTurn;driver.Help(hand);Check(driver.Banner==null,"Always still requires a real native choice or wait");
+    }
+
+    private static void HelpLocaleCases()
+    {
+        GloomhavenVR.Core.Loc.CurrentLanguage="English";
+        Check(GloomhavenVR.Core.Loc.ProgressHelpModeName(0)=="Always"&&GloomhavenVR.Core.Loc.ProgressHelpModeName(1)=="Never"&&GloomhavenVR.Core.Loc.ProgressHelpModeName(2)=="After a delay","All help choices have English player labels");
+        GloomhavenVR.Core.Loc.CurrentLanguage="German";
+        Check(GloomhavenVR.Core.Loc.ProgressHelpModeName(0)=="Immer"&&GloomhavenVR.Core.Loc.ProgressHelpModeName(1)=="Nie"&&GloomhavenVR.Core.Loc.ProgressHelpModeName(2)=="Nach Wartezeit","All help choices have German player labels");
+        GloomhavenVR.Core.Loc.CurrentLanguage="French";Check(GloomhavenVR.Core.Loc.ProgressHelpModeName(2)=="After a delay","Other UI languages keep readable English fallback");
+        var clock=new DecisionHelpClock();var owner=new object();var wait=new object();var actor=new object();
+        Check(!clock.Observe("choice",owner,wait,actor,1,0,0,ProgressHelpMode.AfterDelay,float.NaN),"Nonfinite configured delay uses the real shipped default");
+        Check(!clock.Observe("choice",owner,wait,actor,1,0,299,ProgressHelpMode.AfterDelay,float.PositiveInfinity),"Invalid delay does not shorten the default");
+        Check(clock.Observe("choice",owner,wait,actor,1,0,300,(ProgressHelpMode)99,float.NaN),"Unknown future mode falls back to delayed help like its label");
     }
 }

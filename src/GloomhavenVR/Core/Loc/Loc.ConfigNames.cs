@@ -405,6 +405,8 @@ internal static partial class Loc
             // Cards/SlotCardFill ("Slot-Karte: Füllgrad") is GONE — retired 2026-08-11 together with
             // its entry; its successor is Cards/SlotOverlayScale_* below, which names both surfaces.
             ["Cards/WantedSlotHint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
+            ["Cards/ProgressHelpMode"] = Pair("Board explanations", "Brett-Erklärungen"),
+            ["Cards/ProgressHelpDelaySeconds"] = Pair("Explanation delay (s)", "Erklärungen nach (s)"),
             ["Cards/CardDust"] = Pair("Card dust burst", "Karten-Staubwolke"),
             ["Cards/GameCardParticles"] = Pair("Game card particles", "Karten-Partikel (Spiel)"),
             // THE PER-PILE PAIR, SIX ROWS, NAMED ONE BY ONE — and the two wildcards below them are

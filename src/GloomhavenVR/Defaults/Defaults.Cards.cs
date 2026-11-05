@@ -279,6 +279,8 @@ internal static partial class Defaults
     internal const bool GameCardParticles = false;                                                    // => [Cards] GameCardParticles
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
+    internal const Cards.ProgressHelpMode ProgressHelpMode = Cards.ProgressHelpMode.AfterDelay;       // => [Cards] ProgressHelpMode (owner-authored optional explanations; PC and standalone)
+    internal const float ProgressHelpDelaySeconds = 300f;                                            // => [Cards] ProgressHelpDelaySeconds (five minutes without a meaningful response)
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
     internal const ControlBoard Board = ControlBoard.Steel;                                           // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0.005f, -0.035f, 0f);        // => [Cards] ItemUseSlotOffset_Oak

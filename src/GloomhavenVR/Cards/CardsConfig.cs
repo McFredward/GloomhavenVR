@@ -145,6 +145,8 @@ internal static class CardsConfig
 
     /// <summary>Steady "wanted slot" hint glow on the slot(s) the game is waiting to be filled (test #28).</summary>
     internal static ConfigEntry<bool> WantedSlotHint = null!;
+    internal static ConfigEntry<ProgressHelpMode> ProgressHelpMode = null!;
+    internal static ConfigEntry<float> ProgressHelpDelaySeconds = null!;
 
     /// <summary>Dust/spark burst when a card appears or crumbles away. OFF since 2026-08-03.</summary>
     internal static ConfigEntry<bool> CardDust = null!;
@@ -1222,6 +1224,14 @@ internal static class CardsConfig
             "turned back on. The card's own burn/dissolve artwork is unaffected.");
         CardDust = file.Bind("Cards", "CardDust", Defaults.CardDust,
             "Burst of dust/spark motes when a card appears or crumbles away. OFF by default: on hardware the burst that goes with a card flying to a discard pile read as a huge spark animation sweeping across the WHOLE board (the motes are emitted in world units and the board is a scaled-up diorama), which is what the player sees rather than the intended small puff at the card. The card still fades and settle-shrinks either way — the dust was only ever a secondary flourish. User ruling 2026-08-03.");
+        ProgressHelpMode = file.Bind("Cards", "ProgressHelpMode", Defaults.ProgressHelpMode,
+            "When extra next-action and waiting explanations appear on your control board: Always, " +
+            "Never, or AfterDelay. Other players see the same explanations on your mirrored board. " +
+            "Required choices, buttons, native instructions and important alerts remain available.");
+        ProgressHelpDelaySeconds = file.Bind("Cards", "ProgressHelpDelaySeconds", Defaults.ProgressHelpDelaySeconds,
+            new ConfigDescription("Seconds without a response before extra board explanations appear in AfterDelay mode. " +
+                "Default 300 seconds (5 minutes). A real choice or a new decision restarts the wait; " +
+                "looking or moving does not. Changes apply immediately.", new AcceptableValueRange<float>(0f, 3600f)));
         WantedSlotHint = file.Bind("Cards", "WantedSlotHint", Defaults.WantedSlotHint,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +

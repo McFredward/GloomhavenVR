@@ -162,6 +162,8 @@ internal static class Program
         };
         owner.m_WaitState = wait;
         PhaseManager.PhaseType = CPhase.PhaseType.EndTurn;
+        Check(ProgressWaitNotice.ImmediateHintKey == "progress_finishing_turn", "immediate help accessor describes an actual wait without its diagnostic delay");
+        Check(VRLog.Alerts.Count==0,"instant help accessor never emits the diagnostic incident");
         Check(ProgressWaitNotice.CurrentHint == null, "ordinary short turn transition stays quiet");
         UnityEngine.Time.unscaledTime = 119f;
         Check(ProgressWaitNotice.CurrentHint == null, "unfinished automatic wait does not become a player accusation");
@@ -176,6 +178,7 @@ internal static class Program
         owner.m_EndOfTurnSyncComplete = true;
         UnityEngine.Time.unscaledTime = 181f;
         Check(ProgressWaitNotice.CurrentHint == "progress_wait_players", "local-ready online barrier names pending peers without guessing a person");
+        Check(ProgressWaitNotice.ImmediateHintKey=="progress_wait_players","instant text respects actual local-ready online flags");
         owner.m_WaitState = new Choreographer.CWaitState { m_State = wait.m_State };
         Check(ProgressWaitNotice.CurrentHint == null, "new actual barrier entry resets previous wait guidance immediately");
         Check(VRLog.Infos.Exists(x => x.StartsWith("PROGRESSION WAIT CLEARED", StringComparison.Ordinal)),
@@ -183,11 +186,13 @@ internal static class Program
         owner.m_WaitState.m_State = Choreographer.ChoreographerStateType.WaitingForTileSelected;
         UnityEngine.Time.unscaledTime = 500f;
         Check(ProgressWaitNotice.CurrentHint == null, "mandatory input is never misclassified as automatic synchronization");
+        Check(ProgressWaitNotice.ImmediateHintKey==null,"instant help does not misclassify native input as automatic wait");
         owner.m_WaitState = new Choreographer.CWaitState {
             m_State = Choreographer.ChoreographerStateType.WaitingForEndAbilityAnimSync
         };
         FFSNetwork.IsOnline = false;
         Check(ProgressWaitNotice.CurrentHint == null, "new offline action wait starts quietly");
+        Check(ProgressWaitNotice.ImmediateHintKey=="progress_finishing_action","instant offline ability text is available before diagnostics");
         UnityEngine.Time.unscaledTime = 520f;
         Check(ProgressWaitNotice.CurrentHint == "progress_finishing_action", "single-player action wait gets action guidance");
         owner.m_EndAbilitySyncComplete = true;
@@ -197,6 +202,7 @@ internal static class Program
             m_State = Choreographer.ChoreographerStateType.WaitingForEndRoundSync
         };
         Check(ProgressWaitNotice.CurrentHint == null, "round wait has its own entry lifetime");
+        Check(ProgressWaitNotice.ImmediateHintKey=="progress_finishing_round","instant round text uses its own native barrier");
         UnityEngine.Time.unscaledTime = 541f;
         Check(ProgressWaitNotice.CurrentHint == "progress_finishing_round", "round closure gets round-specific guidance");
         UnityEngine.Time.unscaledTime = 2f;
@@ -204,9 +210,11 @@ internal static class Program
         VRSession.IsRunning = false;
         UnityEngine.Time.unscaledTime = 1000f;
         Check(ProgressWaitNotice.CurrentHint == null, "disabled VR leaves native presentation untouched");
+        Check(ProgressWaitNotice.ImmediateHintKey==null,"instant help respects disabled VR");
         VRSession.IsRunning = true;
         Choreographer.s_Choreographer = null;
         Check(ProgressWaitNotice.CurrentHint == null, "scenario exit retires previous guidance");
+        Check(ProgressWaitNotice.ImmediateHintKey==null,"instant text also retires on scenario exit");
         ProgressWaitNotice.Reset();
     }
 }

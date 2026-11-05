@@ -965,12 +965,14 @@ internal sealed partial class CardsDriver
         ReportRestBoardClear(hand);
         if (UpdateItemDemandStatus(hand))
         {
+            _progressHelpClock.Reset();
             _progressStatusKey = null;
             _exhaustedStatusKey = null; // another owner holds the placard; re-push ours when it lets go
             return;                     // the item-surrender demand owns the banner while its picker is open
         }
         if (UpdatePanelDecisionStatus())
         {
+            _progressHelpClock.Reset();
             _progressStatusKey = null;
             _exhaustedStatusKey = null;
             return;                     // a floating-panel decision (doom / distribute) owns the banner
@@ -1000,11 +1002,12 @@ internal sealed partial class CardsDriver
             // a statement of fact, and this one is true for the rest of the scenario.
             UpdateExhaustedStatus(hand);
             if (!_exhaustedStatusKey.HasValue) UpdateProgressStatus(hand);
-            else _progressStatusKey = null;
+            else { _progressStatusKey = null; _progressHelpClock.Reset(); }
             return;
         }
 
         _progressStatusKey = null;
+        _progressHelpClock.Reset();
         _exhaustedStatusKey = null; // a live card pick owns the placard from here on
         CardHandMode mode = CardsGameApi.Mode(hand);
         int total = CardsGameApi.PickCardsWanted();

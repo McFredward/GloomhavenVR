@@ -15,6 +15,32 @@ internal static class ProgressWaitNotice
     private static bool _announced;
     private static string? _hintKey;
 
+    /// <summary>Read the current automatic barrier for configurable owner-authored help.
+    /// The independent bounded diagnostic clock below retains its twenty-second threshold.</summary>
+    internal static string? ImmediateHintKey
+    {
+        get
+        {
+            Choreographer? owner = Choreographer.s_Choreographer;
+            Choreographer.CWaitState? wait = owner != null ? owner.m_WaitState : null;
+            return VRSession.IsRunning && owner != null && wait != null && Automatic(wait.m_State)
+                ? HintKey(owner, wait) : null;
+        }
+    }
+
+    private static string HintKey(Choreographer owner, Choreographer.CWaitState wait)
+    {
+        bool ready = wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndAbilityAnimSync
+            ? owner.m_EndAbilitySyncComplete
+            : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndTurnSync
+                ? owner.m_EndOfTurnSyncComplete : owner.m_EndOfRoundSyncComplete;
+        return FFSNetwork.IsOnline && ready ? "progress_wait_players"
+            : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndTurnSync
+                ? "progress_finishing_turn"
+                : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndRoundSync
+                    ? "progress_finishing_round" : "progress_finishing_action";
+    }
+
     internal static string? CurrentHint
     {
         get
@@ -44,11 +70,7 @@ internal static class ProgressWaitNotice
                         ? owner.m_EndAbilitySyncComplete
                         : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndTurnSync
                             ? owner.m_EndOfTurnSyncComplete : owner.m_EndOfRoundSyncComplete;
-                    _hintKey = online && localReady ? "progress_wait_players"
-                        : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndTurnSync
-                            ? "progress_finishing_turn"
-                            : wait.m_State == Choreographer.ChoreographerStateType.WaitingForEndRoundSync
-                                ? "progress_finishing_round" : "progress_finishing_action";
+                    _hintKey = HintKey(owner, wait);
                     if (!_announced)
                     {
                         _announced = true;

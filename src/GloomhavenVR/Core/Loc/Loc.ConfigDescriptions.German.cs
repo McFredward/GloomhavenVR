@@ -1754,6 +1754,14 @@ internal static partial class Loc
                 + "Rast: Karte verlieren, Schaden vermeiden, wiederherstellen/ablegen) markiert es den linken "
                 + "Slot. Erlischt, sobald die Anforderung erfüllt ist oder der Ablauf endet. false = kein "
                 + "Hinweis auf erwartete Slots.",
+            ["Cards/ProgressHelpMode"] =
+                "Wann zusätzliche Erklärungen zur nächsten Aktion oder zum Warten auf deinem Brett erscheinen: "
+                + "Immer, Nie oder Nach Wartezeit. Mitspieler sehen auf deinem gespiegelten Brett dieselben Texte. "
+                + "Notwendige Auswahlmöglichkeiten, Tasten, Spielanweisungen und wichtige Meldungen bleiben verfügbar.",
+            ["Cards/ProgressHelpDelaySeconds"] =
+                "Sekunden ohne Antwort, bevor bei Nach Wartezeit zusätzliche Brett-Erklärungen erscheinen. "
+                + "Vorgabe: 300 Sekunden (5 Minuten). Eine echte Auswahl oder eine neue Entscheidung startet die Wartezeit neu; "
+                + "Umschauen und Bewegen tun das nicht. Änderungen wirken sofort.",
             ["Cards/FaceMipBake"] =
                 "Aliasing-Runde 3 (T3): das Spiel liefert seine Kartenbild-Sprite-Atlanten OHNE Mipmaps (FACE "
                 + "TEXTURE DIAG: mips=1), deshalb flimmern übernommene Kartenbilder bei Verkleinerung, egal "

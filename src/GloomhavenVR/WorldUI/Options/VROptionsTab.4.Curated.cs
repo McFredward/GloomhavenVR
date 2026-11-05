@@ -1133,6 +1133,8 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Cards", "WantedSlotHint", "vr_o_slothint"),
+                        new("Cards", "ProgressHelpMode", ""),
+                        new("Cards", "ProgressHelpDelaySeconds", ""),
                         // The selection-ready pulse is board-flavoured (it reminds you the
                         // board is waiting on your card pick), so it lives with the board
                         // rather than with the panels — audit 04 straggler, placed here.
@@ -1427,6 +1429,8 @@ internal static partial class VROptionsTab
             && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
             && string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "ProgressHelpMode", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
@@ -1500,6 +1504,14 @@ internal static partial class VROptionsTab
         // the enum as the index map).
         if (string.Equals(item.Section, "Cards", StringComparison.Ordinal))
         {
+            if (string.Equals(item.Key, "ProgressHelpMode", StringComparison.Ordinal))
+            {
+                string[] modes = { Loc.ProgressHelpModeName(0), Loc.ProgressHelpModeName(1), Loc.ProgressHelpModeName(2) };
+                BuildPresetRow(parent, item, caption, hintKey, modes,
+                    (int)Cards.CardsConfig.ProgressHelpMode.Value,
+                    index => Cards.CardsConfig.ProgressHelpMode.Value = (Cards.ProgressHelpMode)index);
+                return true;
+            }
             if (string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
             {
                 string[] hands = { Loc.Mod("wristboard_nonmain"), Loc.Mod("wristboard_left"), Loc.Mod("wristboard_right") };
