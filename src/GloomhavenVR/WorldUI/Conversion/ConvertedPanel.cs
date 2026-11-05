@@ -259,6 +259,9 @@ internal sealed class ConvertedPanel
     // and restore it only after both the native parent and camera are home again.
     public Canvas? NativeMenuCanvas;
     public RenderMode OriginalNativeMenuCanvasMode;
+    // Native full-screen layout metric captured before its original Canvas is left.
+    // Unlike SharedDesignFrame this does not confer multiplayer placement authority.
+    public Vector2 NativeDesignFrame;
 
     /// <summary>
     /// THE CANVASES OF THIS WINDOW AS THE GAME LEFT THEM, captured by

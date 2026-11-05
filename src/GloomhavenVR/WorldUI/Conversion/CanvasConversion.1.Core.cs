@@ -190,6 +190,7 @@ internal static partial class CanvasConversion
         // outside SharedWindowKind (every tooltip, card and mod-built panel, and `sharedWindow`
         // null) leave the panel's fields at zero and take no branch anywhere downstream.
         SharedWindowSize.Arm(panel, sharedWindow, target, name);
+        panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);
 
         // Rect size while still under the original (possibly stretch) anchors.
         Vector2 size = target.rect.size;
@@ -205,6 +206,8 @@ internal static partial class CanvasConversion
         // render-hidden, so the player never sees the intermediate.
         if (SharedWindowSize.IsArmed(panel))
             size = panel.SharedDesignFrame;
+        else if (NativeWindowFrame.Valid(panel.NativeDesignFrame))
+            size = panel.NativeDesignFrame;
 
         // Bug #7 (pause-menu height): a full-screen menu (ESC / Options family) captures its
         // HEIGHT verbatim from the game window rect here. The scenario ESC menu has a TALL

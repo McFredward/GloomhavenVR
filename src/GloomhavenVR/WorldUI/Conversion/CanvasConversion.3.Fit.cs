@@ -4777,6 +4777,11 @@ internal static partial class CanvasConversion
         {
             sb.Append(sb.Length > 0 ? "; " : string.Empty).Append(sharedNote);
         }
+        else if (!SharedWindowSize.IsArmed(panel)
+            && NativeWindowFrame.Repin(t, panel.NativeDesignFrame))
+        {
+            sb.Append(sb.Length > 0 ? "; " : string.Empty).Append("native design frame restored");
+        }
 
         if (sb.Length == 0)
             return false;
