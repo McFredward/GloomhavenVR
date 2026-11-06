@@ -648,7 +648,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 762;
+    public const ushort ModBuild = 763;
+
+    // ModBuild763 — paired762 shared-window follow-up. Native Results stage
+    // highlights retain the audited original 3DNoise texture identity; full
+    // serialized material coverage exposes the formerly missing dependency.
+    // Video mirrors establish their initial pose once, then yield continuous
+    // movement/resize to the existing common resolver. No wire layout changes.
+    // See MP763-INTEGRATION.md for actual evidence and verification boundaries.
 
     // ModBuild762 — every visitor can scroll a genuine shared multiplayer window;
     // its original native scroll target has one common ordered input/state author.
