@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 
-// This fixture executes the three complete driver methods and TickGuard. Unity objects,
+// This fixture executes the complete retirement/enable methods, Results forwarding
+// callback and TickGuard. Unity objects,
 // native/transport teardown and held-object owners are fault-injectable boundary ports;
 // their internals and real network/session callbacks are not executed here.
 internal static class CleanupPorts
@@ -21,7 +22,27 @@ internal static class CleanupPorts
     {
         Calls.Clear(); Fail.Clear(); Figures.Clear(); Props.Clear(); After = null;
         GloomhavenVR.Core.VRLog.Lines.Clear();
+        GloomhavenVR.Core.Events.VREvents.ResetForFixture();
+        GloomhavenVR.Net.ScenarioResultsPose.ResetForFixture();
         UnityEngine.Time.unscaledTime += 11f;
+    }
+}
+
+namespace GloomhavenVR.Core.Events
+{
+    // Only payload transport is modeled; no native window lifecycle is executed.
+    internal readonly struct WindowVisibilityEvent
+    {
+        internal readonly object Window;
+        internal readonly bool Shown;
+        internal WindowVisibilityEvent(object window, bool shown) { Window = window; Shown = shown; }
+    }
+    internal static class VREvents
+    {
+        internal static event Action<WindowVisibilityEvent>? WindowVisibility;
+        internal static int HandlerCount => WindowVisibility?.GetInvocationList().Length ?? 0;
+        internal static void Publish(object window, bool shown) => WindowVisibility?.Invoke(new WindowVisibilityEvent(window, shown));
+        internal static void ResetForFixture() => WindowVisibility = null;
     }
 }
 
@@ -49,6 +70,8 @@ namespace GloomhavenVR.Net
 {
     internal sealed partial class NetAvatarDriver
     {
+        private static NetAvatarDriver? _instance;
+        internal static NetAvatarDriver? Current => _instance;
         internal readonly Dictionary<int, RemoteAvatar> _avatars = new();
         internal readonly Dictionary<int, int> _pending = new(), _pendingExtras = new(),
             _pendingAnimations = new(), _createRetryAt = new(), _peerEnv = new();
@@ -68,9 +91,20 @@ namespace GloomhavenVR.Net
         internal void Retire(int id) => ForgetPeer(id);
         internal void RetireAll() => DestroyAllAvatars();
         internal void Disable() => OnDisable();
+        internal void Enable() => OnEnable();
+        private void Subscribe() => CleanupPorts.Step("subscribe");
         private void Unsubscribe() => CleanupPorts.Step("unsubscribe");
         private void ResetNativePresentation() => CleanupPorts.Step("native-reset");
         private void ForgetNativePresentation(int id) => CleanupPorts.Step("native:" + id);
+    }
+    internal static class ScenarioResultsPose
+    {
+        internal static int Observed;
+        internal static object? Window;
+        internal static bool Shown;
+        internal static void ObserveWindowVisibility(object window, bool shown)
+        { Observed++; Window = window; Shown = shown; }
+        internal static void ResetForFixture() { Observed = 0; Window = null; Shown = false; }
     }
     internal sealed class ResetPort { internal void Reset() { } }
     internal sealed class DecisionPort { internal void Tick(int player, int context, float time) { } }

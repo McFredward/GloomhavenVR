@@ -10,6 +10,7 @@ import hashlib, importlib.util, json, re, shutil, subprocess, sys, tempfile, tim
 
 root, source_root = map(Path, sys.argv[1:])
 driver_path = source_root / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs'
+results_path = source_root / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.Results.cs'
 guard_path = source_root / 'src/GloomhavenVR/Core/Perf/TickGuard.cs'
 fixture = root / 'tests/GloomhavenVR.PeerRetirementTests'
 out = root / '.planning/debug/peer-retirement'; out.mkdir(parents=True, exist_ok=True)
@@ -26,12 +27,18 @@ def extract(text, signature):
     return text[start:end]
 names = ['    private void ForgetPeer(int playerId)', '    private void DestroyAllAvatars()', '    private void OnDisable()']
 methods = [extract(source, name) for name in names]
+# Keep the actual subscription and forwarding callback, with only its event
+# payload/pose destination supplied by the explicit fixture boundary.
+enable = extract(source, '    private void OnEnable()')
+results_source = results_path.read_text()
+callback_start = results_source.index('    private static void OnResultsWindowVisibility(')
+callback = results_source[callback_start:results_source.index(';', callback_start) + 1]
 # Only the unrelated sent-state assignment fields are type-erased boundary storage. The peer
 # dictionaries, snapshots, callbacks, method bodies and TickGuard execute their actual logic.
 scalars = sorted(set(re.findall(r'\b(_\w+)\s*=', methods[2])))
-header = ('using System;using System.Collections.Generic;using GloomhavenVR.Core;'
+header = ('using System;using System.Collections.Generic;using GloomhavenVR.Core;using GloomhavenVR.Core.Events;'
     'namespace GloomhavenVR.Net;internal sealed partial class NetAvatarDriver {\n'
-    + '\n'.join('internal object? ' + name + ';' for name in scalars) + '\n')
+    + '\n'.join('internal object? ' + name + ';' for name in scalars) + '\n' + enable + '\n' + callback + '\n')
 production = header + '\n'.join(methods) + '\n}'
 cases = [('production', production, None)]
 old_path = root / 'scripts/peer-retirement-tests/historical-757.cs'
@@ -47,6 +54,7 @@ for label, before, after, expected in [
     ('unprotected-props', 'TickGuard.Run("Net.ForgetPeer.Props", () => NetProps.ReleaseRemote(playerId), "Net");', 'NetProps.ReleaseRemote(playerId);', 'teardown must isolate a failed owner'),
     ('unprotected-session-reset', 'TickGuard.Run("Net.DestroyAvatars.NativePresentation", ResetNativePresentation, "Net");', 'ResetNativePresentation();', 'teardown must isolate a failed owner'),
     ('unprotected-disable-video', 'TickGuard.Run("Net.Disable.Video", RemoteVideoPlayback.Reset, "Net");', 'RemoteVideoPlayback.Reset();', 'teardown must isolate a failed owner'),
+    ('retained-results-callback', 'VREvents.WindowVisibility -= OnResultsWindowVisibility;', '/* Results unsubscribe omitted by causal control */', 'disable retires the exact Results visibility subscription'),
 ]:
     if label == 'blanket-clear-new-peers':
         text = production.replace(methods[1], methods[1][:-1] + '_avatars.Clear();\n    }')
@@ -58,7 +66,7 @@ for label, before, after, expected in [
             text = text.replace('TickGuard.Run("Net.ForgetPeer.Avatar", avatar.Destroy, "Net");',
                 'TickGuard.Run("Net.ForgetPeer.Avatar", avatar.Destroy, "Net");\n            _avatars.Remove(playerId);')
     cases.append((label, text, expected))
-bindings = [driver_path, guard_path, old_path, root / 'scripts/peer-retirement-tests.sh',
+bindings = [driver_path, results_path, guard_path, old_path, root / 'scripts/peer-retirement-tests.sh',
     root / 'scripts/town_run_retention.py', *fixture.glob('*.cs'), *fixture.glob('*.csproj')]
 (run / 'source-bindings.json').write_text(json.dumps({str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bindings}, indent=2) + '\n')
 try:

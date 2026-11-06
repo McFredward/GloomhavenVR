@@ -15,6 +15,7 @@ internal static class Program
     {
         CleanupPorts.Reset();
         var driver = new NetAvatarDriver(); driver.Add(1); driver.Add(2);
+        driver.Enable();
         return driver;
     }
     private static void Invoke(Action action)
@@ -120,6 +121,26 @@ internal static class Program
         UnityEngine.Time.unscaledTime += 11f;
         driver = new NetAvatarDriver(); driver.Add(1); Invoke(() => driver.Retire(1));
         Check(VRLog.Lines.Count == 2 && VRLog.Lines[1].Contains("still throwing"), "persistent owner failure remains discoverable at the shared report cadence");
+
+        // The current complete enable/disable bodies and exact forwarding callback
+        // execute against an explicit event source, without a native window/pose.
+        driver = Start();
+        var window = new object();
+        Check(ReferenceEquals(NetAvatarDriver.Current, driver)
+            && GloomhavenVR.Core.Events.VREvents.HandlerCount == 1,
+            "enable attaches the current driver's exact Results visibility callback once");
+        GloomhavenVR.Core.Events.VREvents.Publish(window, true);
+        Check(ScenarioResultsPose.Observed == 1 && ReferenceEquals(ScenarioResultsPose.Window, window) && ScenarioResultsPose.Shown,
+            "the original forwarding callback preserves exact window and visibility payload");
+        Invoke(driver.Disable);
+        Check(GloomhavenVR.Core.Events.VREvents.HandlerCount == 0,
+            "disable retires the exact Results visibility subscription");
+        GloomhavenVR.Core.Events.VREvents.Publish(window, false);
+        Check(ScenarioResultsPose.Observed == 1,
+            "a disabled driver cannot receive a later native Results opening");
+        Invoke(driver.Disable);
+        Check(GloomhavenVR.Core.Events.VREvents.HandlerCount == 0,
+            "repeated disable never reinstates a retired Results callback");
         Console.WriteLine($"Peer retirement: {_checks} assertions passed.");
     }
 }
