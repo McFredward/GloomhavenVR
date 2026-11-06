@@ -167,6 +167,12 @@ public static partial class TransparentMaterialFixture
         try
         {
             helper.BindHead(head);helper.RefreshCold();SceneMaterialObservers.Unbind(helper);
+            var irrelevant=Surface(Keep(new Material(Shader.Find("Unlit/Color"))));irrelevant.gameObject.SetActive(false);
+            int beforeUnknown=helper.RendererCount;SceneMaterialObservers.Bind(helper);SceneMaterialObservers.ObjectArrived(irrelevant.gameObject);
+            Check(helper.RendererCount==beforeUnknown,"unknown pooled renderer never enters per-eye material loop");
+            irrelevant.sharedMaterial=NativeMaterial761("GUI/AbilityCard_Shd",Color.clear);
+            helper.RefreshCold();Check(helper.RendererCount==beforeUnknown+1,"cold refresh discovers newly audited shader on prior unknown pooled renderer");
+            UnityEngine.Object.DestroyImmediate(irrelevant.gameObject);helper.RefreshCold();SceneMaterialObservers.Unbind(helper);
             var material=NativeMaterial761("GUI/AbilityCard_Shd",new Color(.2f,.3f,.4f,.5f));var graphic=NativeGraphic761(material,0);Canvas.ForceUpdateCanvases();
             Color[] missed=Render(head,true);Check(Mathf.Abs(missed[128].a-.25f)<.00002f,"source-disabled observer control reproduces alpha-square UI leak before first refresh");
             SceneMaterialObservers.Bind(helper);GraphicRegistry.RegisterGraphicForCanvas(graphic.canvas,graphic);
@@ -233,8 +239,7 @@ public static partial class TransparentMaterialFixture
             helper.DisarmImmediate();
             Check(graphic.canvasRenderer.GetMaterial()==material,"OFF immediately restores current source after shader change");
             Check(Shader.GetGlobalFloat(SceneTransparentMaterials.NativeStraightAlpha)==7&&Shader.GetGlobalFloat(SceneTransparentMaterials.NativeAdditiveAlpha)==8,"OFF restores exact preexisting global values");
-            Canvas.ForceUpdateCanvases();
-            Check(Mathf.Abs(Render(head,false)[128].a-.09f)<.00002f,"first native OFF render uses original alpha and source binding");
+            Check(Mathf.Abs(Render(head,false)[128].a-.09f)<.00002f,"first native OFF render uses original alpha and source binding without forced Canvas update");
             helper.BindHead(head);helper.RefreshCold();SceneMaterialObservers.Bind(helper);
             Check(Mathf.Abs(Render(head,true)[128].a-.3f)<.00002f,"first ON render restores coverage with no timer");
             // A failing passive observer cannot escape the original native API.

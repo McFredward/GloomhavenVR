@@ -79,6 +79,7 @@ public static partial class TransparentMaterialFixture
             globalState761=Array.IndexOf(args,"-nativeGlobal761")>=0;nativePorts761|=globalState761;
             if(nativePorts761){Canvas.preWillRenderCanvases+=PreCanvas761;Canvas.willRenderCanvases+=WillCanvas761;}
             if(globalState761) NativeGlobalProbe761();
+            else if(nativePorts761 && Array.IndexOf(args,"-nativeArrivals761")>=0){SceneMaterialObservers.Install();NativeArrivalControls761();NativeGlobalLifetime761();}
             else if(nativePorts761) NativeAlpha761();
             else if(Array.IndexOf(args,"-transparentLifecycleOnly")<0)
                 foreach(string name in new[]{"GloomhavenVR/EnvParticleAlpha","GloomhavenVR/EnvParticleAdd","GloomhavenVR/Overlay"})

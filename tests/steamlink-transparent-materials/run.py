@@ -26,6 +26,8 @@ def main():
     parser.add_argument('--lifecycle-only',action='store_true')
     parser.add_argument('--native-alpha-only',action='store_true',help='Native-state ports, actual UI/arrival/rebuild scopes; original D3D11 programs are metadata-preserved, not executed on Linux.')
     parser.add_argument('--native-global-only',action='store_true',help='Probe a global alpha-state binding without material property/GUI rebatching.')
+    parser.add_argument('--native-arrivals-only',action='store_true',help='Only native pool/UI enrollment and global lifetime after a bounded arrival repair.')
+    parser.add_argument('--old-pool-admission',action='store_true',help='Compiling negative control: unrelated pooled renderers enter every-eye work.')
     args=parser.parse_args();root=HERE.parents[1]
     sys.path.insert(0,str(root/'scripts'));cleanup=importlib.import_module('town_run_retention').cleanup_completed_run
     args.output.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output.resolve()));(run/'.keep').touch()
@@ -39,7 +41,12 @@ def main():
     project=run/'owned-unity-project';assets=project/'Assets';(assets/'Editor').mkdir(parents=True)
     shutil.copyfile(HERE/'Fixture.cs',assets/'Editor/Fixture.cs')
     shutil.copyfile(HERE/'Native761.cs',assets/'Editor/Native761.cs')
-    shutil.copyfile(live[3],assets/'Editor/SceneTransparentMaterials.cs')
+    material_source=live[3].read_text()
+    if args.old_pool_admission:
+        gate='if (known && _rendererSet.Add(renderer)) _renderers.Add(renderer);'
+        assert material_source.count(gate)==1
+        material_source=material_source.replace(gate,'if (_rendererSet.Add(renderer)) _renderers.Add(renderer);')
+    (assets/'Editor/SceneTransparentMaterials.cs').write_text(material_source)
     # Syntax-only bridge for Unity2021's C#9 compiler; the production observer
     # bodies, target signatures, catches and material calls stay unchanged.
     observer=live[6].read_text().replace('namespace GloomhavenVR.Core.SteamLink;','namespace GloomhavenVR.Core.SteamLink {')+'\n}\n'
@@ -73,7 +80,8 @@ def main():
     output=run/'gpu.json';code=1
     command=['xvfb-run','-a',str(args.unity),'-batchmode','-force-vulkan','-projectPath',str(project),'-executeMethod','TransparentMaterialFixture.Start','-transparentResult',str(output),'-transparentBank',str(frozen_bank),'-logFile',str(run/'unity.log')]
     if args.lifecycle_only:command+=['-transparentLifecycleOnly']
-    if args.native_alpha_only:command+=['-nativeAlpha761']
+    if args.native_alpha_only or args.native_arrivals_only:command+=['-nativeAlpha761']
+    if args.native_arrivals_only:command+=['-nativeArrivals761']
     if args.native_global_only:command+=['-nativeGlobal761']
     env=os.environ.copy()
     if Path('/usr/share/vulkan/icd.d/intel_icd.json').is_file():env['VK_DRIVER_FILES']='/usr/share/vulkan/icd.d/intel_icd.json'
@@ -85,13 +93,18 @@ def main():
                 if process.poll() is None:os.killpg(process.pid,signal.SIGKILL)
                 process.wait();raise
         assert all(sha(Path(p))==pin for p,pin in pins.items()),'Frozen input changed through child reap'
-        assert status==0 and output.is_file(),'Actual shipping-bank GPU fixture failed: '+str(run)
-        assert json.loads(output.read_text())['passed'];code=0
+        assert output.is_file(),'Actual shipping-bank GPU fixture produced no result: '+str(run)
+        report=json.loads(output.read_text())
+        if args.old_pool_admission:
+            assert status!=0 and not report['passed'] and 'unknown pooled renderer never enters per-eye material loop' in report['failure'], 'Pool admission control did not reach its named semantic assertion: '+str(run)
+        else:
+            assert status==0 and report['passed'],'Actual shipping-bank GPU fixture failed: '+str(run)
+        code=0
     finally:
         receipt=cleanup('steamlink-transparent-materials',code,log,root,process_reaped=True)
         if project.is_dir() and not project.is_symlink():shutil.rmtree(project)
         (run/'cleanup.json').write_text(json.dumps({'retention_api':receipt,'owned_project_removed':str(project)},indent=2)+'\n')
-        (run/'results.json').write_text(json.dumps({'exit_code':code,'scope':'ACTUAL_SHIPPING_BANK_LIFECYCLE_ONLY' if args.lifecycle_only else 'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
+        (run/'results.json').write_text(json.dumps({'exit_code':code,'old_pool_admission_control':args.old_pool_admission,'scope':'ACTUAL_SHIPPING_BANK_LIFECYCLE_ONLY' if args.lifecycle_only else 'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
         print('Evidence: '+str(run))
     return code
 

@@ -121,7 +121,22 @@ namespace GloomhavenVR.Core.SteamLink
         {
             if (_disposed || _head == null || root == null) return;
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
-                if (renderer != null && _rendererSet.Add(renderer)) _renderers.Add(renderer);
+            {
+                if (renderer == null || _rendererSet.Contains(renderer)) continue;
+                renderer.GetSharedMaterials(_slots);
+                bool known = false;
+                if (_slots.Count <= MaximumSlots)
+                    for (int slot = 0; slot < _slots.Count && !known; slot++)
+                    {
+                        Material source = Canonical(_slots[slot]);
+                        known = source != null && source.shader != null && Known(source.shader.name, out _);
+                    }
+                _slots.Clear();
+                // Pooled scenery and gameplay renderers without an audited
+                // shader never enter the every-eye borrowing loop. A later
+                // material change remains discoverable by the cold refresh.
+                if (known && _rendererSet.Add(renderer)) _renderers.Add(renderer);
+            }
             foreach (Graphic graphic in root.GetComponentsInChildren<Graphic>(true)) EnrollGraphic(graphic);
         }
 

@@ -5,13 +5,24 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
+# Match the existing local asset exporters: honour an explicitly configured
+# interpreter, otherwise use the developer's user-local UnityPy environment.
+# Re-enter before importing the processor; no host-specific absolute path or
+# silent skipped check is registered in the suite manifest.
+try:
+    import UnityPy
+except ImportError:
+    interpreter = Path(os.environ.get('UNITYPY_PYTHON', str(Path.home()/'unitypy-venv/bin/python')))
+    if not interpreter.is_file() or interpreter.absolute() == Path(sys.executable).absolute():
+        raise SystemExit('UnityPy is required; set UNITYPY_PYTHON to the configured asset-export interpreter.')
+    os.execv(str(interpreter), [str(interpreter), '-B', str(Path(__file__).resolve()), *sys.argv[1:]])
 spec = importlib.util.spec_from_file_location('native_variants', HERE/'native_variants.py')
 native = importlib.util.module_from_spec(spec); spec.loader.exec_module(native)
-import UnityPy
 
 
 def main():
@@ -56,7 +67,7 @@ def main():
         except AssertionError: controls.append(item['name'] + ':alpha-binding')
         else: raise AssertionError('Wrong alpha global escaped')
     report = {'schema':'native-alpha-preservation-proof-v1', 'passed':True,
-              'positive_assertions':checks, 'rejected_mutations':len(controls), 'controls':controls,
+              'unitypy':UnityPy.__version__, 'positive_assertions':checks, 'rejected_mutations':len(controls), 'controls':controls,
               'bank_sha256':hashlib.sha256(args.bank.read_bytes()).hexdigest(),
               'source_pins':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),HERE/'native_variants.py',HERE/'native-variants.json']},
               'limits':'Full original native D3D11 GPU program and non-alpha serialized state preservation, not D3D11 execution or HMD proof.'}
