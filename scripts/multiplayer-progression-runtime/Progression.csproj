@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-<PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+<PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName><GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+<!-- The cap mesh is a source-extracted production class fragment. Cross-fragment
+     documentation references are checked by the separate strict production build. -->
+<GenerateDocumentationFile>false</GenerateDocumentationFile></PropertyGroup>
 <ItemGroup><Compile Include="$(FixtureDir)/Boundary.cs"/><Compile Include="$(FixtureDir)/Program.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
 <Reference Include="UnityEngine"><HintPath>$(UnityManaged)/UnityEngine/UnityEngine.dll</HintPath><Private>false</Private></Reference>
 <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManaged)/UnityEngine/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>

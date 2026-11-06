@@ -34,7 +34,33 @@ or a headset picture. An initial fixture compilation failure (public enum XML
 comment warning) is retained under run-jhxe8a2k and was fixed only in the fixture.
 Both completed runs have canonical cleanup receipts.
 
-## Remaining owned work
+## Forced-rest cap glow
 
-Rest glow, initiative-edge native geometry and results presentation are under
-implementation. Their evidence and limits will be recorded before handoff.
+The previous cue built four rectangular WorldFrame bars for every style. Hardware
+logs enumerate those Top/Bottom/Left/Right renderers even for round rest buttons.
+The shared cue now borrows each actual moving CapMesh (round or square and every
+board construction) or its actual native SpriteRenderer. It adds quiet constant
+warm light, following press motion and original visibility, without replacing a
+material, mesh, collider, label or callback. A native sprite uses its original
+alpha, including transparent texels whose RGB is nonzero. Original sprite sorting
+is retained so the light cannot be painted behind an opaque native face. Depth
+remains LEqual with no depth writes; normal MR additive-alpha rules remain owned
+by the separate material lane. The same class/API still serves owner and observer.
+
+Actual Unity proof extends the existing multiplayer-progression-runtime suite.
+Production run-pgehbg9w passes222 assertions, including all three production cap
+constructions, round/square and owner/observer builders, native sprite alpha and
+fade, press travel, original input/mesh/material preservation, disappearance and
+nearer opaque occlusion. Final shape/occluded/sprite images were inspected.
+The legacy rectangle and missing sprite-alpha controls fail at their specific
+final-pixel checks. The sprite-sorting and unnecessary-rest policy controls were
+also rejected in run-4qld_gq3; their failure mechanism is unaffected by the later
+white-RGB transparent sprite witness. Initial fixture compilation failures and
+an initially weak alpha witness/control were retained, corrected and rerun only
+for affected cases. These are real Unity OpenGL pixels with original generated
+cap geometry, not a headset or live multiplayer acceptance.
+
+## Initiative edge picking and Results
+
+Native Header geometry, original callback/filter tests and Results ownership/
+presentation integration are being completed. Final evidence follows.

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Net;
 using GloomhavenVR.Rig;
@@ -44,6 +45,9 @@ public static class ProgressionTests {
  // Render the actual new guidance geometry. Ports do not create or position this geometry.
  head.transform.position=new Vector3(0,0,-1);head.orthographic=true;head.orthographicSize=.20f;head.aspect=2f;head.clearFlags=CameraClearFlags.SolidColor;head.backgroundColor=Color.black;head.cullingMask=GloomhavenVR.Core.VRLayers.ModLayerMask;
  var cueRoot=new GameObject("Rest button geometry witness");cueRoot.transform.position=new Vector3(-.13f,0,0);
+ var cap=GameObject.CreatePrimitive(PrimitiveType.Quad);cap.name="CapMesh";cap.transform.SetParent(cueRoot.transform,false);cap.transform.localScale=new Vector3(.1f,.1f,1);
+ cap.layer=GloomhavenVR.Core.VRLayers.ModLayer;Object.DestroyImmediate(cap.GetComponent<Collider>());
+ var capMaterial=new Material(Shader.Find("GloomhavenVR/Overlay"));capMaterial.color=Color.black;cap.GetComponent<Renderer>().sharedMaterial=capMaterial;
  var cue=new RestOfferCue();cue.Tick(cueRoot.transform,new Vector2(.1f,.1f),true);
  var arrowRoot=new GameObject("Steam identity witness");arrowRoot.transform.position=new Vector3(.13f,-.05f,0);
  var arrow=new DecisionWaitArrow();Check(arrow.Tick(arrowRoot.transform,Vector3.zero,true),"waiting arrow geometry built lazily");
@@ -52,8 +56,64 @@ public static class ProgressionTests {
  Check(cueRoot.GetComponentsInChildren<Collider>(true).Length==0&&arrowRoot.GetComponentsInChildren<Collider>(true).Length==0,"guidance never steals clicks or grabs");
  cue.Tick(cueRoot.transform,new Vector2(.1f,.1f),false);arrow.Tick(arrowRoot.transform,Vector3.zero,false);
  Check(Capture(head,Path.Combine(evidence,"cues-cleared.png"))==0,"completed or unavailable choices leave no residual cue pixels");
- cue.Destroy();arrow.Destroy();foreach(var go in new[]{frame,driverGo,toggleGo,cueRoot,arrowRoot,cameraGo})Object.DestroyImmediate(go);
+ cue.Destroy();arrow.Destroy();Object.DestroyImmediate(capMaterial);foreach(var go in new[]{frame,driverGo,toggleGo,cueRoot,arrowRoot,cameraGo})Object.DestroyImmediate(go);
+ RestCapPixels(evidence);
  return count;
+ }
+ private static void RestCapPixels(string evidence){
+ var cameraGo=new GameObject("Forced-rest final head");var camera=cameraGo.AddComponent<Camera>();
+ camera.transform.position=new Vector3(0,0,-.4f);camera.orthographic=true;camera.orthographicSize=.07f;
+ camera.aspect=1;camera.nearClipPlane=.001f;camera.farClipPlane=2;camera.clearFlags=CameraClearFlags.SolidColor;
+ camera.backgroundColor=Color.black;camera.cullingMask=~0;VRRigDriver.HeadCamera=camera;
+ for(int board=0;board<3;board++)foreach(bool round in new[]{false,true})foreach(bool remote in new[]{false,true}){
+  var parent=new GameObject("Original "+(remote?"remote":"owner")+" rest button");
+  Transform holder=parent.transform;if(!remote){var cap=new GameObject("Cap");cap.transform.SetParent(holder,false);holder=cap.transform;}
+  var meshGo=new GameObject("CapMesh");meshGo.transform.SetParent(holder,false);
+  var source=meshGo.AddComponent<MeshRenderer>();var mesh=round?CardMesh.BuildRoundKeycap(.1f,.01f,64,CapFaceLayout.ConstructionFor(board)):CardMesh.BuildBeveledKeycap(.1f,.1f,.01f,CapFaceLayout.ConstructionFor(board));
+  meshGo.AddComponent<MeshFilter>().sharedMesh=mesh;var body=new Material(Shader.Find("Unlit/Color"));body.color=Color.black;
+  source.sharedMaterials=new[]{body,body,body};var collider=meshGo.AddComponent<BoxCollider>();
+  var cue=new RestOfferCue();cue.Tick(parent.transform,Vector2.one*.1f,true);
+  var glow=meshGo.transform.Find("GloomhavenVR.RestRequiredCue") ?? throw new Exception("Missing fitted rest glow");
+  Check(glow.GetComponent<MeshFilter>().sharedMesh==mesh,"forced-rest light borrows the original cap mesh on both boards");
+  Check(parent.GetComponentsInChildren<Collider>(true).Length==1&&collider.enabled,"forced-rest cue never changes original input geometry");
+  var material=glow.GetComponent<Renderer>().sharedMaterial;
+  Check(material.GetInt("_ZTest")==4&&material.GetInt("_ZWrite")==0,"forced-rest light retains normal depth testing without depth writes");
+  string name=$"rest-{board}-{(round?"round":"square")}-{(remote?"remote":"owner")}";
+  var pixels=RestPicture(camera,Path.Combine(evidence,name+".png"));
+  Check(pixels.GetPixel(128,128).r>.05f,"cap-shaped forced-rest light produces actual final head pixels");
+  if(round)Check(pixels.GetPixel(230,230).r<.015f,"round rest light has no rectangular corner outlines");
+  Object.DestroyImmediate(pixels);
+  var old=glow.position;holder.localPosition+=new Vector3(.01f,0,.003f);cue.Tick(parent.transform,Vector2.one*.1f,true);
+  Check(Vector3.Distance(glow.position-old,new Vector3(.01f,0,.003f))<1e-5f,"rest light follows the original cap press/travel exactly");
+  source.enabled=false;cue.Tick(parent.transform,Vector2.one*.1f,true);
+  Check(!glow.GetComponent<Renderer>().enabled,"a hidden original cap never leaves a floating cue");source.enabled=true;
+  cue.Tick(parent.transform,Vector2.one*.1f,false);Check(!glow.GetComponent<Renderer>().enabled,"the completed forced-rest offer clears immediately");
+  cue.Tick(parent.transform,Vector2.one*.1f,true);
+  var wall=GameObject.CreatePrimitive(PrimitiveType.Quad);wall.transform.position=new Vector3(0,0,-.05f);wall.transform.localScale=Vector3.one*.3f;
+  wall.GetComponent<Renderer>().sharedMaterial=body;pixels=RestPicture(camera,Path.Combine(evidence,name+"-occluded.png"));
+  Check(pixels.GetPixels().All(c=>c.r<.015f&&c.g<.015f),"a nearer opaque board/window occludes the entire forced-rest light");Object.DestroyImmediate(pixels);Object.DestroyImmediate(wall);
+  cue.Destroy();Check(mesh!=null&&source.sharedMaterial==body&&collider.enabled,"cue retirement preserves the original mesh, material and collider");
+  Object.DestroyImmediate(parent);Object.DestroyImmediate(mesh);Object.DestroyImmediate(body);
+ }
+ // Sprite fallback: its true transparent alpha, not its rectangular MeshFilter,
+ // determines the light silhouette. The face remains the original click carrier.
+ var spriteRoot=new GameObject("Original skinned rest button");var capHolder=new GameObject("Cap");capHolder.transform.SetParent(spriteRoot.transform,false);
+ var faceGo=new GameObject("NativeFace");faceGo.transform.SetParent(capHolder.transform,false);var face=faceGo.AddComponent<SpriteRenderer>();
+ var texture=new Texture2D(64,64,TextureFormat.RGBA32,false);var colors=new Color[4096];
+ for(int y=0;y<64;y++)for(int x=0;x<64;x++)colors[y*64+x]=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(32,32))<30?Color.white:new Color(1,1,1,0);
+ texture.SetPixels(colors);texture.Apply();var sprite=Sprite.Create(texture,new Rect(0,0,64,64),Vector2.one*.5f,640,0,SpriteMeshType.FullRect);
+ face.sprite=sprite;face.color=Color.black;face.sortingOrder=3;var spriteCue=new RestOfferCue();spriteCue.Tick(spriteRoot.transform,Vector2.one*.1f,true);
+ var full=RestPicture(camera,Path.Combine(evidence,"rest-native-sprite-alpha.png"));
+ Check(full.GetPixel(128,128).r>.05f&&full.GetPixel(214,214).r<.015f,"native sprite alpha preserves the original rounded silhouette rather than lighting its transparent corners");
+ float bright=full.GetPixel(128,128).r;Object.DestroyImmediate(full);
+ face.color=new Color(0,0,0,.1f);spriteCue.Tick(spriteRoot.transform,Vector2.one*.1f,true);
+ var faded=RestPicture(camera,Path.Combine(evidence,"rest-native-sprite-faded.png"));Check(faded.GetPixel(128,128).r<bright*.5f,"sprite fade attenuates additive RGB as well as alpha");Object.DestroyImmediate(faded);
+ spriteCue.Destroy();Object.DestroyImmediate(spriteRoot);Object.DestroyImmediate(sprite);Object.DestroyImmediate(texture);Object.DestroyImmediate(cameraGo);VRRigDriver.HeadCamera=null;
+ }
+ private static Texture2D RestPicture(Camera camera,string path){
+ var rt=new RenderTexture(256,256,24,RenderTextureFormat.ARGB32);rt.Create();camera.targetTexture=rt;var old=RenderTexture.active;camera.Render();RenderTexture.active=rt;
+ var image=new Texture2D(256,256,TextureFormat.RGBA32,false);image.ReadPixels(new Rect(0,0,256,256),0,0);image.Apply();File.WriteAllBytes(path,image.EncodeToPNG());
+ RenderTexture.active=old;camera.targetTexture=null;rt.Release();Object.DestroyImmediate(rt);return image;
  }
  private static void StoryFlight(Camera head,GameObject frame,string evidence){
  var wp=ModalFallback.Add(frame.transform);frame.transform.position=new Vector3(500,0,0);

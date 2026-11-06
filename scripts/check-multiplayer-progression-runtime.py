@@ -37,6 +37,11 @@ def main():
    while depth:
     depth+=(text[end]=='{')-(text[end]=='}');end+=1
    return text[start:end]
+  glow_path=base/'Cards/Art/CardGlow.cs'
+  sources['CardGlow.cs']='using UnityEngine; namespace GloomhavenVR.Cards { internal static class CardGlow {\n'+method(glow_path.read_text(),'internal static Material? MakeGlowMaterial(')+'\n} internal static class PlayTray { internal static Shader? OverlayShader()=>Shader.Find("GloomhavenVR/Overlay"); } }'
+  cap_path=base/'Cards/Art/CardMesh.cs';cap_source=cap_path.read_text()
+  sources['CapMesh.cs']='using UnityEngine; namespace GloomhavenVR.Cards { internal static class CardMesh {\n'+cap_source[cap_source.index('    private static readonly Vector4 KeycapTangent'):cap_source.index('    private static readonly System.Collections.Generic.Dictionary<(int, int, int, int), Mesh> _roundKeycapCache')]+ '\n}}'
+  layout_path=base/'Cards/Caps/CapFaceLayout.cs';sources['CapFaceLayout.cs']=layout_path.read_text()
   moves=(base/'Net/SharedWindowMoveOrder.cs').read_text();sources['MoveEntry.cs']=moves[:moves.index('/// <summary>Additive123.')]
   poses=(base/'Net/Avatar/AvatarState.cs').read_text();sources['RigPose.cs']='using UnityEngine; namespace GloomhavenVR.Net {\n'+method(poses,'internal struct RigPose')+'\n}'
   modal_grab=(base/'WorldUI/Grab/GrabbableModal.cs').read_text();sources['ModalFrames.cs']='using UnityEngine; namespace GloomhavenVR.WorldUI { internal partial class GrabbableModal {\n'+method(modal_grab,'internal void SnapFrameTo(')+'\n'+method(modal_grab,'internal void ReadRoomMakingStart(')+'\n}}'
@@ -61,6 +66,9 @@ def main():
   assert 'NetAvatarDriver.DelayedDecisionPlayer() == _owner.PlayerId' in (base/'Net/Remote/RemoteNameTag.cs').read_text()
   controls=[('early-story','StoryRecoveryDwell.cs','now - _since >= 3f','now - _since >= 0f','no premature story recovery'),('observer-recovery','ModalFallback.StoryRecovery.cs','private static bool StoryRecoveryEligible(WindowPanel wp, bool author) => author','private static bool StoryRecoveryEligible(WindowPanel wp, bool author) => true','observer cannot recover'),('ignore-remote-grip','ModalFallback.StoryRecovery.cs','if (online && !SharedWindowMoves.BeginAutomatic(kind)) continue;','if (online && bool.Parse("false")) continue;','held remote claim prevents recovery'),('no-arrival-guard','ScenarioArrivalScale.cs','? fallback : saved','? saved : saved','extreme arrival restores'),('early-player-arrow','DecisionWaitClock.cs','now - _since >= 20f','now - _since >= 0f','single pending decision waits'),('unnecessary-rest-cue','RestOfferCue.cs','requiresRest && offered','true && offered','normal or unresolved hand'),('arrow-default-layer','DecisionWaitArrow.cs','Core.VRLayers.Apply(_root);','','arrow uses the actual dedicated mod layer'),('stale-world-gesture','WorldGrab.cs','Disengage(null);','Disengage(rig);','cross-scene handoff cannot persist old zoom')]
   controls += [
+   ('rectangular-rest-cue','RestOfferCue.cs','_renderers = new[] { _glow };','_renderers = new[] { _glow }; if (mesh != null && mesh.sharedMesh.subMeshCount > 1) GloomhavenVR.Board.WorldFrame.Build(parent,"LegacyRestRectangle",Vector2.one*.112f,.0015f,-.006f).Apply(new Color(.78f,.61f,.28f,.7f));','round rest light has no rectangular corner outlines'),
+   ('sprite-glow-behind-cap','RestOfferCue.cs','if (_glow.sortingOrder <= _source.sortingOrder) _glow.sortingOrder = _source.sortingOrder + 1;','','native sprite alpha preserves the original rounded silhouette rather than lighting its transparent corners'),
+   ('sprite-rectangle-alpha','RestOfferCue.cs','material.SetFloat("_UseAlphaMask", 1f);','material.SetFloat("_UseAlphaMask", 0f);','native sprite alpha preserves the original rounded silhouette rather than lighting its transparent corners'),
    ('instant-story-flight','StoryRecoveryFlight.cs','float t = Mathf.Clamp01((now - _startedAt) / Seconds);','float t = 1f;','story recovery has a visible finite intermediate pose'),
    ('four-hz-story-flight','ModalFallback.StoryRecovery.cs','StoryRecoveryFlight? flight = wp.StoryRecoveryFlight;','if (now < _nextStoryRecoveryPoll) return; StoryRecoveryFlight? flight = wp.StoryRecoveryFlight;','story flight samples before the four-Hz admission poll'),
    ('flight-local-grip','ModalFallback.StoryRecovery.cs','&& wp.Grab != null && !wp.Grab.IsGrabbed','&& wp.Grab != null && true','local grip interrupts flight at its last visible sample'),
@@ -95,6 +103,7 @@ def main():
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.modules.imageconversion':'1.0.0','com.unity.modules.physics':'1.0.0'}}))
   (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');mp=run/'manifest.json';mp.write_text(json.dumps(manifest,indent=2))
   bound=[Path(__file__),*fixture.rglob('*')];bound+=[base/rel for rel in paths]+[base/rel for rel in ['Rig/WorldGrab.cs','Rig/VRRigDriver.cs','WorldUI/Modal/ModalFallback.4.Tick.cs','WorldUI/Modal/ModalFallback.3.WindowPanel.cs','WorldUI/Grab/GrabbableModal.cs','Net/Remote/RemoteStorySync.cs','Net/SharedWindowMoveOrder.cs','Net/Avatar/AvatarState.cs','Cards/Caps/RestControls.cs','Net/Remote/RemoteBoardFurniture.cs','Net/Remote/RemoteNameTag.cs','Board/Patches/PickPhaseInitiativeTrack.cs','Board/FocusCue.cs']]+[shader]
+  bound.extend([glow_path,cap_path,layout_path])
   (run/'source-hashes.json').write_text(json.dumps({str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in bound if path.is_file()},indent=2))
   command=[str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','ProgressionRunner.Start','-progressionManifest',str(mp),'-logFile',str(run/'unity.log')]
   if not os.environ.get('DISPLAY'):command=['xvfb-run','-a']+command
