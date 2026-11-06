@@ -51,7 +51,7 @@ namespace GloomhavenVR.Core.SteamLink
         {
             internal Material Source = null!, Clone = null!;
             internal Shader Original = null!;
-            internal bool Dynamic, Native, Current, Seen;
+            internal bool Dynamic, Native, Current, Seen, UiBound, Passthrough;
         }
 
         internal SceneTransparentMaterials(Func<string, Shader?> findVariant)
@@ -172,6 +172,7 @@ namespace GloomhavenVR.Core.SteamLink
                 Entry? entry = CacheNativeUi(source);
                 if (refresh && entry != null) Prepare(entry);
                 Material replacement = entry != null && entry.Current ? entry.Clone : source;
+                if (entry != null && entry.Current) entry.UiBound = true;
                 if (current != replacement) canvas.SetMaterial(replacement, slot);
             }
         }
@@ -214,15 +215,40 @@ namespace GloomhavenVR.Core.SteamLink
             return entry;
         }
 
-        private static void Prepare(Entry entry)
+        private void Prepare(Entry entry)
         {
-            entry.Current = entry.Source != null && entry.Source.shader == entry.Original && entry.Clone != null
-                && (!entry.Dynamic || Alpha(entry.Source, out _, out _));
-            if (!entry.Current) return;
-            entry.Clone!.CopyPropertiesFromMaterial(entry.Source!);
-            if (entry.Dynamic)
+            if (entry.Source == null || entry.Clone == null) { entry.Current = false; return; }
+            Shader shader = entry.Source.shader;
+            if (shader != entry.Original)
             {
-                Alpha(entry.Source!, out int src, out int dst);
+                // A native Material.shader write does not require a Graphic
+                // rebuild. Preserve the already batched Material identity and
+                // refresh only its shader/properties before the first draw.
+                // Unknown generations use their exact original shader rather
+                // than retaining a stale audited program or guessing factors.
+                entry.Original = shader;
+                entry.Dynamic = false; entry.Native = false; entry.Passthrough = true;
+                if (shader != null && Known(shader.name, out bool dynamic))
+                {
+                    Shader? variant = _findVariant(shader.name);
+                    if (variant != null && variant.isSupported && variant.name == shader.name + Suffix)
+                    {
+                        entry.Clone.shader = variant;
+                        if (entry.Clone.passCount == entry.Source.passCount)
+                        {
+                            entry.Dynamic = dynamic; entry.Native = NativeFamily(shader.name); entry.Passthrough = false;
+                        }
+                    }
+                }
+                if (entry.Passthrough) entry.Clone.shader = shader;
+            }
+            entry.Current = !entry.Passthrough && (!entry.Dynamic || Alpha(entry.Source, out _, out _));
+            // Persistent UI clones must also follow source properties while an
+            // unknown shader generation is passed through without coverage work.
+            entry.Clone.CopyPropertiesFromMaterial(entry.Source);
+            if (entry.Current && entry.Dynamic)
+            {
+                Alpha(entry.Source, out int src, out int dst);
                 entry.Clone.SetInt(SrcA, src); entry.Clone.SetInt(DstA, dst);
             }
         }
@@ -242,7 +268,7 @@ namespace GloomhavenVR.Core.SteamLink
             else
             {
                 Restore();
-                foreach (Entry entry in _entries) if (entry.Native) Prepare(entry);
+                foreach (Entry entry in _entries) if (entry.Native || entry.UiBound) Prepare(entry);
             }
         }
 
