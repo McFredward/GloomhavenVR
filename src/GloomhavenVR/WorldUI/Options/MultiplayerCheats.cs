@@ -28,6 +28,9 @@ internal static class MultiplayerCheats
     private static WeakReference<CMapState>? _map, _gateMap;
     private static WeakReference<ScenarioState>? _scenario;
     private static MultiplayerCheatCommand? _pending;
+    // One issued payload survives context retirement solely to withdraw its exact
+    // still-unforwarded native head before a player-choice permit is consumed.
+    private static byte[]? _issuedBytes;
     private static NativeCheatQueue.Cohort? _pendingCohort, _gateCohort;
 
     internal static void NoteVersionReceipt(int sender, ushort build) => NativeCheatQueue.NoteVersionReceipt(sender, build);
@@ -76,6 +79,7 @@ internal static class MultiplayerCheats
         _pendingCohort = NativeCheatQueue.CaptureCohort();
         if (_pendingCohort == null) return false;
         _pending = command;
+        _issuedBytes = (byte[])bytes.Clone();
         try
         {
             // TargetNONE deliberately avoids trapping an obsolete cheat at a phase
@@ -103,6 +107,7 @@ internal static class MultiplayerCheats
                 && TryRoster(out ulong roster) && roster == command.Roster && CanApply(command)
                 && (command.Kind is not (MultiplayerCheatKind.Gold or MultiplayerCheatKind.Unlock) || SaveData.Instance != null);
             _pending = null;
+            if (_issuedBytes != null && SameBytes(action.CustomBinaryData, _issuedBytes)) _issuedBytes = null;
             if (!admitted) { Report("MULTIPLAYER CHEAT: rejected before native forwarding; session or permission changed."); return false; }
         }
         else if (command!.Sequence <= _appliedSequence) return true;
@@ -136,14 +141,15 @@ internal static class MultiplayerCheats
         && MultiplayerCheatCommand.TryRead(action.CustomBinaryData, out _);
 
     internal static bool IsOwnedPendingHostAction(GameAction action) => FFSNetwork.IsHost
-        && action.ExecuteLocallyFirst && IsCanonicalHostAction(action) && _pending != null
-        && SameBytes(action.CustomBinaryData, _pending.Write());
+        && action.ExecuteLocallyFirst && IsCanonicalHostAction(action) && _issuedBytes != null
+        && SameBytes(action.CustomBinaryData, _issuedBytes);
 
     internal static void RetireUnforwarded(GameAction action)
     {
         // ExecuteLocallyFirst is never populated by the received native event
         // constructor, so this cannot withdraw an accepted receiver commit.
         if (!IsOwnedPendingHostAction(action)) return;
+        _issuedBytes = null;
         if (_pending != null && MultiplayerCheatCommand.TryRead(action.CustomBinaryData, out var command)
             && command!.Sequence == _pending.Sequence) { _pending = null; _pendingCohort = null; }
         Report("MULTIPLAYER CHEAT: cancelled before native dequeue because the action permit changed.");

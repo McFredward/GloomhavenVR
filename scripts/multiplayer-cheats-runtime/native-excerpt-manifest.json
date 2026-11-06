@@ -1,0 +1,38 @@
+{
+  "native_binaries": {
+    "GH.Runtime.dll": "fcfcd2e420299139b6cba9a5fedb52c9cae60bb5e1292adb84152c14d5e8f495",
+    "bolt.user.dll": "a994902ab50ab6425aed87ec61cb3e9344a4e815faabafb5224eae7f6ed84b8f",
+    "bolt.dll": "9dae48e12d5320b91561411b0bc8a7e97bc47b5befbb7eb44ddcfd647ead0034",
+    "MapRuleLibrary.dll": "01a11f0dda6a8728e3eb469c65e7498ffab9c07e0198e8c7923010f362a7bd93",
+    "ScenarioRuleLibrary.dll": "79f3245261e0c78734536989dfbfc73443deeac50ecab6922c59ec47d25cc4c3"
+  },
+  "native_methods": {
+    "GameAction": [
+      "Execute"
+    ],
+    "ActionProcessor": [
+      "QueueUpAction",
+      "TryProcessNextAction",
+      "FinishProcessingAction",
+      "ProcessAction",
+      "ProcessorState",
+      "SetState"
+    ],
+    "Synchronizer": [
+      "AutoExecuteServerAuthGameAction",
+      "ForwardGameActionToClients"
+    ]
+  },
+  "transforms": [
+    "Native IProtocolToken signature types are explicit object invocation ports; method bodies are unchanged.",
+    "Only GameAction.Execute interception is invoked via reflection prefix port in fixture; actual Harmony runtime binding is metadata/source-audited, not claimed here.",
+    "Networking/event/coroutine and native model setter fields are explicit boundaries. Actual binary encoding audited separately against original Bolt EventChannel.",
+    "Original Execute body is renamed NativeExecute only to expose the unchanged-body fallback beneath the fixture Harmony invocation port."
+  ],
+  "fixture_sha256": {
+    "NativeProcessorStateType.cs": "e53d742a0475c17ece3c67da4c0dba5dff47455f27d959a84939c6696f0cf3f9",
+    "NativePhase.cs": "54ae65330687c2e4637db6c6dc2a5e2b3044597be1dc4a84f5fc904bb1c94e0d",
+    "NativeMethods.cs": "5418341a094fbc532f21168c0965cb4aa8f932561432e743263f6a370d64839f",
+    "NativeActionType.cs": "af44dd69a42bca45385f5234fb76d15f65325d41a0a0f76f903716659f967033"
+  }
+}

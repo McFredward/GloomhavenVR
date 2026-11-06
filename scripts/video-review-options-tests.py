@@ -35,6 +35,7 @@ def main() -> int:
     paths = {
         'ui': options / 'VROptionsTab.VideoReview.cs',
         'loc': ROOT / 'src/GloomhavenVR/Core/Loc/Loc.VideoReview.cs',
+        'mp_loc': ROOT / 'src/GloomhavenVR/Core/Loc/Loc.CheatsMultiplayer.cs',
         'page': options / 'VROptionsTab.9.TestTriggers.cs',
         'cheats': options / 'VROptionsTab.Cheats.cs',
         'defaults': ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs',
@@ -67,6 +68,7 @@ def main() -> int:
     project_dir.mkdir()
     for path in fixture.glob('*.cs*'):
         shutil.copy2(path, project_dir / path.name)
+    (project_dir / 'CheatsMultiplayerLoc.cs').write_text(source['mp_loc'])
     (run / 'runtime-catalogue.json').write_text(json.dumps(keys, indent=2) + '\n')
     (run / 'source-hashes.json').write_text(json.dumps({key: {'path': str(paths[key]), 'sha256': hashlib.sha256(text.encode()).hexdigest()}
                                                        for key, text in source.items()}, indent=2) + '\n')
