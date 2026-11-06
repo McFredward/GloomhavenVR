@@ -78,7 +78,9 @@ internal sealed class ScenarioResultsPresentation
         _retryAt = 0;
         if (state.Visible)
         {
-            if (_closedAuthor == state.Author && _closedKey == state.Key) ReleaseClosedLease();
+            // A newly elected public author replaces the previous coordinator's
+            // lifetime. Same-author future keys still wait for their native episode.
+            if (_closedAuthor != 0 && (_closedAuthor != state.Author || _closedKey == state.Key)) ReleaseClosedLease();
             _pending = state;
             return;
         }

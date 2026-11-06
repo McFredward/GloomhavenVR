@@ -222,3 +222,22 @@ production also strict-compiles0W0E against the final integrated DTO/delta sourc
 its DLL, borrowed dependency snapshots, source hashes and canonical cleanup are
 retained in `mp761-results-accepted-close-compile`. No unrelated Rest or Initiative
 suite was repeated. Headset/Photon outcomes remain unverified.
+
+## Author handoff after an accepted close
+
+The independent final integration review found that an accepted-close anchor
+could outlive its content author: another valid VR coordinator may take over
+while the same native Results window remains open. A visible state from that
+new author previously waited behind the obsolete author's lease until native
+closure, which need not occur during coordinator election.
+
+The visible-state admission now releases an existing close lease when the
+accepted content author changes. A same-author future key still waits for its
+actual native episode; only the obsolete coordinator's lifetime is replaced.
+`results-presentation-runtime/run-u38vs10b` passes31 assertions and three focused
+causal controls (obsolete-author hold, early private restoration, lost future
+opening). It verifies actual Apply/Tick on the full native graph, immediate new
+public picture without native reopening/readiness calls, and protection against
+a later old-author retirement. Unchanged native/render/payload controls retain
+the evidence above; unrelated suites were not repeated. The primary integrator
+performs the final strict union/checkpoint after this predicate-only change.
