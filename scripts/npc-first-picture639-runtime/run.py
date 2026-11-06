@@ -48,9 +48,11 @@ def main():
  receiver=module('receive639',root/'scripts/npc-first-picture638-runtime/run.py')
  bound,_=loader.sources(root);delivery.bind_delivery_transport(root,bound,loader)
  if args.without_opening_reservation:
-  key='ActualScheduler629.cs';anchor='result = _town.NextOpening(now);'
+  # Keep the independent, inactive Results lane intact. This counterfactual
+  # removes only Town's two exact opening calls from the actual selector.
+  key='ActualScheduler629.cs';anchor='_town.NextOpening(now)'
   if bound[key].count(anchor)!=2:raise RuntimeError('Finite opening reservation control anchor drift')
-  bound[key]=bound[key].replace(anchor,'result = null; /*639 named causal control: finite opening reservation omitted*/')
+  bound[key]=bound[key].replace(anchor,'null /*639 named causal control: finite Town opening reservation omitted*/')
   (run/'controlled-mutation639.txt').write_text('Both existing NextOpening calls omitted; all native assets, complete originals, ordinary queues, receipts and byte/event budgets unchanged.\n')
  actual,actual_hash=receiver.receiver_sources(root,loader);bound['ActualReceiver638.cs']=actual
  # New asset registry helpers are part of the real resolver, not stand-ins.
