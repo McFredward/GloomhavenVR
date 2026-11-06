@@ -1,5 +1,10 @@
 # Planning index
 
+Updated2026-11-06: Build763 repairs complete observer Results after Victory and
+physical shared-video move/resize. Exact native-material/coordinator causes,
+bounded final qualification, prior fixture gaps, failed-run accounting and
+hardware limits are recorded in MP763-INTEGRATION.md and its three owned reviews.
+
 Updated2026-11-06: Build762 adds visitor-operated shared-window scrolling and
 default-off ordered host cheats, with exact native capability-ingress repair.
 All292 local obligations are qualified once across frozen/updated/inherited
@@ -43,6 +48,10 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP763-INTEGRATION.md](MP763-INTEGRATION.md) | Paired762 causes, bounded763 union qualification, source/compiled/archive bindings and hardware handoff |
+| [MP763-RESULTS.md](MP763-RESULTS.md) | Exact original material repair, inactive candidate transaction and full-stage fixture limits |
+| [MP763-VIDEO.md](MP763-VIDEO.md) | Real mirror/initializer ordering, physical move/resize and actual Unity frame/pixel proof |
+| [MP763-REVIEW.md](MP763-REVIEW.md) | Independent native descriptor census, all shared-kind caller audit and proof-reuse boundaries |
 | [MP762-INTEGRATION.md](MP762-INTEGRATION.md) | Shared scroll/host cheats, final292-ID aggregate, bounded repair, cleanup and hardware handoff |
 | [MP762-SCROLL.md](MP762-SCROLL.md) | Exact common viewport input, per-kind authority, source permissions and source-bound Unity checks |
 | [MP762-CHEATS.md](MP762-CHEATS.md) | Original gameplay-queue authority, exact recipient/roster and one-action permit handling |

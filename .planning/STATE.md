@@ -1,3 +1,20 @@
+**Paired Results/video presentation repair, Build763,2026-11-06.**
+
+The paired762 logs identify an exact original3DNoise material dependency that
+blocked complete observer Results after Continue. Admit only its audited native
+descriptor and prepare structural replacements before releasing the old image.
+Video mirror initialization now yields to ordinary shared move/resize after
+initial physical reveal; it previously consumed each later pose as a baseline.
+
+ClassB: affected complete containers/controls, source16/16, strict Release/Debug
+0W0E10.23/10.38s and307211 actual wire assertions. Compiled3 behavior/14 metadata
+forms,32resources exact; baseline762 supplies explicitly bounded unchanged proof.
+New actual-Unity video regression raises local inventory to293. Results391+12
+is an input-bound13-case aggregate with one focused expected-marker repair,
+not a relabeled all-green invocation. See MP763-INTEGRATION/RESULTS/VIDEO/REVIEW
+for native census, causal tests, all failures, final source/archive bindings,
+cleanup and explicit GL/bootstrap/decoder/headset limits. Dev only; no ZIP.
+
 **Shared multiplayer scrolling and test cheats, Build762,2026-11-06.**
 
 Every visitor can scroll an actual shared multiplayer window; one common
