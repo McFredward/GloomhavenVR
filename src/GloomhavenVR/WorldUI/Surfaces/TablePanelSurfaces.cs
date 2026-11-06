@@ -8,6 +8,7 @@ using MapRuleLibrary.Party;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -1726,6 +1727,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     // ---- per-portrait pick geometry (user #3 follow-up) -------------------------------
     private static readonly Vector3[] PickCorners = new Vector3[4];
+    private readonly List<Graphic> _portraitPickGraphics = new();
 
     /// <summary>
     /// Depth-aware laser pick over the initiative portraits (<see cref="IDepthPortraitPicker"/>).
@@ -1758,18 +1760,33 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         float bestDist = float.PositiveInfinity;
         foreach (Transform child in holder)
         {
-            if (!child.gameObject.activeSelf || child is not RectTransform rect)
+            if (!child.gameObject.activeSelf)
                 continue;
             InitiativeTrackActorBehaviour behaviour = child.GetComponent<InitiativeTrackActorBehaviour>();
             if (behaviour == null || behaviour.avatarButton == null)
                 continue; // not a portrait (hotkey tip / separator) — no click target
             GameObject buttonGo = behaviour.avatarButton.gameObject;
-            if (!buttonGo.activeInHierarchy)
+            if (!buttonGo.activeInHierarchy || !behaviour.avatarButton.isActiveAndEnabled
+                || !((Selectable)behaviour.avatarButton).IsInteractable())
                 continue;
 
-            // Portrait cell world rect (child inherits the stepped z → real depth).
-            if (TryIntersectRect(rect, rayOrigin, rayDirection, bestDist, out float dist, out Vector3 point))
+            // The native Header extends beyond its 130px layout cell. The layout
+            // root is therefore not the native button's hit shape, especially at
+            // its top/side edges. Use its original raycastable child Graphics at
+            // their actual depth and keep their native masks/CanvasGroup filters.
+            child.GetComponentsInChildren(false, _portraitPickGraphics);
+            foreach (Graphic graphic in _portraitPickGraphics)
             {
+                if (graphic == null || !graphic.isActiveAndEnabled || !graphic.raycastTarget
+                    || graphic.canvasRenderer.cull || graphic.depth < 0
+                    || graphic.canvas == null || !graphic.canvas.isActiveAndEnabled
+                    || ExecuteEvents.GetEventHandler<IPointerClickHandler>(graphic.gameObject) != buttonGo
+                    || !TryIntersectRect(graphic.rectTransform, rayOrigin, rayDirection, bestDist,
+                        out float dist, out Vector3 point))
+                    continue;
+                Camera? camera = graphic.canvas.worldCamera;
+                Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, point);
+                if (!graphic.Raycast(screen, camera)) continue;
                 bestDist = dist;
                 target = buttonGo;
                 worldHit = point;

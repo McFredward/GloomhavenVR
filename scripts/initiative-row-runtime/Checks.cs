@@ -5,9 +5,11 @@ using System.IO;
 using System.Linq;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.Surfaces;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public static class InitiativeRowChecks
@@ -219,10 +221,105 @@ public static class InitiativeRowChecks
     {
         evidence = output; Assertions = 0; VRLog.Lines.Clear();
         if (scenario == "cold") { var cold = Cold(); while (cold.MoveNext()) yield return cold.Current; yield break; }
+        if (scenario == "edges") { var edges = Edges(); while (edges.MoveNext()) yield return edges.Current; yield break; }
         if (scenario == "idle" || scenario == "abort")
         { var idle = Idle(scenario == "abort"); while (idle.MoveNext()) yield return idle.Current; yield break; }
         var changed = Changed(scenario == "remove", scenario == "paused");
         while (changed.MoveNext()) yield return changed.Current;
+    }
+
+    [Serializable] private sealed class NativeRect
+    {
+        public Vector2 m_AnchorMin=default, m_AnchorMax=default, m_Pivot=default, m_AnchoredPosition=default, m_SizeDelta=default;
+        internal void Apply(RectTransform rect)
+        { rect.anchorMin=m_AnchorMin;rect.anchorMax=m_AnchorMax;rect.pivot=m_Pivot;
+          rect.sizeDelta=m_SizeDelta;rect.anchoredPosition=m_AnchoredPosition; }
+    }
+    [Serializable] private sealed class NativeEntry { public NativeRect header=null!; }
+    [Serializable] private sealed class NativeEntries { public NativeEntry[] roots=null!; }
+    private static IEnumerator Edges()
+    {
+        using var scene=new Scene(2);
+        var native=JsonUtility.FromJson<NativeEntries>(File.ReadAllText(Path.Combine(evidence,"..","..","original-entry-roots.json")));
+        var eventGo=new GameObject("OriginalEventSystem",typeof(EventSystem));scene.Owned.Add(eventGo);
+        var headers=new List<Image>();
+        for(int i=0;i<scene.Entries.Count;i++)
+        {
+            var entry=scene.Entries[i];var root=(RectTransform)entry.transform;
+            root.sizeDelta=new Vector2(120,130);
+            UnityEngine.Object.DestroyImmediate(entry.avatarButton);
+            // Native actor/bootstrap is a boundary; these are its original
+            // authored Header geometry and real Unity Button/Image callbacks.
+            var contentGo=new GameObject("ActorContent",typeof(RectTransform),typeof(Button));scene.Owned.Add(contentGo);
+            var content=(RectTransform)contentGo.transform;content.SetParent(root,false);
+            content.anchorMin=content.anchorMax=content.pivot=Vector2.one*.5f;content.sizeDelta=new Vector2(120,130);
+            entry.avatarButton=contentGo.GetComponent<Button>();entry.avatarButton.onClick.AddListener(()=>entry.Clicks++);
+            var headerGo=new GameObject("Header",typeof(RectTransform),typeof(Image));scene.Owned.Add(headerGo);
+            var header=(RectTransform)headerGo.transform;header.SetParent(content,false);native.roots[i].header.Apply(header);
+            var image=headerGo.GetComponent<Image>();image.color=Color.green;image.raycastTarget=true;headers.Add(image);
+            entry.Clicks=0;
+        }
+        scene.NativeLayout();scene.Convert();
+        // The other row-plane cases intentionally put a blue witness just ahead
+        // of the entry root. This case tests the native Header at that root plane,
+        // so its independent occluder is not part of the original UI and is off.
+        scene.Owned.First(go=>go.name=="IndependentEntryPlaneWitness").SetActive(false);
+        yield return null;scene.Tick();Canvas.ForceUpdateCanvases();
+        var picker=(IDepthPortraitPicker)scene.Surface;
+        foreach(float zoom in new[]{.02f,.2f,1f,20f})
+        {
+            scene.Board.localScale=Vector3.one*zoom;scene.Tick();Canvas.ForceUpdateCanvases();
+            for(int i=0;i<headers.Count;i++)
+            {
+                var image=headers[i];var entry=scene.Entries[i];var rect=image.rectTransform;
+                var root=(RectTransform)entry.transform;
+                Vector3 point=rect.TransformPoint(new Vector3(rect.rect.xMin+rect.rect.width*.25f,rect.rect.yMax-2,0));
+                var local=root.InverseTransformPoint(point);
+                Check(!root.rect.Contains(local),"native Header witness lies visibly outside its layout root");
+                Vector3 origin=point-root.forward*(.5f*zoom),direction=root.forward;
+                Check(picker.TryPickPortrait(origin,direction,out var target,out var hit)&&target==entry.avatarButton!.gameObject,
+                    "visible native Header edge reaches its original avatar callback");
+                Check(Vector3.Distance(hit,point)<.00005f*zoom,"portrait edge hit remains at its actual native graphic depth");
+                scene.Camera.transform.SetPositionAndRotation(origin,Quaternion.LookRotation(direction,root.up));
+                scene.Camera.orthographicSize=.04f*zoom;scene.Camera.aspect=1;
+                scene.Camera.nearClipPlane=.001f*zoom;scene.Camera.farClipPlane=2*zoom;
+                var rt=new RenderTexture(256,256,24);rt.Create();scene.Camera.targetTexture=rt;
+                var old=RenderTexture.active;scene.Camera.Render();RenderTexture.active=rt;
+                var pixels=new Texture2D(256,256,TextureFormat.RGBA32,false);pixels.ReadPixels(new Rect(0,0,256,256),0,0);pixels.Apply();
+                File.WriteAllBytes(Path.Combine(evidence,$"native-edge-{i}-{zoom}.png"),pixels.EncodeToPNG());
+                Color center=pixels.GetPixel(128,128);
+                Check(center.g>.5f&&center.r<.2f,"the same native Header edge produces final head pixels at the laser target");
+                RenderTexture.active=old;scene.Camera.targetTexture=null;rt.Release();UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(pixels);
+                int before=entry.Clicks;
+                ExecuteEvents.Execute(target,new PointerEventData(EventSystem.current){button=PointerEventData.InputButton.Left},ExecuteEvents.pointerClickHandler);
+                Check(entry.Clicks==before+1,"edge pick executes the original Unity button callback once");
+                image.raycastTarget=false;
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"non-raycast native art cannot become a portrait target");image.raycastTarget=true;
+                entry.avatarButton!.interactable=false;
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"native disabled avatar never acquires an edge pick");entry.avatarButton.interactable=true;
+                var group=image.gameObject.AddComponent<CanvasGroup>();group.blocksRaycasts=false;
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"native CanvasGroup raycast filter remains authoritative");UnityEngine.Object.DestroyImmediate(group);
+                var mask=image.transform.parent.gameObject.AddComponent<RectMask2D>();
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"the original ancestor RectMask2D still clips an otherwise visible Header edge");UnityEngine.Object.DestroyImmediate(mask);
+                var foreign=image.gameObject.AddComponent<Button>();
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"a foreign nested button is never dispatched as the avatar");UnityEngine.Object.DestroyImmediate(foreign);
+                image.enabled=false;
+                Check(!picker.TryPickPortrait(origin,direction,out _,out _),"hidden native header cannot leave a hittable edge");image.enabled=true;
+                entry.Clicks=0;
+            }
+        }
+        // Native masks and nearest physical portrait depth remain effective.
+        var front=scene.Entries[1].transform;var rest=front.localPosition;
+        front.localPosition=scene.Entries[0].transform.localPosition+Vector3.back*15;
+        Canvas.ForceUpdateCanvases();
+        var rect0=headers[0].rectTransform;var overlap=rect0.TransformPoint(new Vector3(rect0.rect.xMin+rect0.rect.width*.25f,rect0.rect.yMax-2,0));
+        var forward=scene.Entries[0].transform.forward;
+        Check(picker.TryPickPortrait(overlap-forward*10,forward,out var nearest,out _)&&nearest==scene.Entries[1].avatarButton!.gameObject,
+            "overlapping original portrait edges select the nearest real graphic depth");front.localPosition=rest;
+        var h=headers[0];var c=new Vector3[4];h.rectTransform.GetWorldCorners(c);
+        var p=Vector3.Lerp(c[1],c[2],.25f)-h.transform.up*.0001f;
+        Check(!picker.TryPickPortrait(p-h.transform.forward, -h.transform.forward,out _,out _),"back-facing native graphic does not intercept the laser");
+        foreach(var entry in scene.Entries)entry.Clicks=0;
     }
 
     private static IEnumerator Changed(bool remove, bool paused)

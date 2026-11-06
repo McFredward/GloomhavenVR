@@ -158,6 +158,7 @@ namespace GloomhavenVR.WorldUI.Surfaces
         private Canvas? _depthPickHost;
         private const float MipRescanInterval = 1, FitSettleSeconds = 2;
         private static readonly Vector3[] PickCorners = new Vector3[4];
+        private readonly List<Graphic> _portraitPickGraphics = new();
         private void FlattenEnemyInfo() { }
         private void RestoreEnemyInfoFlatten() { }
         private void LogTrackTextureDiag() { }

@@ -80,7 +80,7 @@ def main():
         methods = '\n'.join(method(initiative, signature) for signature in signatures)
         start = initiative.index('    private bool OwnsCurrentTrack()')
         methods += '\n' + initiative[start:initiative.index(';', start) + 1]
-        coordinator = ('#nullable enable\nusing UnityEngine; using UnityEngine.UI; using System.Collections.Generic;\n'
+        coordinator = ('#nullable enable\nusing UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; using System.Collections.Generic;\n'
                        'using GloomhavenVR.Core; using GloomhavenVR.Cards; using GloomhavenVR.Hands.Interact;\n'
                        'namespace GloomhavenVR.WorldUI.Surfaces {\n' +
                        table[table.index('internal abstract class SlotPanelSurface'):
@@ -104,6 +104,11 @@ def main():
                      ('production-cold', 'cold', None, None, None, ''),
                      ('production-idle', 'idle', None, None, None, ''),
                      ('production-abort', 'abort', None, None, None, ''),
+                     ('production-edges', 'edges', None, None, None, ''),
+                     ('old-root-edges', 'edges', 'Coordinator.cs',
+                      'TryIntersectRect(graphic.rectTransform, rayOrigin, rayDirection, bestDist,',
+                      'TryIntersectRect((RectTransform)child, rayOrigin, rayDirection, bestDist,',
+                      'visible native Header edge reaches its original avatar callback'),
                      ('old-changed', 'changed', 'InitiativeReorderSlide.cs',
                       '        RestoreEntryPlanes(track, holder);', '',
                       'native entry plane and final pixels restored after changed-add'),

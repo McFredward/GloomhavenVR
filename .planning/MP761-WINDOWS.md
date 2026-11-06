@@ -60,7 +60,31 @@ an initially weak alpha witness/control were retained, corrected and rerun only
 for affected cases. These are real Unity OpenGL pixels with original generated
 cap geometry, not a headset or live multiplayer acceptance.
 
-## Initiative edge picking and Results
+## Initiative portrait edges
 
-Native Header geometry, original callback/filter tests and Results ownership/
-presentation integration are being completed. Final evidence follows.
+Original sharedassets6 player1632/Rect6107 and enemy1105/Rect5710 use a130px-tall
+entry layout root. The native avatar button is on ActorContent; its raycastable
+Header is52px tall, anchored11px above the content top, extending37px beyond the
+entry. The old depth picker tested only the undersized entry root. Hardware main
+line58608 already admits the Header through its committed outer hit rect
+(y-94..106); therefore widening the shared laser surface was not the fix.
+
+Only the initiative picker changes. It tests original active raycastable Graphics
+whose native click-handler identity is the avatar button, at each actual graphic
+plane, retaining culling, native interactability, Graphic.Raycast filters and
+nearest-depth selection. Shared UguiPointer/RayUguiDriver code is untouched.
+
+`initiative-row-runtime/run-2xn3tz58` passes96 edge assertions (native-exported
+Header geometry at scales.02,.2,1,20; real Unity callbacks and pixels; native
+CanvasGroup/RectMask2D, hidden/disabled/non-raycast/foreign-handler rejection,
+backside and nearest-overlap cases),172 existing cold-conversion/row assertions,
+and the old-root failing control. Header source hashes and serialized geometry
+are exported from original assets read-only. Header raster colour/actor bootstrap
+are explicit fixture ports, not a claim that the entire native initiative UI or
+Windows headset picture was replayed. Earlier fixture-only compile/occluder
+failures remain preserved. The actual original native LeanTween path continues to
+execute in the inherited cold-conversion case.
+
+## Results
+
+Native ownership/presentation integration is being completed. Final evidence follows.
