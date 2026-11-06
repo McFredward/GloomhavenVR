@@ -286,7 +286,10 @@ internal static class RemoteVideoPlayback
             _mirror.Prepare();
             VRLog.Note("Net", $"SHARED VIDEO START: owner={_owner}, token={_activeToken}, clip={_active.Clip}");
         }
-        if (RemoteMapStory.TryVideoSharedInitialPose(out Vector3 pos, out Quaternion rot, out float size))
+        // Initial adoption seeds the shared resolver's baseline; repeating it after reveal
+        // would consume a peer move before the physical frame can follow that move.
+        if (!NativeVideoWindow.SharedInitialPoseReady
+            && RemoteMapStory.TryVideoSharedInitialPose(out Vector3 pos, out Quaternion rot, out float size))
             NativeVideoWindow.SetRemotePose(pos, rot, size);
         if (_mirror != null && _mirror.isPrepared) ApplyPlayback(_mirror, initial: false);
     }

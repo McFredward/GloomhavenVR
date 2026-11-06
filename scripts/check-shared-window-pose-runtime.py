@@ -40,9 +40,10 @@ def execute(command, log):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--unity-video', action='store_true', help='Actual Unity frame/Canvas companion for the complete video coordinator')
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/shared-window-pose-runtime')
-    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return','results-poses'), default='complete', help='Partial development reproduction; requires --case production')
+    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return','results-poses','video-mirror'), default='complete', help='Partial development reproduction; requires --case production')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
     if args.scenario != 'complete' and args.case != ['production']: parser.error('Partial scenarios require exactly --case production')
@@ -66,6 +67,7 @@ def main():
             'law': 'WorldUI/Modal/SharedWindowSizeLaw.cs', 'sender': 'Net/Avatar/NetAvatarDriver.cs',
             'presence': 'Net/PresenceState.cs', 'module': 'Net/NetModule.cs',
             'video': 'Net/Remote/RemoteMapStory.Video.cs', 'playback': 'Net/Remote/RemoteVideoPlayback.cs',
+            'video_state': 'Net/VideoWindowState.cs',
             'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
             'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
             'results_pose': 'Net/ScenarioResultsPose.cs', 'results_state': 'Net/ScenarioResultsState.cs',
@@ -101,9 +103,14 @@ def main():
             'private static void Forget(', 'private static void ResolvePose(', 'private static void PruneStale(Dictionary'))
         codec = '\n'.join(block(original['codec'], signature) for signature in (
             'internal static void WriteU32(', 'internal static uint ReadU32(',
-            'internal static void WriteF32(', 'internal static float ReadF32('))
+            'internal static void WriteF32(', 'internal static float ReadF32(',
+            'internal static void WriteI16(', 'internal static short ReadI16(',
+            'private static void WritePose(', 'private static void ReadPose('))
+        codec += '\nprivate const float QuatScale = 32767f;\n'
+        codec += 'internal static void WritePoseShared(byte[] b, ref int i, in RigPose p) => WritePose(b, ref i, in p);\n'
+        codec += 'internal static void ReadPoseShared(byte[] b, ref int i, out RigPose p) => ReadPose(b, ref i, out p);\n'
         protocol = '\n'.join(re.search(r'public const (?:byte|ushort|float) ' + name + r' = [^;]+;', original['protocol'])[0] for name in (
-            'ModBuild', 'ExtIdSharedWindowMoveOrder', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
+            'ModBuild', 'ExtIdVideoWindow', 'SharedFrameMax', 'ExtIdSharedWindowMoveOrder', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
             'StoryOpenBit', 'StoryPoseBit', 'StoryFinishedBit', 'StoryPageNone', 'StoryPageMax',
             'SharedOpenBit', 'SharedPoseBit', 'SharedFinishedBit', 'SharedWindowKindMapStory',
             'SharedWindowKindQuestConfirm', 'SharedWindowKindEncounter', 'SharedFrameSeatAnchor', 'SharedFrameParchment',
@@ -137,7 +144,7 @@ def main():
             'Protocol.cs': prefix + 'internal static class NetProtocol {\n' + protocol + '\n}}',
             'Anchor.cs': original['anchor'], 'Law.cs': original['law'],
             'VideoReceipt.cs': prefix + 'internal static class VideoPoseReceipt { internal static void Observe(int sender, in PresenceState extras) {\n' + video_tail + '\n}}}',
-            'Video.cs': original['video'], 'Reward.cs': original['reward'],
+            'Video.cs': original['video'], 'VideoPlayback.cs': original['playback'], 'VideoState.cs': original['video_state'], 'Reward.cs': original['reward'],
             'RewardHandshake.cs': original['reward_handshake'], 'RewardHandoff.cs': original['reward_handoff'],
             'RewardWindow.cs': prefix + block(original['reward_window'], 'internal struct RewardWindowState') + '\n' + block(original['reward_window'], 'internal static class RewardPosePolicy') + '\ninternal static class RewardWindowCodec {\n' + block(original['reward_window'], 'internal static bool Valid(') + '\n' + re.search(r'private static bool Finite\([^;]+;', original['reward_window'])[0] + '\n}}',
             'RewardCensus.cs': prefix + 'internal static class NetAvatarDriver {\n' + block(original['sender'], 'internal static void CollectRewardPosePeers(') + '\n}}',
@@ -148,8 +155,17 @@ def main():
             room += '\n' + re.search(r'private const (?:int|float) '+name+r' = [^;]+;', original['roommaking'])[0]
         sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
             'internal static partial class ModalFallback {\n'+room+'\n}')
+        if args.unity_video:
+            sys.path.insert(0, str(fixture))
+            from unity_video import run_unity_video
+            status = run_unity_video(root, run, sources, fixture_sources, original, hashes)
+            return status
         variants = [
             ('production', '', '', '', ''),
+            ('video-mirror-repeated-initial', 'VideoPlayback.cs',
+             'if (!NativeVideoWindow.SharedInitialPoseReady\n            && RemoteMapStory.TryVideoSharedInitialPose(',
+             'if (RemoteMapStory.TryVideoSharedInitialPose(',
+             'revealed mirror follows the physical shared drag: native/scenario/host'),
             ('results-foreign-author', 'ResultsPose.cs',
              'state.Author != SharedWindowSpawnAuthority.AuthorId', 'false',
              'results refuses a foreign content author'),

@@ -8,9 +8,10 @@ paths execute their original kernels. Records119 and121 are serialized and parse
 before the receiver reconstructs the source's world pose and adopts that opening's
 captured render reference. Reward includes its complete sampler, receive, handshake,
 policy, initial-cache publication and pose handoff, with the actual stable roster
-collector. The exact pose-forwarding tail of the native video receiver executes
-against the real video peer storage; its complete decoder/content lifecycle retains
-its separate VideoPlaybackTests coverage.
+collector. The complete native/review video playback coordinator now runs before
+its actual initial-pose adoption and shared resolver, including the mirror tick
+that precedes every move. Records72 and123 also pass through their real codecs.
+Decoder/audio lifecycle keeps its separate VideoPlaybackTests coverage.
 
 Native window discovery, the session/roster inputs, transform storage and managed
 quaternion arithmetic are explicit portable boundaries. Native post-quest completion
@@ -98,3 +99,21 @@ for paired native game sessions or headset acceptance.
 `--scenario reward-handover --case production` and
 `--scenario auto-author-return --case production` are partial development
 reproductions. Neither is a complete containing run or a complete local gate.
+
+
+`--scenario video-mirror --case production` is a partial development reproduction
+of that full video coordinator order. It covers native/review, scenario/map,
+host/client movers, a late first opening heartbeat, physical-frame movement and
+resize, release, viewer zoom and close/reopen generation. The compiling
+`video-mirror-repeated-initial` mutation restores the old unconditional initial
+reader and must fail the real frame-follow assertion.
+
+`--unity-video` is its actual Unity companion. It runs the same complete playback
+coordinator, production `NativeVideoWindow` readiness and first-reveal methods,
+generic shared-pose resolver, `GrabbableModal.PlaceFrameAt/Tick/LateSyncHost` and
+original size/host writers against Unity transforms, Canvas and final camera
+pixels. It retains PNG views and a compiling old-reader mutation that fails the
+visible-movement assertion. Native discovery/roster, decoder ink, grab chrome and
+visual ease helper are declared ports. The real shared-pose interpolation still
+runs. This separately invoked companion is not the portable complete scope or a
+headset acceptance claim; its single editor uses a private ADB5083 port.

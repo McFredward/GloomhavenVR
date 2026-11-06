@@ -112,6 +112,7 @@ namespace GloomhavenVR.WorldUI
         internal static string ReviewKey = string.Empty;
         internal static uint OriginatingPlaybackGeneration => NativePlayer != null ? NativePlaybackGeneration : ReviewGeneration;
         internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? ReviewPlayer;
+        internal static bool SharedInitialPoseReady = false;
         internal static bool Suppressed, AssetAvailable = true;
         internal static string NativeKey = "Heroes/A.mov", ResolvedKey = string.Empty;
         internal static string PlaybackKey => NativePlayer != null ? NativeKey : ReviewPlayer != null ? ReviewKey : string.Empty;

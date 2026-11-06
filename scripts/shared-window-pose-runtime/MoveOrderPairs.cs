@@ -203,7 +203,7 @@ internal static class MoveOrderPairs
             else if(_kind==SharedWindowKind.Video)
             {
                 var entry=new SharedWindowEntry{Flags=NetProtocol.SharedOpenBit};RemoteMapStory.SampleVideoPose(ContentKey,_id==1,ref entry);
-                result.HasVideoWindow=true;result.VideoWindow=new FixtureVideo{Window=entry};
+                result.HasVideoWindow=true;result.VideoWindow=new VideoWindowState{Window=entry};
             }
             else if(_kind==SharedWindowKind.RewardShowcase)RemoteMapStory.SampleReward(ref result,_id);
             else

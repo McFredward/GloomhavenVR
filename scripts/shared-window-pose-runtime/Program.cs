@@ -160,13 +160,14 @@ internal static class Program
     {
         if(args.Length==1)
         {
-            if(args[0]=="results-poses")ResultsPoseCases.Run();
+            if(args[0]=="video-mirror")VideoPoseCases.Run();
+            else if(args[0]=="results-poses")ResultsPoseCases.Run();
             else if(args[0]=="reward-handover")MoveOrderPairs.RewardPlacementHandover();
             else if(args[0]=="auto-author-return")MoveOrderPairs.AutomaticAuthorReturn();
             else throw new ArgumentException("Unknown partial shared-window scenario");
             Console.WriteLine($"Partial shared-window scenario {args[0]}: {Proof.Checks} assertions passed.");return;
         }
-        Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();MoveOrderPairs.Run();ResultsPoseCases.Run();
+        Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();MoveOrderPairs.Run();ResultsPoseCases.Run();VideoPoseCases.Run();
         Console.WriteLine($"Shared window pose runtime: {Proof.Checks} production assertions passed.");
     }
     private static void Authority()
@@ -217,7 +218,7 @@ internal static class Program
         var state=new PresenceState {HasStorySync=true,StoryFlags=3,StoryInitialPose=true,
             HasSharedWindow=true,SharedWindowCount=3,SharedWindowEntries=new[]{
                 new SharedWindowEntry{Kind=1,Flags=3,InitialPose=true},new SharedWindowEntry{Kind=2,Flags=3,InitialPose=true},new SharedWindowEntry{Kind=3,Flags=3,InitialPose=true}},
-            HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=new SharedWindowEntry{Flags=3,InitialPose=true}},
+            HasVideoWindow=true,VideoWindow=new VideoWindowState{Window=new SharedWindowEntry{Flags=3,InitialPose=true}},
             HasRewardWindow=true,RewardWindow=new RewardWindowState{Window=new SharedWindowEntry{Flags=3,InitialPose=true}}};
         Proof.Configure(1,true);SharedWindowSpawnAuthority.SampleContext(ref state);
         Proof.Check(state.WindowPoseContext.HasValue&&state.WindowPoseContext.Value.Initial==63&&state.WindowPoseContext.Value.Host,
@@ -320,7 +321,7 @@ internal static class Program
         var all=new PresenceState {HasStorySync=true,StoryFlags=3,StoryInitialPose=true,
             HasSharedWindow=true,SharedWindowCount=3,SharedWindowEntries=new[]{
                 new SharedWindowEntry{Kind=1,Flags=3},new SharedWindowEntry{Kind=2,Flags=3},new SharedWindowEntry{Kind=3,Flags=3}},
-            HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=new SharedWindowEntry{Flags=3}},
+            HasVideoWindow=true,VideoWindow=new VideoWindowState{Window=new SharedWindowEntry{Flags=3}},
             HasRewardWindow=true,RewardWindow=new RewardWindowState{Window=new SharedWindowEntry{Flags=3}}};
         foreach(var pair in SharedWindows.Grabs)pair.Value.ApplySharedReferenceWorldScale(11.47f+(int)pair.Key*31.625f);
         SharedWindowSize.ReferenceWorldScale=999f;MapRoomDriver.Active=false;
@@ -396,7 +397,7 @@ internal static class Program
         Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
         var entry=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,false,ref entry);
         Proof.Check(entry.Frame==NetProtocol.SharedFrameSeatAnchor,"current video writer uses Seat0 while the host is in the3D map");
-        var sent=new PresenceState{HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=entry}};
+        var sent=new PresenceState{HasVideoWindow=true,VideoWindow=new VideoWindowState{Window=entry}};
         SharedWindowSpawnAuthority.SampleContext(ref sent);sent=Decode(sent);
         Proof.Configure(2);RemoteMapStory.ResetVideoPose();var follower=SharedWindows.Grabs[SharedWindowKind.Video];follower.Visible=false;
         var outgoing=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,true,ref outgoing);
@@ -413,7 +414,7 @@ internal static class Program
         Proof.Check(follower.SharedReferenceWorldScale==123.45f&&follower.ReferenceAtLastPlacement==123.45f,
             "live video placement adopts the winning packet reference before writing its physical pose");
         follower.IsGrabbed=true;follower.Root.position=new Vector3(3,8,13);outgoing=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,true,ref outgoing);
-        var echoed=new PresenceState{HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=outgoing}};
+        var echoed=new PresenceState{HasVideoWindow=true,VideoWindow=new VideoWindowState{Window=outgoing}};
         SharedWindowSpawnAuthority.SampleContext(ref echoed);echoed=Decode(echoed);
         Proof.Check((outgoing.Flags&2)!=0&&!outgoing.InitialPose&&echoed.WindowScales!.Value.Reference(5)==123.45f,
             "a video observer republishes the adopted render reference independently of decoder ownership");
@@ -494,7 +495,7 @@ internal static class Program
         Proof.Configure(1,true);RemoteMapStory.ResetVideoPose();
         var host=SharedWindows.Grabs[SharedWindowKind.Video];Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
         SharedWindowEntry entry=new() {Flags=1};RemoteMapStory.SampleVideoPose(77,false,ref entry);
-        var sent=new PresenceState {HasVideoWindow=true,VideoWindow=new FixtureVideo {Window=entry}};
+        var sent=new PresenceState {HasVideoWindow=true,VideoWindow=new VideoWindowState {Window=entry}};
         SharedWindowSpawnAuthority.SampleContext(ref sent);
         Proof.Check(entry.InitialPose&&(entry.Flags&2)!=0&&sent.WindowPoseContext!.Value.IsInitial(5),
             "host video placement is published even while its decoder mirrors a different source");
