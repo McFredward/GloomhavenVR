@@ -3615,6 +3615,18 @@
         "local"
       ],
       "weight": 20
+    },
+    {
+      "id": "video-window-pose-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-window-pose-runtime.py",
+        "--unity-video"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }
