@@ -25,8 +25,8 @@ internal static class MultiplayerCheats
     internal const int NativeAction = 127;
     private static ulong _nextSequence, _appliedSequence, _gateRoster;
     private static int _epoch = -1, _gateEpoch = -1;
-    private static CMapState? _map, _gateMap;
-    private static ScenarioState? _scenario;
+    private static WeakReference<CMapState>? _map, _gateMap;
+    private static WeakReference<ScenarioState>? _scenario;
     private static MultiplayerCheatCommand? _pending;
     private static NativeCheatQueue.Cohort? _pendingCohort, _gateCohort;
 
@@ -162,7 +162,7 @@ internal static class MultiplayerCheats
         get
         {
             ResetContext();
-            return _gateMap != null && ReferenceEquals(_gateMap, AdventureState.MapState)
+            return _gateMap != null && Matches(_gateMap, AdventureState.MapState)
                 && _gateEpoch == VersionGuard.SessionEpoch && RosterFingerprint(false) == _gateRoster
                 && NativeCheatQueue.CohortUnchanged(_gateCohort, requireStable: false);
         }
@@ -173,10 +173,15 @@ internal static class MultiplayerCheats
     private static void ResetContext()
     {
         CMapState? map = AdventureState.MapState; ScenarioState? scenario = ScenarioManager.CurrentScenarioState;
-        if (_epoch == VersionGuard.SessionEpoch && ReferenceEquals(map, _map) && ReferenceEquals(scenario, _scenario)) return;
-        _epoch = VersionGuard.SessionEpoch; _map = map; _scenario = scenario;
+        if (_epoch == VersionGuard.SessionEpoch && Matches(_map, map) && Matches(_scenario, scenario)) return;
+        _epoch = VersionGuard.SessionEpoch;
+        _map = map == null ? null : new WeakReference<CMapState>(map);
+        _scenario = scenario == null ? null : new WeakReference<ScenarioState>(scenario);
         _pending = null; _pendingCohort = null; _appliedSequence = 0;
     }
+    private static bool Matches<T>(WeakReference<T>? reference, T? current) where T : class =>
+        reference == null ? current == null : reference.TryGetTarget(out T? prior) && ReferenceEquals(prior, current);
+
     private static void Report(string message)
     {
         try { VRLog.Note("WorldUI", message); }
@@ -251,7 +256,7 @@ internal static class MultiplayerCheats
             case MultiplayerCheatKind.Reveal: DebugMenu.RevealAllRooms(); break;
             case MultiplayerCheatKind.Requirements:
                 Patches.ScenarioGateCheat.SetFromSharedHost(command.Enabled);
-                _gateMap = map; _gateEpoch = VersionGuard.SessionEpoch; _gateRoster = command.Roster; _gateCohort = NativeCheatQueue.CaptureCohort(requireStable: false);
+                _gateMap = new WeakReference<CMapState>(map); _gateEpoch = VersionGuard.SessionEpoch; _gateRoster = command.Roster; _gateCohort = NativeCheatQueue.CaptureCohort(requireStable: false);
                 break;
             default: throw new InvalidDataException("Unknown cheat operation.");
         }
