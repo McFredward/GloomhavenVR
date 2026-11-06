@@ -17,6 +17,8 @@ internal static class NativeFigureAudioPatches
         if (_installed || VRSession.Harmony == null) return;
         VRSession.Harmony.PatchAll(typeof(Producer));
         VRSession.Harmony.PatchAll(typeof(Objects));
+        VRSession.Harmony.PatchAll(typeof(PickCommit));
+        VRSession.Harmony.PatchAll(typeof(PickRequests));
         _installed = true;
     }
     [HarmonyPatch]
@@ -40,6 +42,22 @@ internal static class NativeFigureAudioPatches
         [HarmonyFinalizer]
         private static Exception? Finalizer(NativeFigureAudio.Scope __state, Exception? __exception)
         { NativeFigureAudio.End(__state); return __exception; }
+    }
+    [HarmonyPatch(typeof(CardsHandUI), "OnLoseCardClick")]
+    private static class PickCommit
+    {
+        [HarmonyPrefix]
+        private static void Prefix(CardsHandUI __instance, out NativePickAudioAudit.Scope? __state)
+            => __state = NativePickAudioAudit.Begin(__instance);
+        [HarmonyFinalizer]
+        private static Exception? Finalizer(NativePickAudioAudit.Scope? __state, Exception? __exception)
+        { NativePickAudioAudit.End(__state, __exception); return __exception; }
+    }
+    [HarmonyPatch(typeof(AudioController), nameof(AudioController.PlayAudioItem))]
+    private static class PickRequests
+    {
+        [HarmonyPostfix]
+        private static void Postfix(AudioItem sndItem, AudioObject? __result) => NativePickAudioAudit.Observe(sndItem, __result);
     }
     [HarmonyPatch(typeof(AudioController), nameof(AudioController.PlayAudioSubItem))]
     private static class Objects

@@ -181,3 +181,60 @@ complete strict build/source/local gate and does not claim native callback,
 Photon delivery or HMD picture qualification. A further audio hierarchy correction
 is in progress; the prior ancestor-only audio fixture is inadequate for actual
 native rat admission and is superseded below when complete.
+
+
+## Audio hierarchy correction and final evidence
+
+The initial21-assertion ancestor fixture did **not** represent the actual native
+model hierarchy and cannot establish the PlagueRat repair. Source review caught
+this before acceptance: Choreographer.CreateCharacterActor sets
+CharacterManager.CharacterActor before initializing the model (820/821), creates
+ActorPrefab later (883), assigns CharacterActorGO (885), parents that prefab under
+the animator (889), and only then calls ActorBehaviour.SetActor (930). Model SFX
+and ActorBehaviour are siblings. The async creation path preserves that ordering.
+
+The final admission follows the exact native CharacterManager ancestor, its
+CharacterActorGO pointer and ReferenceEquals(CharacterActor, ActorBehaviour.Actor).
+The original direct-ancestor case still works where actually present. A receipt
+created during native model initialization may wait for that exact future native
+actor prefab, but writes **no** source position while pending. It has no timer,
+scene/ID/name search, replay or gameplay write. A pooled stale pointer never
+supplies another actor's identity. Once bound, pointer/actor replacement revokes
+that original playback generation. Preview/UI models without a native actor
+prefab remain unchanged. Emitter position/offset still comes from the actual
+model component, never the gameplay actor's location.
+
+`figure-audio-runtime/run-0aciv_05` passes30 production assertions and6 compiled
+causal controls in real Unity using original publisher audio producers/runtime.
+The fixture now constructs the exact source-bound native sibling topology/order
+and checks deferred native actor creation, pooled stale pointers, manager/actor
+reassignment, destroyed-before-binding, pool reuse before binding and inert
+preview models. The old ancestor-only control fails at the real emitter follow
+assertion. Native Choreographer/CharacterManager source hashes and order anchors
+are retained; their full gameplay creation callbacks are not executed. Synthetic
+stereo waveforms replace the original clip; physical HMD ear balance remains a
+hardware limit. All21 original Idle_SFX prefixes were also audited:20 are native
+LoopSubitem, one is DoNotLoop, none uses a loop-sequence reauthoring path.
+
+The requested Debug-only forced-pick audio audit now correlates up to12 original
+DiscardCard OnLoseCardClick scopes, at most8 detailed native AudioItem requests
+per scope plus start/end counts. It logs actual item/source identity and settings;
+all audio calls and native exception objects are unchanged. It deliberately does
+not attribute later asynchronous audio to a completed callback. The hardware logs
+show one native commit per owner operation and no AudioObject/request census.
+They also contain two UICardTabSelect fan-close requests around the host's commit
+(remote19242/19320), separated by a real Inspect-fan reopen (19261/19263).
+That is a concrete different cue/lifecycle, not proof of a doubled character
+confirmation. No broad clip deduplication or claimed fix for that unknown was added.
+
+With the audit installed, all6 causal controls still fail as intended in
+`run-6lfitnn8`; production reached a metadata-fixture setter error after the30
+source-follow assertions. The sole repair replaces field reflection with the
+actual native currentMode property setter, in the previously unexecuted audit
+suffix. Bounded production rerun `run-wodwh9t_` passes35 assertions, including
+exact real AudioController item/source receipt, one playback only, original
+exception identity, normal-log no-op and VR-off no-op. The six controls stop
+before this repaired suffix and retain identical executed source/oracles. All
+processes are reaped and canonical caches cleaned. Earlier fixture compilation,
+wrong native reuse-position assumption and topology-factory spelling failures
+remain preserved; none was accepted as a causal control or hardware success.

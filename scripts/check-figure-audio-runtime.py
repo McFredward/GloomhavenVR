@@ -52,17 +52,32 @@ def main():
     fixture = root / 'scripts/figure-audio-runtime'
     sources = {
         'NativeFigureAudio.cs': root / 'src/GloomhavenVR/Core/Sound/NativeFigureAudio.cs',
+        'NativePickAudioAudit.cs': root / 'src/GloomhavenVR/Core/Sound/NativePickAudioAudit.cs',
         'NativeFigureAudioPatches.cs': root / 'src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs',
     }
     original = {name: path.read_text() for name, path in sources.items()}
+    native = (root / 'decompiled/GH.Runtime/Choreographer.cs').read_text()
+    start = native.index('public GameObject CreateCharacterActor(')
+    end = native.index('public ', start + 10)
+    native = native[start:end]
+    anchors = ['characterManager.CharacterActor = actor;', 'characterManager.InitialiseCharacter();',
+        'UnityEngine.Object.Instantiate(m_ActorPrefab)', 'characterManager.CharacterActorGO = gameObject2;',
+        'gameObject2.transform.SetParent(animator.transform);', 'ActorBehaviour.SetActor(gameObject, actor);']
+    order = [native.index(value) for value in anchors]
+    assert order == sorted(order), 'Original native CharacterManager/model/ActorPrefab order changed'
+
     variants = [
         ('production', '', '', '', ''),
         ('original-detached-source', 'NativeFigureAudio.cs', 'Source.transform.position = target;',
             '/* original detached position remains stationary */', 'persistent original source follows moving/animated figure emitter'),
         ('pooled-generation-reused', 'NativeFigureAudio.cs', 'if (follower != null) follower.Reused();',
             '/* injected: unscoped reuse retains old figure ownership */', 'same-frame same-item reuse before outer finalizer rejects stale generation'),
-        ('stale-actor-owner', 'NativeFigureAudio.cs', '&& ReferenceEquals(owner.Figure.Actor, owner.Actor)',
-            '', 'actor pooling/reassignment revokes old emitter receipt'),
+        ('stale-actor-owner', 'NativeFigureAudio.cs', '!ReferenceEquals(figure.Actor, owner.Actor)',
+            'false', 'actor pooling/reassignment revokes old emitter receipt'),
+        ('original-ancestor-only', 'NativeFigureAudio.cs', 'CharacterManager? manager = producer.GetComponentInParent<CharacterManager>();',
+            'CharacterManager? manager = null;', 'persistent original source follows moving/animated figure emitter'),
+        ('stale-native-manager', 'NativeFigureAudio.cs', '|| !ReferenceEquals(owner.Manager.CharacterActor, owner.Actor)',
+            '', 'native CharacterManager reassignment revokes prior original actor receipt'),
         ('vr-off-producer-captured', 'NativeFigureAudio.cs', 'VRSession.IsRunning',
             'true', 'VR-off original figure audio remains untouched'),
     ]
@@ -85,6 +100,7 @@ def main():
         root / 'decompiled/GH.Runtime/FootstepSound.cs', root / 'decompiled/GH.Runtime/ClockStone/PlayAudio.cs',
         root / 'decompiled/GH.Runtime/AudioController.cs', root / 'decompiled/GH.Runtime/ClockStone/AudioObject.cs',
         root / 'decompiled/GH.Runtime/ClockStone/AudioItem.cs', root / 'decompiled/GH.Runtime/ActorBehaviour.cs',
+        root / 'decompiled/GH.Runtime/CharacterManager.cs', root / 'decompiled/GH.Runtime/Choreographer.cs',
     ]}
     try:
         retained = run / 'Sources'; retained.mkdir()
@@ -102,7 +118,7 @@ def main():
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for target, code in original.items():
                 if target == filename:
-                    assert code.count(before) == (2 if name == 'vr-off-producer-captured' else 1), 'Mutation binding drift: ' + name
+                    assert code.count(before) == (2 if name in {'vr-off-producer-captured', 'stale-actor-owner'} else 1), 'Mutation binding drift: ' + name
                     code = code.replace(before, after)
                 (production / target).write_text(code)
             csproj = case / 'FigureAudio.csproj'; shutil.copyfile(retained / 'fixture/FigureAudio.csproj', csproj)

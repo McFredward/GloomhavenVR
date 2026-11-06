@@ -14,12 +14,14 @@ internal static class NativeFigureAudio
     {
         internal readonly Capture? Previous;
         internal readonly Component Producer;
-        internal readonly ActorBehaviour Figure;
+        internal ActorBehaviour? Figure;
+        internal readonly CharacterManager? Manager;
         internal readonly CActor Actor;
         internal readonly bool PreserveOffset;
         internal readonly List<Receipt> Objects = new();
-        internal Capture(Capture? previous, Component producer, ActorBehaviour figure, CActor actor, bool offset)
-        { Previous = previous; Producer = producer; Figure = figure; Actor = actor; PreserveOffset = offset; }
+        internal Capture(Capture? previous, Component producer, ActorBehaviour? figure,
+            CharacterManager? manager, CActor actor, bool offset)
+        { Previous = previous; Producer = producer; Figure = figure; Manager = manager; Actor = actor; PreserveOffset = offset; }
     }
     internal readonly struct Receipt
     {
@@ -42,10 +44,13 @@ internal static class NativeFigureAudio
         {
             if (eligible && VRSession.IsRunning && producer != null && producer.gameObject.activeInHierarchy)
             {
-                ActorBehaviour? figure = producer.GetComponentInParent<ActorBehaviour>();
-                CActor? actor = figure != null ? figure.Actor : null;
-                if (figure != null && actor != null)
-                    _capture = new Capture(previous, producer, figure, actor, preserveOffset);
+                // Native Choreographer creates ActorPrefab beneath the animator AFTER model
+                // initialization. Model audio is usually a SIBLING, not an ActorBehaviour child.
+                CharacterManager? manager = producer.GetComponentInParent<CharacterManager>();
+                ActorBehaviour? figure = manager == null ? producer.GetComponentInParent<ActorBehaviour>() : null;
+                CActor? actor = manager != null ? manager.CharacterActor : figure != null ? figure.Actor : null;
+                if (actor != null)
+                    _capture = new Capture(previous, producer, figure, manager, actor, preserveOffset);
             }
         }
         catch (Exception ex) { Failure(ex); }
@@ -88,11 +93,39 @@ internal static class NativeFigureAudio
         catch (Exception ex) { Failure(ex); }
     }
 
+    internal enum Admission { Invalid, Pending, Live }
+    internal static Admission Admit(Capture owner)
+    {
+        if (!VRSession.IsRunning || owner.Producer == null || !owner.Producer.gameObject.activeInHierarchy)
+            return Admission.Invalid;
+        if (!ReferenceEquals(owner.Manager, null) && owner.Manager == null) return Admission.Invalid;
+        ActorBehaviour? figure;
+        if (owner.Manager != null)
+        {
+            if (!owner.Manager.gameObject.activeInHierarchy
+                || !ReferenceEquals(owner.Producer.GetComponentInParent<CharacterManager>(), owner.Manager)
+                || !ReferenceEquals(owner.Manager.CharacterActor, owner.Actor)) return Admission.Invalid;
+            GameObject? native = owner.Manager.CharacterActorGO;
+            // Pending receipt changes nothing until the exact future native ActorPrefab binds.
+            // Preview/UI models never acquire that pointer. There is no timer or replay request.
+            if (native == null) return ReferenceEquals(owner.Figure, null) ? Admission.Pending : Admission.Invalid;
+            figure = native.GetComponent<ActorBehaviour>();
+            if (figure == null || !figure.transform.IsChildOf(owner.Manager.transform)
+                || !ReferenceEquals(figure.Actor, owner.Actor))
+                return ReferenceEquals(owner.Figure, null) ? Admission.Pending : Admission.Invalid;
+        }
+        else figure = owner.Producer.GetComponentInParent<ActorBehaviour>();
+        if (figure == null || !figure.gameObject.activeInHierarchy || !ReferenceEquals(figure.Actor, owner.Actor)
+            || !ReferenceEquals(owner.Figure, null) && !ReferenceEquals(owner.Figure, figure)) return Admission.Invalid;
+        owner.Figure = figure;
+        return Admission.Live;
+    }
+
     internal static void Report(Capture capture, AudioObject source)
     {
         // A bounded normal-level receipt makes ordinary reports useful without a per-step stream.
         if (_reported++ < 12)
-            VRLog.Info("Sound", $"FIGURE AUDIO bound original native source: figure={capture.Figure.name}, emitter={capture.Producer.name}, item='{source.audioID}', loop={source.primaryAudioSource.loop}, spatial={source.primaryAudioSource.spatialBlend:F2}. Native clip, settings and stop ownership retained.");
+            VRLog.Note("Sound", $"FIGURE AUDIO bound original native source: figure={capture.Figure?.name}, emitter={capture.Producer.name}, item='{source.audioID}', loop={source.primaryAudioSource.loop}, spatial={source.primaryAudioSource.spatialBlend:F2}. Native clip, settings and stop ownership retained.");
     }
     internal static void Failure(Exception ex)
     {
@@ -111,19 +144,15 @@ internal sealed class NativeFigureAudioFollower : MonoBehaviour
     private AudioSubItem? _subItem;
     private double _started;
     private Vector3 _localOffset;
+    private bool _reported;
     internal void Reused() { if (++Generation == 0) Generation++; _owner = null; }
     internal void Bind(NativeFigureAudio.Capture owner, ulong generation)
     {
-        if (generation != Generation || Source == null || !Admitted(owner)) return;
-        _owner = owner; _subItem = Source.subItem; _started = Source.startedPlayingAtTime;
+        if (generation != Generation || Source == null || NativeFigureAudio.Admit(owner) == NativeFigureAudio.Admission.Invalid) return;
+        _owner = owner; _subItem = Source.subItem; _started = Source.startedPlayingAtTime; _reported = false;
         _localOffset = owner.PreserveOffset ? owner.Producer.transform.InverseTransformPoint(Source.transform.position) : Vector3.zero;
-        Follow(); NativeFigureAudio.Report(owner, Source);
+        Follow();
     }
-    private static bool Admitted(NativeFigureAudio.Capture owner) => VRSession.IsRunning
-        && owner.Producer != null && owner.Producer.gameObject.activeInHierarchy
-        && owner.Figure != null && owner.Figure.gameObject.activeInHierarchy
-        && ReferenceEquals(owner.Figure.Actor, owner.Actor)
-        && ReferenceEquals(owner.Producer.GetComponentInParent<ActorBehaviour>(), owner.Figure);
     private void LateUpdate()
     {
         try { Follow(); }
@@ -133,13 +162,16 @@ internal sealed class NativeFigureAudioFollower : MonoBehaviour
     {
         NativeFigureAudio.Capture? owner = _owner;
         if (owner == null) return;
-        if (Source == null || !Source.gameObject.activeInHierarchy || !Admitted(owner)
+        NativeFigureAudio.Admission admission = NativeFigureAudio.Admit(owner);
+        if (Source == null || !Source.gameObject.activeInHierarchy || admission == NativeFigureAudio.Admission.Invalid
             || !ReferenceEquals(Source.subItem, _subItem) || Source.startedPlayingAtTime != _started)
         { _owner = null; return; }
+        if (admission == NativeFigureAudio.Admission.Pending) return;
         Vector3 target = owner.Producer.transform.TransformPoint(_localOffset);
         if (float.IsNaN(target.x) || float.IsInfinity(target.x) || float.IsNaN(target.y)
             || float.IsInfinity(target.y) || float.IsNaN(target.z) || float.IsInfinity(target.z)) return;
         Source.transform.position = target;
+        if (!_reported) { _reported = true; NativeFigureAudio.Report(owner, Source); }
     }
     private void OnDisable() => _owner = null;
 }
