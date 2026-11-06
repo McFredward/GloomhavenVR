@@ -113,8 +113,11 @@ namespace GloomhavenVR.WorldUI.Surfaces {
     manifest_path = run/'manifest.json'; manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
     pins = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [table_path, world/'Surfaces/WorldSurface.cs', *fixture.glob('*.cs'), fixture/'Editor/BindingRunner.cs']}
     (run/'source-hashes.json').write_text(json.dumps(pins,indent=2)+'\n')
-    command=[str(unity),'-batchmode','-nographics','-projectPath',str(project),'-executeMethod','BindingRunner.Run',
+    # Native Graphic.depth/culling is part of the real picker contract. A null
+    # graphics device cannot establish that registry, even with canvas rebuilds.
+    command=[str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','BindingRunner.Run',
         '-bindingManifest',str(manifest_path),'-logFile',str(run/'Unity.log')]
+    if not os.environ.get('DISPLAY'): command=['xvfb-run','-a',*command]
     result = subprocess.run(command,capture_output=True,text=True,timeout=240)
     (run/'launcher.log').write_text(result.stdout+result.stderr)
     text=(run/'results.txt').read_text() if (run/'results.txt').exists() else ''
