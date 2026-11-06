@@ -54,14 +54,14 @@ public class UIReadyToggle:MonoBehaviour {
  public void SetLabelTextGamepad(string text){}
 }
 public class UIScenarioMultiplayerController { public int Writes;public void UpdateReadyPlayer(NetworkPlayer p,bool ready){Writes++;}public void HideReadyTracker(){}public void ShowReadyTracker(bool bringToFront,bool showExhausted){} }
-namespace GloomhavenVR.Core { internal static class VRSession { internal static bool IsRunning=true; }internal static class VRLog {internal static void Info(string s,string t){}internal static void Warn(string s,string t){} } }
+namespace GloomhavenVR.Core { internal static class VRSession { internal static bool IsRunning=true; }internal static class VRLog {internal static void Info(string s,string t){}internal static void Warn(string s,string t){}internal static void Alert(string s,string t){}internal static void Note(string s,string t){}internal static void Debug(string s,string t){}internal static bool WantsDebug=>false; } }
 namespace GloomhavenVR.Core.Events { internal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer=true; } }
 namespace GloomhavenVR.WorldUI {
  internal static class WorldUIConfig { internal static bool ConversionActive=true; }
  internal static class FlatScreen { internal static bool ManualScreenActive; }
  internal sealed class ConvertedPanel {
   internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal bool IsAlive=true;
-  internal bool RenderHidden,OwnerRenderHidden;internal readonly List<Transform> ExtraRenderRoots=new();
+  internal bool RenderHidden,OwnerRenderHidden,FitEnabled;internal RectTransform? FitContentRoot;internal Canvas HostCanvas=null!;internal readonly List<Transform> ExtraRenderRoots=new();
   internal Transform? NativeHome;internal Vector3 Position,Scale;internal Quaternion Rotation;internal Vector2 Min,Max,Pivot,Size;internal int Index;
  }
  internal static class CanvasConversion {

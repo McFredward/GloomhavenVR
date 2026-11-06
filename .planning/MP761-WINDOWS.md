@@ -126,3 +126,60 @@ an inert no-Results boundary; ready-phase-owner68+4controls, map-ready-handoff52
 
 The additional Net presentation sampler/replayer is now being implemented; its
 qualification and full-frame payload measurements will be recorded separately.
+
+## Results public picture (WorldUI + independent Net presentation)
+
+`ScenarioResultsPresentation` samples only the exact existing native Results
+window. It uses the approved generic TownServiceBinding/Assets/Material/Neutralize
+render-output vocabulary; no NPC interaction/service header is reused. Static
+panes and native battle-goal/achievement rows are bounded independent modules.
+Their exact native relative paths, parent bindings and original prefab fields
+permit a client to reconstruct cold rows before its own controller populates them.
+Generated TMP children and exact mod-owned camera/display objects are excluded.
+The separately docked original Ready root is represented in the Results root's
+coordinate frame, retaining its real position/rotation/scale and authored rect.
+
+A published sample clones the sampler's reused node array. Received pooled
+values are immutable: interpolation allocates its own values/numbers, keeps
+state/type/permission flags discrete and only blends original numeric drawing
+output. It does not run GUIAnimator, Show, Hide, ReadyUp or completion callbacks.
+Original native controllers continue independently under a reversible draw-only
+lease. Observer modules are neutralized below an inactive quarantine, validated
+as an entire candidate and revealed together; a missing template/asset keeps the
+previous complete picture. The exact author frame temporarily owns observer fit
+with a restoration receipt. Native closing tails remain eligible; native close
+retires only the matching author/opening key, retaining a future complete packet
+until its actual local native opening appears.
+
+`results-presentation-runtime` imports the original level6 Results/Ready static
+hierarchy plus the original externally referenced sharedassets6 battle-goal and
+achievement prefabs, actual sprite/font data and native manager field identities.
+It constructs four original goal and four original achievement rows. The actual
+production sampler, binding/assets/material registry, codec (Unity Mono), clone
+neutralizer, atomic playback and final Unity head pixels execute. Bootstrap,
+original controller animation clocks, nonstandard native shader programs and
+network transport remain explicit ports: the source/mirror comparison uses the
+same imported render authoring and is not native Windows shader/HMD proof.
+
+Qualified retained evidence:
+
+- `run-jkknfu8y`: production17 assertions plus the future-opening control.
+- `run-kufypt2v`: production16 and missing-original-prefab causal control.
+- `run-0h5dzx14`: production15 plus reused-array, omitted-root-pose,
+  future-opening-discard, absent interpolation and partial-candidate retirement
+  controls. The neutralizer control reached its intended later controller-removal
+  assertion; only the expected-failure label was corrected, then it passed alone
+  in `run-7gegdic6`. The production assertions were not weakened.
+- The independent original and complete observer images differ by zero channels
+  above tolerance. The cold-row case also removes the observer's populated rows;
+  all original579 nodes/23 modules are reconstructed from the exact native prefabs.
+- The complete initial packet is11287 bytes (15 fragments at800 payload bytes),
+  retained as `packet.bin`; the actual Mono write/read round-trip passes. Full
+  packets at15Hz are unsuitable for the existing event budget, so the primary
+  integration is adding independently based sparse updates. This measurement
+  does not certify that pending transport work or actual Photon cadence.
+
+Every run, including compile/export/bootstrap failures, has canonical completion
+cleanup after process retirement. Original source, metadata, packets and captures
+remain; regenerated Unity/compiler caches were removed. No release archive or
+hardware success is claimed.

@@ -74,6 +74,14 @@ internal sealed class ScenarioResultsPresentation
         if (!state.Visible) RetirePicture();
     }
 
+    /// <summary>A native closure retires only its own public opening. A complete
+    /// future opening received before its local native template survives this edge.</summary>
+    internal void RetireOpening(int author, uint key)
+    {
+        if (_displayed != null && _displayed.Author == author && _displayed.Key == key) RetirePicture();
+        if (_pending != null && _pending.Author == author && _pending.Key == key) _pending = null;
+    }
+
     /// <summary>Called at Update and at the final visual boundary. Build at most once per frame;
     /// the cheap output lease is reasserted at both boundaries against native late writes.</summary>
     internal void Tick()
@@ -87,6 +95,9 @@ internal sealed class ScenarioResultsPresentation
             {
                 try
                 {
+                    if (!ScenarioResultsNative.TryRead(out ScenarioResultsParts native)
+                        || !native.Window.gameObject.activeInHierarchy || (!native.Window.IsOpen && !native.Window.IsVisible))
+                        throw new InvalidDataException("The original results opening has not appeared yet.");
                     if (!ScenarioResultsNative.TryGetConverted(out ConvertedPanel? panel) || panel == null)
                         throw new InvalidDataException("The original results window has not converted yet.");
                     if (_panel != null && !ReferenceEquals(_panel, panel)) RetirePicture();
@@ -106,7 +117,9 @@ internal sealed class ScenarioResultsPresentation
         }
         if (_picture != null && _panel != null && _panel.IsAlive)
         {
-            _picture.SetActive(!_panel.RenderHidden && !_panel.OwnerRenderHidden);
+            UIWindow? native = ScenarioResultsNative.Window;
+            _picture.SetActive(native != null && native.gameObject.activeInHierarchy && (native.IsOpen || native.IsVisible)
+                && !_panel.RenderHidden && !_panel.OwnerRenderHidden);
             _lease.Tick(_picture.activeInHierarchy ? _picture.transform : null);
         }
         else { _lease.Dispose(); if (_picture != null) RetirePicture(); }
@@ -305,7 +318,9 @@ internal sealed class ScenarioResultsPresentation
         {
             // Register every locally available original dependency before validating
             // any observer module, including a client-hidden native ready footer.
-            EnsureSources(); foreach (Source source in _sources) source.Binding.Read(_assets, true);
+            EnsureSources();
+            try { ReadSources(); }
+            catch (InvalidDataException) { ClearSources(); EnsureSources(); ReadSources(); }
             var originals = new Dictionary<Transform, ushort>();
             foreach (ScenarioResultsPart part in state.Parts)
             {
@@ -424,9 +439,13 @@ internal sealed class ScenarioResultsPresentation
         TownServiceProperty.RawImage => true,
         TownServiceProperty.TmpText => index == 0 || index >= 8 && index <= 17 || index >= 24,
         TownServiceProperty.LegacyText => index == 0,
-        TownServiceProperty.RectMask => index < 4,
+        TownServiceProperty.RectMask => index >= 1 && index <= 4,
         TownServiceProperty.Shadow or TownServiceProperty.Outline => index > 0 && index < 7,
-        _ => false
+        // Keep queue/instancing/type tags discrete; interpolate only the native
+        // named material's colour/vector/float/texture-offset output values.
+        _ => (property == TownServiceProperty.Material || property == TownServiceProperty.TextMaterial
+                || property >= TownServiceProperty.MeshMaterial0 && property <= TownServiceProperty.MeshMaterial7)
+            && index >= 4 && (index - 4) % 5 != 0
     };
     private static bool SameText(string[] a, string[] b)
     { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; }
