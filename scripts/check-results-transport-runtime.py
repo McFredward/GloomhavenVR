@@ -2,7 +2,7 @@
 """Execute exact Results ingress, packet emission and retry kernels with declared native ports."""
 import argparse, hashlib, json, os
 from pathlib import Path
-import shutil, signal, subprocess, tempfile
+import re, shutil, signal, subprocess, tempfile
 from town_run_retention import cleanup_completed_run
 ROOT=Path(__file__).resolve().parents[1]
 def member(text, signature):
@@ -23,6 +23,7 @@ def main():
     kernel+='internal sealed partial class FfsNetTransport {\n'+member(transport,'internal void TickFragments(')+'\n'+member(transport,'private void SendToken(')+'\n}\n'
     kernel=kernel.replace('VRLog.Error(', 'ResultsDiagnostics.Error(')
     paths=[source/'Avatar/NetAvatarDriver.Results.cs',source/'FfsNetTransport.cs',Path(__file__),*sorted((ROOT/'scripts/results-transport-runtime').glob('*.cs'))]
+    project=ROOT/'tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj';paths.append(project)
     for name in ['ScenarioResultsState.cs','ScenarioResultsDelta.cs','ExtrasSendQueue.cs','ExtrasFragments.cs','PresentationBatch.cs'] :paths.append(source/name)
     pins={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths};(run/'source-pins.json').write_text(json.dumps(pins,indent=2)+'\n');(run/'ActualKernels.cs').write_text(kernel)
     status=1;child=None;results=[]
@@ -35,8 +36,13 @@ def main():
                 assert code.count(before)==1,(name,code.count(before));code=code.replace(before,after)
             (case/'ActualKernels.cs').write_text(code)
             for path in (ROOT/'scripts/results-transport-runtime').glob('*.cs'):shutil.copyfile(path,case/path.name)
+            # Preserve the actual compiled project inside its owned run. Absolute
+            # linked inputs keep the original wire project semantics and let the
+            # canonical completion API identify only this case's bin/obj caches.
+            project_text=re.sub(r'<Compile Include="([^"$][^"]*)"',lambda match:'<Compile Include="'+str(project.parent/match[1])+'"',project.read_text())
+            local_project=case/'WireRuntime.csproj';local_project.write_text(project_text)
             target=case/'Overlay.targets';target.write_text('<Project><ItemGroup>'+''.join('<Compile Include="'+str(x)+'" />' for x in case.glob('*.cs'))+'</ItemGroup></Project>')
-            cmd=[dotnet,'build',str(ROOT/'tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj'),'-c','Release','--nologo','-v','quiet','--disable-build-servers','-nr:false','-p:StartupObject=ResultsTransportProof',f'-p:CustomAfterMicrosoftCommonTargets={target}',f'-p:OutputPath={case}/bin/',f'-p:BaseIntermediateOutputPath={case}/obj/']
+            cmd=[dotnet,'build',str(local_project),'-c','Release','--nologo','-v','quiet','--disable-build-servers','-nr:false','-p:StartupObject=ResultsTransportProof',f'-p:CustomAfterMicrosoftCommonTargets={target}',f'-p:OutputPath={case}/bin/',f'-p:BaseIntermediateOutputPath={case}/obj/']
             with (case/'build.log').open('w') as log:child=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT,start_new_session=True);rc=child.wait(timeout=180)
             if rc:raise RuntimeError('Compilation is not accepted as a causal failure: '+name)
             with (case/'execution.log').open('w') as log:child=subprocess.Popen([dotnet,str(case/'bin/GloomhavenVR.WireTests.dll')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True);rc=child.wait(timeout=30)
