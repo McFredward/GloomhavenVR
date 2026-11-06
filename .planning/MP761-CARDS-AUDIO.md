@@ -287,3 +287,14 @@ full plugin then exposed UnityEngine.CompressionLevel ambiguity. Explicitly
 qualifying the already selected System.IO.Compression symbol fixes the latter
 without changing the managed196-vector behavior. Full plugin source Compile0W0E,
 including the final audio/logger and codec, is retained in `run-am9b_2x8`.
+
+Direct incoming-graph strengthening found and fixed a real codec API fault:
+InvalidDataException does not inherit IOException, so final incoming validation
+could escape TryRead rather than returnfalse. `run-7cgmcg2a` retains that actual
+failure. The explicit catch filter now includes InvalidDataException.
+`results761-codec/run-z9amowh0` passes214 assertions, including independently
+mutated incoming identity, parent/binding/cycle, node/property/value references
+and a valid compressed body whose unused scalar pool exceeds1MiB. Three compiling
+causal controls fail as intended: omitting incoming validation, permitting Deflate
+read-ahead and removing the logical expansion limit. Each executed variant source,
+assembly, mutation recipe, build/execution log and cleanup receipt is retained.

@@ -216,7 +216,7 @@ internal static class ScenarioResultsCodec
             if (stream.Position != stream.Length) return false;
             Validate(picture); state = picture; return true;
         }
-        catch (Exception ex) when (ex is IOException || ex is ArgumentException || ex is OverflowException)
+        catch (Exception ex) when (ex is InvalidDataException || ex is IOException || ex is ArgumentException || ex is OverflowException)
         { return false; }
     }
 

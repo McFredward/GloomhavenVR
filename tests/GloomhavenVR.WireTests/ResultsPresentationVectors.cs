@@ -105,6 +105,38 @@ internal static class ResultsPresentationVectors
         int textAt = Find(rawPicture, pattern); t.True(textAt >= 0 && Envelope(encoded)[1] == 0, "small native picture fixture exposes independent raw UTF8 field");
         rawPicture[textAt] = 0xff; var invalidUtf8 = Raw(rawPicture);
         t.True(!ScenarioResultsCodec.TryRead(invalidUtf8, invalidUtf8.Length, out _), "invalid UTF8 rejected rather than replacement-character content");
+        var incoming = Envelope(encoded).Skip(6).ToArray(); var layout = Layout(incoming);
+        ReaderBad(t, incoming, 2, new byte[4], "zero incoming content key");
+        ReaderBad(t, incoming, 6, new byte[8], "zero incoming content revision");
+        ReaderBad(t, incoming, 18, new byte[4], "zero incoming content author");
+        ReaderBad(t, incoming, 14, Hex.Bytes("00 00 C0 7F"), "nonfinite incoming sample time");
+        ReaderBad(t, incoming, 34, new byte[16], "zero incoming pose rotation");
+        ReaderBad(t, incoming, layout.Parts[1], Hex.Bytes("01 00"), "duplicate incoming part ID");
+        ReaderBad(t, incoming, layout.Parts[1] + 2, Hex.Bytes("07 00"), "missing incoming parent");
+        ReaderBad(t, incoming, layout.Parts[1] + 4, Hex.Bytes("55 00 00 00"), "missing incoming parent binding");
+        ReaderBad(t, incoming, layout.Parts[0] + 10, new byte[4], "zero incoming structure");
+        ReaderBad(t, incoming, layout.Parts[1] + 8, Hex.Bytes("FF FF"), "out-of-pool incoming native address");
+        ReaderBad(t, incoming, layout.Parts[1] + 14, Hex.Bytes("01 01"), "oversized incoming node count");
+        ReaderBad(t, incoming, layout.Nodes[1], new byte[4], "zero incoming node binding");
+        ReaderBad(t, incoming, layout.Nodes[1] + 4, new byte[] { 255 }, "oversized incoming property count");
+        ReaderBad(t, incoming, layout.Properties[0] + 1, Hex.Bytes("FF FF"), "out-of-pool incoming value reference");
+        ReaderBad(t, incoming, layout.Properties[2], new[] { incoming[layout.Properties[1]] }, "duplicate incoming property key");
+        var cyclicIncoming = incoming.ToArray(); cyclicIncoming[layout.Parts[1] + 2] = 2; cyclicIncoming[layout.Parts[1] + 4] = 0x22;
+        byte[] cyclicPacket = Raw(cyclicIncoming);
+        t.True(!ScenarioResultsCodec.TryRead(cyclicPacket, cyclicPacket.Length, out _), "cyclic incoming parent graph is refused atomically");
+        // Unused but otherwise valid pooled values make a valid body exceed1MiB. This independent
+        // wire construction proves the decoder's limit, not merely the writer refusing to make it.
+        using var oversizedBody = new MemoryStream();
+        oversizedBody.Write(incoming, 0, layout.PartCountAt);
+        for (int value = 0; value < 600; value++)
+        { oversizedBody.WriteByte(0); oversizedBody.WriteByte(4); oversizedBody.Write(new byte[2048]); oversizedBody.WriteByte(0); }
+        oversizedBody.Write(incoming, layout.PartCountAt, incoming.Length - layout.PartCountAt);
+        byte[] tooLargeBody = oversizedBody.ToArray(); int poolCount = U16(incoming, layout.ValueCountAt) + 600;
+        tooLargeBody[layout.ValueCountAt] = (byte)poolCount; tooLargeBody[layout.ValueCountAt + 1] = (byte)(poolCount >> 8);
+        byte[] forbidden = Compressed(tooLargeBody);
+        t.True(tooLargeBody.Length > 1024 * 1024 && forbidden.Length < 60000, "independent valid expanded-pool fixture fits the outer envelope while exceeding logical bound");
+        t.True(!ScenarioResultsCodec.TryRead(forbidden, forbidden.Length, out _), "otherwise-valid expanded value pool over1MiB is rejected before inflation");
+
 
         t.Case("761: independent pose-only register does not impersonate a content author");
         var pose = Empty(); pose.HasPresentation = false;
@@ -203,6 +235,43 @@ internal static class ResultsPresentationVectors
                 return node;
             }).ToArray() }).ToArray();
         return state;
+    }
+    private sealed class Offsets
+    {
+        internal int ValueCountAt, PartCountAt;
+        internal readonly List<int> Parts = new(), Nodes = new(), Properties = new();
+    }
+    private static int U16(byte[] data, int at) => data[at] | data[at + 1] << 8;
+    private static Offsets Layout(byte[] raw)
+    {
+        var result = new Offsets(); int at = 98 + ((raw[1] & 2) != 0 ? 30 : 0);
+        int n = U16(raw, at); at += 2 + 4 * n;
+        int strings = U16(raw, at); at += 2;
+        for (int i = 0; i < strings; i++) { int bytes = U16(raw, at); at += 2 + bytes; }
+        result.ValueCountAt = at; int values = U16(raw, at); at += 2;
+        for (int i = 0; i < values; i++) { int numbers = U16(raw, at); at += 2 + numbers * 2; int text = raw[at++]; at += text * 2; }
+        result.PartCountAt = at; int parts = raw[at++];
+        for (int i = 0; i < parts; i++)
+        {
+            result.Parts.Add(at); int nodes = U16(raw, at + 14); at += 16;
+            for (int j = 0; j < nodes; j++)
+            { result.Nodes.Add(at); int properties = raw[at + 4]; at += 5;
+                for (int v = 0; v < properties; v++) { result.Properties.Add(at); at += 3; } }
+        }
+        if (at != raw.Length) throw new InvalidDataException("Independent vector layout differs from declared grammar.");
+        return result;
+    }
+    private static void ReaderBad(Harness t, byte[] original, int at, byte[] replacement, string why)
+    {
+        byte[] raw = original.ToArray(); Buffer.BlockCopy(replacement, 0, raw, at, replacement.Length); byte[] packet = Raw(raw);
+        t.True(!ScenarioResultsCodec.TryRead(packet, packet.Length, out var state) && state == null, why + " cannot publish a partial picture");
+    }
+    private static byte[] Compressed(byte[] raw)
+    {
+        using var body = new MemoryStream(); body.WriteByte(1); body.WriteByte(1);
+        using (var writer = new BinaryWriter(body, Encoding.UTF8, true)) writer.Write((uint)raw.Length);
+        using (var compression = new DeflateStream(body, System.IO.Compression.CompressionLevel.Fastest, true)) compression.Write(raw);
+        return Frame(body.ToArray());
     }
     private static int Find(byte[] bytes, byte[] pattern)
     { for (int at = 0; at <= bytes.Length - pattern.Length; at++) if (bytes.Skip(at).Take(pattern.Length).SequenceEqual(pattern)) return at; return -1; }
