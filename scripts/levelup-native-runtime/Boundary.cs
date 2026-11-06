@@ -317,4 +317,4 @@ namespace GloomhavenVR.WorldUI.Patches
 
 // No native Results owner is active in these unrelated subjects. The actual
 // pooled-results handoff executes in results-window-runtime.
-namespace GloomhavenVR.WorldUI { internal static class ScenarioResultsReadyPark { internal static void BeforeExternalOwner(UnityEngine.UI.UIWindow window) { } } }
+namespace GloomhavenVR.WorldUI { internal static class ScenarioResultsReadyPark { internal static void BeforeExternalOwner(UIWindow window) { } } }
