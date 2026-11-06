@@ -46,6 +46,11 @@ def main():
     ini = table[table.index('internal sealed class InitiativeTrackSurface'):table.index('internal sealed class ElementBoardSurface')]
     properties = ini[:ini.index('    // ---- portrait depth normalization')]
     properties = properties.replace('internal sealed class InitiativeTrackSurface', 'internal sealed partial class InitiativeTrackSurface')
+    # The actual native-Graphic picker owns this collection below the unrelated
+    # depth-normalization section; retain its exact declaration in this slice.
+    picker_fields = [line for line in ini.splitlines() if 'private readonly List<Graphic> _portraitPickGraphics =' in line]
+    assert len(picker_fields) == 1, 'Native portrait picker field binding drift'
+    properties += '\n' + picker_fields[0] + '\n'
     signatures = ['    public override void Tick()', '    public override void LateTick()',
         '    protected override void ReleasePanel(', '    protected override void OnConverted()',
         '    private void UnregisterDepthPick()', '    bool IDepthPortraitPicker.TryPickPortrait(',
@@ -54,7 +59,7 @@ def main():
     start = ini.index('    private bool OwnsCurrentTrack()'); end = ini.index(';',start)+1
     methods += '\n'+ini[start:end]
     source = '''#nullable enable
-using UnityEngine; using UnityEngine.UI; using System.Collections.Generic;
+using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; using System.Collections.Generic;
 using GloomhavenVR.Core; using GloomhavenVR.Cards; using GloomhavenVR.Hands.Interact;
 namespace GloomhavenVR.WorldUI.Surfaces {
 '''+table[table.index('internal abstract class SlotPanelSurface'):table.index('/// <summary>\n/// The game\'s REAL initiative track')]+properties+methods+'\n}}\n'

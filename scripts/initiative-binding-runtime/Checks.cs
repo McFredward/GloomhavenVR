@@ -50,6 +50,9 @@ public static class InitiativeBindingChecks
     private static Vector3 Center(Transform t) => t.TransformPoint(Vector3.zero);
     private static bool Pick(InitiativeTrackSurface surface, int index)
     {
+        // Commit the fixture-authored conversion/reparent to Unity's native UI
+        // registry before querying the real Graphic depth and raycast filters.
+        Canvas.ForceUpdateCanvases();
         var track = InitiativeTrack.Instance!;
         Transform actor = track.initiativeTrackHolder!.GetChild(index);
         Vector3 center = Center(actor), direction = actor.forward;
