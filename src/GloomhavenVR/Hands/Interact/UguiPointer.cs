@@ -837,7 +837,8 @@ internal sealed class UguiPointer
         data.eligibleForClick = true;
         data.button = PointerEventData.InputButton.Left;
 
-        Scrollbar? sharedBar = _hovered.GetComponentInParent<Scrollbar>();
+        GameObject? nativeDownOwner = ExecuteEvents.GetEventHandler<IPointerDownHandler>(_hovered);
+        Scrollbar? sharedBar = nativeDownOwner != null ? nativeDownOwner.GetComponent<Scrollbar>() : null;
         if (sharedBar != null && WorldUI.SharedWindowScrollBridge.Pointer(sharedBar,
             WorldUI.SharedScrollInput.PointerDown, data))
         {

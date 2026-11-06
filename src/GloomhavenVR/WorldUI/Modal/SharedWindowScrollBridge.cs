@@ -89,3 +89,25 @@ internal sealed class SharedWindowScrollProxy : MonoBehaviour, IScrollHandler,
     public void OnDrag(PointerEventData data) => SharedWindowScrollBridge.Pointer(this, SharedScrollInput.PointerDrag, data);
     public void OnEndDrag(PointerEventData data) { }
 }
+
+/// <summary>Only canvases containing an own metadata input surface join the
+/// existing nested pointer census. Original inert widgets remain non-raycastable.</summary>
+internal sealed class SharedWindowScrollCanvasLease : MonoBehaviour
+{
+    private Canvas? _host;
+    private readonly List<Canvas> _nested = new();
+    internal void Admit(Canvas host, Canvas? canvas)
+    {
+        if (canvas == null || canvas == host || _nested.Contains(canvas)) return;
+        if (_host != null && _host != host) Retire();
+        _host = host;
+        if (canvas.GetComponent<GraphicRaycaster>() == null) canvas.gameObject.AddComponent<GraphicRaycaster>();
+        Hands.Interact.UguiPokeSurfaces.RegisterNested(host, canvas); _nested.Add(canvas);
+    }
+    private void Retire()
+    {
+        foreach (Canvas canvas in _nested) Hands.Interact.UguiPokeSurfaces.UnregisterNested(_host, canvas);
+        _nested.Clear(); _host = null;
+    }
+    private void OnDestroy() => Retire();
+}

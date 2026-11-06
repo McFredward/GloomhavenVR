@@ -31,8 +31,8 @@ internal static class SharedWindowScrollCodec
         writer.Write(RecordId); writer.Write((ushort)0); writer.Write((byte)1);
         writer.Write((byte)message.Operation); writer.Write(message.Kind); writer.Write(message.Control);
         writer.Write(message.Flags); writer.Write(message.Direction); writer.Write(message.Epoch);
-        writer.Write(message.Content); writer.Write(message.Opening); writer.Write(message.Generation); writer.Write(message.Revision);
-        writer.Write(message.Sequence); writer.Write(message.Author); writer.Write(message.Requester); writer.Write(message.Pointer);
+        writer.Write(message.Opening); writer.Write(message.Generation); writer.Write(message.Revision);
+        writer.Write(message.Sequence); writer.Write(message.Author); writer.Write(message.Requester); writer.Write(message.Pointer); writer.Write(message.Content);
         Text(writer, message.Path); Text(writer, message.Viewport);
         writer.Write(message.X); writer.Write(message.Y); writer.Write(message.RangeX);
         writer.Write(message.RangeY); writer.Write(message.HandleSize);
@@ -53,9 +53,9 @@ internal static class SharedWindowScrollCodec
                 || reader.ReadUInt16() != length - 9 || reader.ReadByte() != 1) return false;
             message.Operation = (SharedScrollOperation)reader.ReadByte(); message.Kind = reader.ReadByte();
             message.Control = reader.ReadByte(); message.Flags = reader.ReadByte(); message.Direction = reader.ReadByte();
-            message.Epoch = reader.ReadUInt32(); message.Content = reader.ReadUInt64(); message.Opening = reader.ReadUInt32(); message.Generation = reader.ReadUInt32();
+            message.Epoch = reader.ReadUInt32(); message.Opening = reader.ReadUInt32(); message.Generation = reader.ReadUInt32();
             message.Revision = reader.ReadUInt32(); message.Sequence = reader.ReadUInt32();
-            message.Author = reader.ReadInt32(); message.Requester = reader.ReadInt32(); message.Pointer = reader.ReadInt32();
+            message.Author = reader.ReadInt32(); message.Requester = reader.ReadInt32(); message.Pointer = reader.ReadInt32(); message.Content = reader.ReadUInt64();
             message.Path = Text(reader); message.Viewport = Text(reader);
             message.X = reader.ReadSingle(); message.Y = reader.ReadSingle(); message.RangeX = reader.ReadSingle();
             message.RangeY = reader.ReadSingle(); message.HandleSize = reader.ReadSingle();

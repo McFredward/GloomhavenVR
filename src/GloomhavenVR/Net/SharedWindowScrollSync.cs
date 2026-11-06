@@ -13,6 +13,7 @@ namespace GloomhavenVR.Net;
 internal static class SharedWindowScrollSync
 {
     private static readonly SharedWindowScrollCoordinator Active = new();
+    internal static Func<int, bool>? MapParticipant { get; set; }
     internal static void Bind(INetTransport transport, Func<byte[], int, bool, bool> sendReliable) => Active.Bind(transport, sendReliable);
     internal static void Tick(float now) => Active.Tick(now);
     internal static void LateTick(float now) => Active.LateTick(now);
@@ -20,7 +21,7 @@ internal static class SharedWindowScrollSync
     internal static bool Receive(int sender, byte[] bytes, int length) => Active.Receive(sender, bytes, length);
     internal static void ForgetPeer(int peer) => Active.ForgetPeer(peer);
     internal static void Reset() => Active.Reset();
-    internal static void AttachResultsInputs(Transform root) => Active.AttachResultsInputs(root);
+    internal static void AttachResultsInputs(Transform root, Canvas? host = null) => Active.AttachResultsInputs(root, host);
 }
 
 /// <summary>One reliable input coordinator, like the public merchant cabinet. Every visitor
@@ -31,7 +32,7 @@ internal sealed class SharedWindowScrollCoordinator
     private sealed class Window
     {
         internal Transform? Root;
-        internal uint Opening, Revision;
+        internal uint Opening, Revision, Epoch;
         internal ulong Content;
         internal bool Visible;
     }
@@ -58,7 +59,8 @@ internal sealed class SharedWindowScrollCoordinator
     private readonly List<Scrollbar> Bars = new();
     private readonly List<string> Retired = new();
     private readonly HashSet<string> Present = new();
-    private int _author;
+    private readonly int[] Authors = new int[8];
+    private readonly List<int> Peers = new(4);
     private uint _epoch = NewEpoch(), _opening, _generation, _revision, _request;
     private float _nextCapture, _nextWarning, _nextRequestSend;
     private SharedWindowScrollMessage? _tail;
@@ -74,7 +76,19 @@ internal sealed class SharedWindowScrollCoordinator
     private int Local => _transport?.LocalPlayerId ?? 0;
     private bool Online => _transport?.IsOnline == true && !NetSession.FlatNetMode
         && FFSNetwork.IsOnline && Local > 0;
-    private bool IsAuthor => Online && _author == Local;
+    private bool IsAuthor(byte kind) => Online && Authors[kind] == Local;
+    private int AuthorFor(byte kind)
+    {
+        int common = SharedWindowSpawnAuthority.AuthorId;
+        if (kind != 2 && kind != 3 && kind != 4) return common;
+        bool Participant(int id) => id == Local ? SharedWindows.ParticipatesHere((SharedWindowKind)kind)
+            : SharedWindowScrollSync.MapParticipant?.Invoke(id) == true;
+        if (common > 0 && Participant(common)) return common;
+        VersionGuard.CollectContinuationPeers(Peers, Local);
+        int author = Participant(Local) ? Local : 0;
+        foreach (int peer in Peers) if (Participant(peer) && (author == 0 || peer < author)) author = peer;
+        return author;
+    }
     private static string Key(byte kind, byte control, string path) => kind + ":" + control + ":" + path;
 
     internal void Bind(INetTransport transport, Func<byte[], int, bool, bool> sendReliable)
@@ -85,16 +99,16 @@ internal sealed class SharedWindowScrollCoordinator
     }
     internal void ObserveVisibility(UIWindow window, bool shown)
     {
-        if (!Online || !IsAuthor || shown) return;
+        if (!Online || shown) return;
         SharedWindowKind kind = SharedWindows.KindOf(window);
-        if (kind != SharedWindowKind.None) Windows[(byte)kind].Root = null;
+        if (kind != SharedWindowKind.None && IsAuthor((byte)kind)) Windows[(byte)kind].Root = null;
     }
     internal void Reset()
     {
         foreach (Target target in Sources.Values) EndGesture(target);
         Sources.Clear(); Observed.Clear(); LastRequest.Clear(); Outgoing.Clear();
         foreach (Window window in Windows) { window.Root = null; window.Opening = 0; window.Visible = false; window.Revision = 0; }
-        _author = 0; _epoch = NewEpoch(); _nextCapture = _nextWarning = _nextRequestSend = 0;
+        Array.Clear(Authors, 0, Authors.Length); _epoch = NewEpoch(); _nextCapture = _nextWarning = _nextRequestSend = 0;
         _tail = null; Array.Clear(Closed, 0, Closed.Length);
         foreach (SharedWindowScrollProxy proxy in Proxies.Values) if (proxy != null) proxy.gameObject.SetActive(false);
         Proxies.Clear(); _proxyRoot = null; _proxyVersion = _paintedProxyVersion = 0;
@@ -104,21 +118,29 @@ internal sealed class SharedWindowScrollCoordinator
     }
     private void ObserveAuthor()
     {
-        int next = SharedWindowSpawnAuthority.AuthorId;
-        if (_author == next) return;
-        Reset(); _author = next;
+        for (byte kind = 1; kind <= 7; kind++)
+        {
+            int next = AuthorFor(kind); if (Authors[kind] == next) continue;
+            Authors[kind] = next;
+            Retired.Clear(); foreach (var pair in Sources) if (pair.Value.State.Kind == kind) Retired.Add(pair.Key);
+            foreach (string key in Retired) { EndGesture(Sources[key]); Sources.Remove(key); }
+            Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == kind) Retired.Add(pair.Key);
+            foreach (string key in Retired) Observed.Remove(key);
+            Window window = Windows[kind]; window.Root = null; window.Opening = window.Revision = window.Epoch = 0; window.Visible = false;
+            ++_proxyVersion;
+        }
     }
     internal void Tick(float now)
     {
         if (!Online) return;
         ObserveAuthor(); SharedWindowScrollBridge.Submit = Input; Flush();
-        if (!IsAuthor) ApplyObserved();
+        ApplyObserved(now);
     }
     internal void LateTick(float now)
     {
         if (!Online) return;
         ObserveAuthor();
-        if (!IsAuthor) { ApplyObserved(); return; }
+        ApplyObserved(now);
         if (now < _nextCapture) return;
         _nextCapture = now + 1f / 15f;
         Capture(now);
@@ -131,6 +153,7 @@ internal sealed class SharedWindowScrollCoordinator
             if (Closed[i] is SharedWindowScrollMessage closure && Send(closure)) Closed[i] = null;
         for (byte value = 1; value <= 7; value++)
         {
+            if (!IsAuthor(value)) continue;
             var kind = (SharedWindowKind)value; Window window = Windows[value];
             Transform? root = SharedWindows.ParticipatesHere(kind) ? SharedWindowScrollBridge.PublicRoot(kind, out _) : null;
             bool visible = root != null && root.gameObject.activeInHierarchy;
@@ -195,7 +218,7 @@ internal sealed class SharedWindowScrollCoordinator
         if (component is ScrollRect scroll)
         {
             Vector2 p = scroll.normalizedPosition; state.X = p.x; state.Y = p.y;
-            state.Flags = (byte)((scroll.isActiveAndEnabled && scroll.gameObject.activeInHierarchy && scroll.content != null ? 1 : 0)
+            state.Flags = (byte)((InputAllowed(scroll) && scroll.content != null ? 1 : 0)
                 | (scroll.horizontal ? 2 : 0) | (scroll.vertical ? 4 : 0));
             RectTransform viewport = scroll.viewport != null ? scroll.viewport : (RectTransform)scroll.transform;
             state.Viewport = SharedWindowScrollBridge.Path(Windows[state.Kind].Root!, viewport);
@@ -211,7 +234,7 @@ internal sealed class SharedWindowScrollCoordinator
         else if (component is Scrollbar bar)
         {
             state.X = bar.value; state.HandleSize = bar.size; state.Direction = (byte)bar.direction;
-            state.Flags = (byte)(bar.isActiveAndEnabled && bar.IsInteractable() ? 1 : 0);
+            state.Flags = (byte)(InputAllowed(bar) ? 1 : 0);
             state.Viewport = state.Path;
         }
         return state;
@@ -235,16 +258,17 @@ internal sealed class SharedWindowScrollCoordinator
         }
         else
         {
-            var targets = IsAuthor ? Sources : Observed;
-            foreach (Target candidate in targets.Values)
-            {
-                if (!IsAuthor) candidate.Original = Resolve(candidate.State);
+            foreach (Target candidate in Sources.Values)
                 if (candidate.Original == component) { target = candidate; break; }
-            }
+            if (target == null)
+                foreach (Target candidate in Observed.Values)
+                {
+                    candidate.Original = Resolve(candidate.State);
+                    if (candidate.Original == component) { target = candidate; break; }
+                }
         }
         if (target == null)
         {
-            if (IsAuthor)
             {
                 Capture(Time.unscaledTime);
                 foreach (Target candidate in Sources.Values) if (candidate.Original == component) { target = candidate; break; }
@@ -256,7 +280,7 @@ internal sealed class SharedWindowScrollCoordinator
         request.Requester = Local; request.Sequence = Next(ref _request); request.Pointer = pointer;
         request.X = value.x; request.Y = value.y;
         if (!SharedWindowScrollCodec.Valid(request)) return true;
-        if (IsAuthor) { Execute(target, request); _nextCapture = 0; return true; }
+        if (IsAuthor(target.State.Kind)) { Execute(target, request); _nextCapture = 0; return true; }
         if (Outgoing.Count >= 128) { Warn(); return true; }
         bool continuous = operation == SharedScrollInput.Wheel || operation == SharedScrollInput.Position || operation == SharedScrollInput.PointerDrag;
         bool merge = continuous && _tail != null && _tail.Operation == request.Operation && _tail.Kind == request.Kind
@@ -270,6 +294,25 @@ internal sealed class SharedWindowScrollCoordinator
         if (!continuous) _nextRequestSend = 0;
         Flush();
         // Consume BEFORE local native mutation; the common original alone owns it.
+        return true;
+    }
+    private static bool InputAllowed(Component component)
+    {
+        if (!(component is Behaviour behaviour) || !behaviour.isActiveAndEnabled || !component.gameObject.activeInHierarchy) return false;
+        if (component is Scrollbar bar && !bar.IsInteractable()) return false;
+        GraphicRaycaster? raycaster = component.GetComponentInParent<GraphicRaycaster>();
+        if (raycaster != null && !raycaster.isActiveAndEnabled) return false;
+        for (Transform? node = component.transform; node != null; node = node.parent)
+        {
+            bool stop = false;
+            foreach (CanvasGroup group in node.GetComponents<CanvasGroup>())
+            {
+                if (!group.isActiveAndEnabled) continue;
+                if (!group.blocksRaycasts) return false;
+                stop |= group.ignoreParentGroups;
+            }
+            if (stop) break;
+        }
         return true;
     }
     private static bool IsPublicInput(Component component)
@@ -319,34 +362,39 @@ internal sealed class SharedWindowScrollCoordinator
     }
     private void Flush()
     {
-        if (Time.unscaledTime < _nextRequestSend) return;
+        if (Outgoing.Count == 0 || Time.unscaledTime < _nextRequestSend) return;
         _nextRequestSend = Time.unscaledTime + 1f / 15f;
         for (int i = 0; i < 8 && Outgoing.Count > 0; i++)
         {
             SharedWindowScrollMessage request = Outgoing.Peek();
-            if (request.Author != _author) { Outgoing.Dequeue(); continue; }
+            if (request.Author != Authors[request.Kind]) { Outgoing.Dequeue(); continue; }
             if (!Send(request)) { Warn(); return; }
             Outgoing.Dequeue(); if (ReferenceEquals(_tail, request)) _tail = null;
         }
     }
     private bool Send(SharedWindowScrollMessage message)
     { byte[] bytes = SharedWindowScrollCodec.Write(message); return _send?.Invoke(bytes, bytes.Length, message.Operation != SharedScrollOperation.State
-        && message.Operation != SharedScrollOperation.Closed && _author == PlayerRegistry.HostPlayerID) == true; }
+        && message.Operation != SharedScrollOperation.Closed && message.Author == PlayerRegistry.HostPlayerID) == true; }
 
     internal bool Receive(int sender, byte[] bytes, int length)
     {
         if (!SharedWindowScrollCodec.TryRead(bytes, length, out SharedWindowScrollMessage message)) return false;
         if (!Online || sender <= 0 || sender == Local || VersionGuard.PeerBuild(sender) != NetProtocol.ModBuild) return true;
         ObserveAuthor();
-        if (message.Author != _author || !SharedWindows.ParticipatesHere((SharedWindowKind)message.Kind)) return true;
+        if (message.Author != Authors[message.Kind] || !SharedWindows.ParticipatesHere((SharedWindowKind)message.Kind)) return true;
         bool state = message.Operation == SharedScrollOperation.State || message.Operation == SharedScrollOperation.Closed;
         if (state)
         {
-            if (IsAuthor || sender != _author) return true;
+            if (IsAuthor(message.Kind) || sender != Authors[message.Kind]) return true;
             Window window = Windows[message.Kind];
             // ReliableOrdered retains the author's emission order. New epochs only
             // arrive from the currently elected compatible author, never a requester.
-            if (_epoch != message.Epoch) { Observed.Clear(); foreach (Window w in Windows) { w.Opening = 0; w.Revision = 0; } _epoch = message.Epoch; }
+            if (window.Epoch != message.Epoch)
+            {
+                Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == message.Kind) Retired.Add(pair.Key);
+                foreach (string retired in Retired) Observed.Remove(retired);
+                window.Opening = window.Revision = 0; window.Epoch = message.Epoch; ++_proxyVersion;
+            }
             if (window.Revision != 0 && !SharedWindowScrollCodec.Newer(message.Revision, window.Revision)) return true;
             window.Revision = message.Revision;
             if (window.Opening != 0 && message.Opening != window.Opening
@@ -371,14 +419,14 @@ internal sealed class SharedWindowScrollCoordinator
                 || target.State.HandleSize != message.HandleSize || target.State.Direction != message.Direction) ++_proxyVersion;
             if (!ReferenceEquals(target.State, message) && !Same(target.State, message))
             {
-                Vector2 current = Display(target);
+                Vector2 current = Display(target, Time.unscaledTime);
                 target.FromX = current.x; target.FromY = current.y;
                 target.ReceivedAt = Time.unscaledTime; target.Duration = 1f / 15f;
             }
             target.State = message; Observed[key] = target;
             return true;
         }
-        if (!IsAuthor || message.Requester != sender || message.Epoch != _epoch
+        if (!IsAuthor(message.Kind) || message.Requester != sender || message.Epoch != _epoch
             || LastRequest.TryGetValue(sender, out uint sequence) && !SharedWindowScrollCodec.Newer(message.Sequence, sequence)) return true;
         if (!LastRequest.ContainsKey(sender) && LastRequest.Count >= 8) return true;
         LastRequest[sender] = message.Sequence;
@@ -391,7 +439,7 @@ internal sealed class SharedWindowScrollCoordinator
     {
         Component? original = target.Original;
         if (original == null || !original.gameObject.activeInHierarchy
-            || Resolve(target.State) != original) return;
+            || Resolve(target.State) != original || !InputAllowed(original)) return;
         if (request.Operation == SharedScrollOperation.Wheel)
         {
             EndGesture(target);
@@ -456,12 +504,12 @@ internal sealed class SharedWindowScrollCoordinator
         }
         target.Pointer = null; target.PointerOwner = target.PointerId = 0; target.Dragging = false;
     }
-    private static Vector2 Display(Target target)
+    private static Vector2 Display(Target target, float now)
     {
-        float amount = target.Duration <= 0 ? 1 : Mathf.Clamp01((Time.unscaledTime - target.ReceivedAt) / target.Duration);
+        float amount = target.Duration <= 0 ? 1 : Mathf.Clamp01((now - target.ReceivedAt) / target.Duration);
         return Vector2.LerpUnclamped(new Vector2(target.FromX, target.FromY), new Vector2(target.State.X, target.State.Y), amount);
     }
-    private void ApplyObserved()
+    private void ApplyObserved(float now)
     {
         foreach (Target target in Observed.Values)
         {
@@ -469,7 +517,7 @@ internal sealed class SharedWindowScrollCoordinator
             if (original == null) { target.Original = null; target.HasApplied = false; continue; }
             if (target.Original != original || !target.HasApplied)
             { target.Original = original; target.Duration = 0; target.HasApplied = true; }
-            Vector2 value = Display(target);
+            Vector2 value = Display(target, now);
             if (original is ScrollRect scroll)
             {
                 if (scroll.velocity != Vector2.zero) scroll.StopMovement();
@@ -482,7 +530,7 @@ internal sealed class SharedWindowScrollCoordinator
     {
         LastRequest.Remove(peer);
         foreach (Target target in Sources.Values) if (target.PointerOwner == peer) EndGesture(target);
-        if (peer == _author) Reset();
+        for (int i = 1; i < Authors.Length; i++) if (Authors[i] == peer) Authors[i] = 0;
     }
     private void Warn()
     {
@@ -493,7 +541,7 @@ internal sealed class SharedWindowScrollCoordinator
 
     /// <summary>Called only after a complete inert Results picture is validated.
     /// Viewports/scrollbar frames come from that common picture, never private client rows.</summary>
-    internal void AttachResultsInputs(Transform pictureRoot)
+    internal void AttachResultsInputs(Transform pictureRoot, Canvas? host = null)
     {
         if (_proxyRoot == pictureRoot && _proxyVersion == _paintedProxyVersion) return;
         if (_proxyRoot != pictureRoot) { Proxies.Clear(); _proxyRoot = pictureRoot; }
@@ -509,12 +557,23 @@ internal sealed class SharedWindowScrollCoordinator
             string key = Key(state.Kind, state.Control, state.Path);
             if (!Proxies.TryGetValue(key, out SharedWindowScrollProxy? proxy) || proxy == null)
             {
-                var go = new GameObject("GloomhavenVR.SharedScrollInput", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(SharedWindowScrollProxy));
+                var go = new GameObject("GloomhavenVR.SharedScrollInput", typeof(RectTransform), typeof(CanvasRenderer), typeof(CanvasGroup), typeof(Image), typeof(SharedWindowScrollProxy));
                 var hit = (RectTransform)go.transform; hit.SetParent(frame, false); hit.anchorMin = Vector2.zero;
                 hit.anchorMax = Vector2.one; hit.offsetMin = hit.offsetMax = Vector2.zero;
                 Image graphic = go.GetComponent<Image>(); graphic.color = Color.clear; graphic.raycastTarget = true;
+                // Original observer groups deliberately block gameplay raycasts.
+                // This own metadata-only surface ignores those inert group flags,
+                // while the original viewport masks/clip geometry still filter it.
+                CanvasGroup group = go.GetComponent<CanvasGroup>();
+                group.ignoreParentGroups = true; group.blocksRaycasts = group.interactable = true;
                 go.layer = frame.gameObject.layer; proxy = go.GetComponent<SharedWindowScrollProxy>();
                 Proxies[key] = proxy;
+            }
+            if (host != null)
+            {
+                SharedWindowScrollCanvasLease? lease = pictureRoot.GetComponent<SharedWindowScrollCanvasLease>();
+                if (lease == null) lease = pictureRoot.gameObject.AddComponent<SharedWindowScrollCanvasLease>();
+                lease.Admit(host, proxy.GetComponentInParent<Canvas>());
             }
             proxy.Kind = SharedWindowKind.Results; proxy.Address = state.Path; proxy.Control = state.Control;
             proxy.CoordinateRoot = rect;
