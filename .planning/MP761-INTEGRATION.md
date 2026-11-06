@@ -1,4 +1,4 @@
-# Build761 paired multiplayer review — in progress
+# Build761 paired multiplayer review — integrated
 
 Scope: class C. Ten reports cross shared presentation, native UI lifetime,
 public-card provenance, camera compositing and audio. Start from qualified760
@@ -14,7 +14,7 @@ or video accompany this run. Build760 fixes are not presumed tested by these log
 
 1. Pause-menu controller closure omits exact native `MutiplayerPlayerPicker` from
    its ESC family. Add that owner without dismissing the mandatory join roster.
-2. Duplicate forced-discard confirmation audio: still under investigation. The
+2. Duplicate forced-discard confirmation audio remains unproven. The
    native command is once per operation in the supplied trace; no clip-wide
    suppression is justified by that fact alone.
 3. Action-phase encounter losses can originate from HAND, which frozen39 does not
@@ -69,8 +69,75 @@ lease through the local native tail, without replacing controllers/callbacks.
 
 ## Qualification and limits
 
-Pending. Worker scope passes are recorded in their owned reviews. Preserve failed
-controls and actual pixel traces. Inherited760 proof is reusable only for exact
-unchanged inputs; no fresh complete-gate claim until all unique local IDs qualify.
+Runtime freeze443273138; all subsequent code changes are fixture-only. Strict Release
+and Debug pass0W0E (9.90s/16.10s),16 source gates pass17.9s, byte-exact wire307099
+assertions pass, bundle-format and docs-i18n pass. Compiled review:37 changed
+forms,23 additions, no removal; seven changes are build-stamp/compatibility-only.
+Only the owned scene shader bank changes; all other embedded bytes are stable.
+
+The complete unique class C aggregate qualifies all290 local IDs:250 passing
+central results,19 fresh bounded repairs/continuations/owned obligations,
+16 input-bound760 obligations and five exact frozen-worker obligations. The
+original265-ID invocation took4338.569s and remains FAILED with15 original
+failures retained. It is not relabelled a successful complete invocation.
+The original logs and final selected receipts are independently SHA256-checked.
+Inherited evidence has2260 audited unchanged input hashes plus exact worker
+source/proof bindings; final production bytes remain at the runtime freeze.
+
+Containing-suite repairs pass: item transport15.7s, Town transport12.6s,
+shared geometry72.5s, shared pose192.3s, Quest16.8s, City23.0s,
+private selection49.8s, initiative binding17.7s and peer retirement39.8s.
+The eight-suite continuation passes264.5s. All94 original native level-up cases
+run to completion in eight fresh editor domains; no variant or oracle is omitted.
+The final28-assertion Results ingress/emission kernel includes four compiling
+causal controls and canonical cleanup of private project caches. Scheduler
+checks pass19 tests with two intentional skips; inventory is290 local/121CI/16source.
+
+Preserved setup/control failures explain the bounded repairs: fixture imports
+needed explicitly inactive Results ports; the level-up window alias also applies
+to that inactive port. Legacy six-window loops must exclude independently proved
+Results kind7. Old transport controls must target their exact Town guard/parser,
+not the new independent Results path. The item guard cannot assume its message is
+the first switch case. Private selection follows the new exact occupancy fallback;
+peer retirement exercises the actual Results event subscription/unsubscription.
+Initiative binding requires a real canvas Camera.Render submission: both a null
+graphics backend and GL without a draw leave native Graphic.depth invalid. Its
+final146-assertion Unity pass retains all seven original controls and geometry.
+These fixture repairs alter no production gate, native permission or assertion.
+
+Ignored `.planning/validation/build761/aggregate-qualification.json` records the
+complete selected scope, original failures, log hashes and receipt paths.
+`worker-repair-source-recheck.json` independently binds172 worker repair inputs.
+Private compiled review remains at the unchanged runtime freeze:37 changed forms,
+23 additions, no removed type; one changed shader bank,31 other resources exact.
+
+The native client still opens its own Results window: UIResultsManager.Show
+queues WaitAndShow, whose protected Show calls myWindow.Show for both peers.
+UINewAdventureResultsManager then adds the client wait help and auto-ready
+behavior. The common picture does not manufacture Show/Hide or replace that flow.
+
+Duplicate character confirmation audio remains unproven. The logs contain one
+native forced-loss operation; two fan-close UI sounds are separated by a real
+fan reopen. They do not establish a duplicated character cue. Bounded Debug
+correlation observes actual native audio requests; no speculative deduplication.
+Copied Supply instances outside the original prototype namespace remain safely
+anonymous rather than guessing their public face.
+
+Worker scope passes are recorded in their owned reviews. Preserve failed controls
+and actual pixel traces. Inherited760 proof is reusable only for exact unchanged
+inputs; the final claim is complete unique aggregate coverage, not a new
+successful complete invocation.
 No device writes, release or local ZIP. Clean regenerable owned caches after every
 completed test, preserving evidence, pins, hardware inputs and current deliverables.
+
+## Hardware handoff
+
+Both VR participants must install Build761. Check forced public discard fronts
+and flights, portrait-edge clicks, player-chooser closure, the rest silhouette
+glow, spatial summon audio and common Victory presentation/ready/close/manual
+placement. Native Steam Link MR must keep opaque action cards opaque and show
+virtual scenery through translucent cards/smoke before blending the real room.
+The actual final-head/foreign-camera RGBA and native-bank preservation proofs
+are automated; they do not establish Windows D3D11/headset/Photon acceptance.
+The duplicate confirmation report requires the new bounded PICK AUDIO trace to
+identify an actual duplicate before changing native playback.

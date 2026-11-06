@@ -1,3 +1,31 @@
+**Paired multiplayer presentation, Build761,2026-11-06.**
+
+Options closure includes its exact native player chooser. Public forced HAND
+losses carry exact original provenance/occupancy without leaking private cards;
+native flights retain their public source. Rest guidance uses the original
+silhouette glow, and portrait-edge hits reach the original native callback.
+Detached figure loops follow their exact native model/actor generation without
+replay or changes to their original spatial settings. Duplicate confirmation
+audio remains unproven; bounded Debug correlation replaces speculative dedup.
+
+Native Steam Link MR excludes world-symbol background plates and corrects
+original GUI/VFX scene alpha while retaining original RGB/program/depth/stencil.
+Actual head/foreign-camera pixels cover uGUI batching and generation transitions.
+Victory uses independent original-widget Results presentation/pose with exact
+ready callbacks and native gameplay authority intact; cumulative deltas and
+bounded reliable scheduling preserve complete pictures and existing bandwidth.
+
+ClassC complete unique aggregate:290 local IDs (269 fresh/continued,16 audited
+prior,5 frozen-worker),16 sources,307099 actual wire assertions; strict final
+Release/Debug0W0E9.90/16.10s. The central265-ID run took72.3min and remains FAILED
+with15 recorded failures; all affected containing suites have bounded complete
+repairs. All94 native level-up variants pass in eight fresh editor domains.
+Compiled37 changed/23 added/0 removed forms; scene bank changes,31otherresources
+exact. See MP761-INTEGRATION.md and the three owned reviews for causes, final
+source bindings, failures, timings and hardware limits. Paired759 logs are inputs;
+no761 Photon, Windows D3D11 or headset acceptance is claimed. Dev only; no ZIP.
+Own caches/worktrees retire after verified evidence capture and push.
+
 **Window/input integration, Build760,2026-11-06.**
 
 Starting-card overview scrolling now reaches the native list over pointer-only
