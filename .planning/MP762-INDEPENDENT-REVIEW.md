@@ -168,3 +168,34 @@ worktree lacked the read-only decompiled reference link; that failure is retaine
 After linking the original read-only source tree, preparation/compilation succeeds.
 Canonical completion cleanup runs for both the preparation failure and intentional
 compile-only stops. Root runs each affected complete containing suite once.
+
+## Native queue/persistence follow-up
+
+The original head guard for ConfirmAction45 checks pending SRL output with both
+native damage-response exemptions, or queued choreographer messages. The reveal
+cheat's pre-dequeue guard uses that same condition for an exact admitted reveal
+command. It does not set the processing flag, dequeue, synthesize a phase, or
+intercept ordinary native actions. A stale/refused command reaches the original
+retirement path, so an invalid command cannot become a permanent guarded head.
+
+Optional persistence must not split a successfully admitted ordered model commit:
+prepare an unlock backup before enqueue, and catch/report host save IO errors
+after mutation so the original FinishProcessingAction still forwards to peers.
+Unexpected actual rule/API failures retain the original native desync path. This
+finding was sent directly to the cheats worker, which implemented the repair and
+causal IO/next-action coverage; the integrator retains the resulting runtime proof.
+
+Online unlock must not call DebugShowAllScenarios: its coroutine sets the native
+m_ShowAllScenariosMode flag, independently bypassing party requirements after a
+future flat participant invalidates the shared requirements lease. The original
+RefreshAllMapLocations(null, save:false) adds missing unlocked village, scenario
+and travel markers, restores roads and native presentation, without setting that
+flag. Passing save:false is necessary: the default also saves/checkpoints on each
+receiver. Offline behavior remains original. This source finding was sent to the
+worker and integrator; final production verification remains their responsibility.
+
+The requirements lease should revalidate the exact current compatible roster via
+TryRoster, not compare only native player-ID fingerprints. Reconnecting/replacing
+a participant must not resurrect a previous compatible-only override merely
+because a native player ID is reused. The existing exact-build admission helper
+provides this check without adding another network protocol.
