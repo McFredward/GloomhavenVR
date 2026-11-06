@@ -39,16 +39,15 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static bool Throw; internal static void Note(string c, string m) { if(Throw)throw new Exception("fixture logger failure"); } internal static void Info(string c, string m) { } internal static void Warn(string c, string m) { } }
+    internal static class VRLog { internal static bool Throw; internal static void Note(string c, string m) { if(Throw)throw new Exception("fixture logger failure"); } internal static void Info(string c, string m) { } internal static void Warn(string c, string m) { } internal static void Error(string c, string m) { } }
 }
 namespace GloomhavenVR.Net
 {
     internal static class NetSession { internal static bool FlatNetMode; }
-    internal static class NetProtocol { internal const ushort ModBuild = 762; }
-    internal static class VersionGuard
+    internal static partial class NetProtocol { internal const ushort ModBuild = 762; }
+    internal static partial class VersionGuard
     {
         internal static int SessionEpoch; internal static readonly Dictionary<int, int> Versions = new();
-        internal static int PeerBuild(int id) => Versions.TryGetValue(id, out var value) ? value : 0;
     }
 }
 namespace GloomhavenVR.WorldUI

@@ -4200,14 +4200,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 {
                     parsed = true;
                     VersionGuard.NotePacket(senderId);
-                    // The extras packet is the only one the version record rides — feed the
-                    // handshake registry (record present: their build; absent: pre-handshake
-                    // build 0, a mismatch by definition).
+                    // Sparse extras may omit the version after an earlier announcement.
+                    // Keep the registry's existing version unless this packet advertises one.
                     VersionGuard.NoteExtras(senderId, in extras);
                     // Cheat admission needs this exact native player generation,
                     // not an earlier connection's cached numeric player/build pair.
-                    WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId,
-                        extras.HasModVersion ? extras.ModBuild : (ushort)0);
+                    if (extras.HasModVersion)
+                        WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, extras.ModBuild);
                     ExtrasToWorld(ref extras);
                     _pendingExtras[senderId] = extras; // dedup: keep only the newest
                 }

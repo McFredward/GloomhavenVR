@@ -4,12 +4,15 @@
 The original QueueUpAction/TryProcessNextAction/FinishProcessingAction,
 AutoExecuteServerAuthGameAction/ForwardGameActionToClients and Execute bodies run
 in CLR. Native model setters, socket/event, coroutine scheduling, configuration
-and native singleton fields are explicit fixture boundaries. No Photon/headset
-or native rule-engine acceptance is claimed. All production sources stay linked
-unchanged; negative controls must compile and fail for their causal assertion.
+and native singleton fields are explicit fixture boundaries. Capability ingress
+executes the complete production RaiseReceived body, exact driver MsgExtras case
+and original VersionGuard registry methods; decode/fragment/socket ports are
+explicit and do not claim binary codec or Photon acceptance. All production
+sources stay linked unchanged; negative controls must compile and fail for their
+causal assertion. No headset or native rule-engine acceptance is claimed.
 """
 from pathlib import Path
-import argparse,hashlib,json,os,shutil,subprocess,sys,tempfile,time
+import argparse,hashlib,json,os,re,shutil,subprocess,sys,tempfile,time
 from town_run_retention import cleanup_completed_run
 ROOT=Path(__file__).resolve().parents[1]
 PRODUCTION=['MultiplayerCheats.cs','MultiplayerCheatCommand.cs','NativeCheatQueue.cs',
@@ -31,8 +34,29 @@ MUTATIONS={
  'receiver-permit':('MultiplayerCheatQueueGuard.cs','if (FFSNetwork.IsHost) return true;','return true;', 'accepted receiver command applies in native one-action mode'),
  'host-permit':('MultiplayerCheatQueueGuard.cs','if (MultiplayerCheats.IsOwnedPendingHostAction(head)','if (false', 'only following original choice consumes native one-action permit'),
  'receiver-reentrant':('MultiplayerCheatQueueGuard.cs','if (_applyingReceiver) { __result = false; return false; }','', 'receiver native model callback cannot process a successor reentrantly'),
+ 'ingress-version-only':('CapabilityIngress.cs','WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, version.ModBuild);','', 'actual standalone version ingress grants current native identity receipt'),
+ 'ingress-sparse-version':('CapabilityIngress.cs','if (extras.HasModVersion)\n                        WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, extras.ModBuild);','WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, extras.HasModVersion ? extras.ModBuild : (ushort)0);', 'actual sparse extras retain the prior explicit native identity receipt'),
 }
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def method(text,signature):
+ start=text.index(signature);brace=text.index('{',start);depth=1;end=brace+1
+ while depth:
+  depth+=(text[end]=='{')-(text[end]=='}');end+=1
+ return text[start:end]
+def capability_ingress():
+ net=ROOT/'src/GloomhavenVR/Net';paths=[net/'FfsNetTransport.cs',net/'Avatar/NetAvatarDriver.cs',net/'VersionGuard.cs',net/'NetProtocol.cs']
+ transport,avatar,version,protocol=[p.read_text() for p in paths]
+ receive=method(transport,'    private void RaiseReceived(')
+ start=avatar.index('            case NetProtocol.MsgExtras:');end=avatar.index('\n                break;',start)+len('\n                break;');case=avatar[start:end]
+ registry='\n'.join(method(version,sig) for sig in ['    internal static void NotePacket(','    internal static void NoteExtras('])
+ registry+='\n'+re.search(r'    internal static int PeerBuild\(int playerId\) =>[^;]+;',version).group(0)
+ names=sorted(set(re.findall(r'NetProtocol\.(\w+)',receive+case)))
+ constants='\n'.join(re.search(r'^    (?:public|internal) const [^;\n]+\b'+name+r'\s*=[^;]+;',protocol,re.M).group(0) for name in names)
+ generated='using System;using GloomhavenVR.Core;namespace GloomhavenVR.Net {\ninternal static partial class NetProtocol {\n'+constants+'\n}\ninternal static partial class VersionGuard {\n'+registry+'\n}\ninternal sealed partial class FfsNetTransport {\n'+receive+'\n}\ninternal sealed partial class NetAvatarDriver {\ninternal void ReceiveExtrasFixture(int senderId,byte[] buffer,int length) { bool parsed=false;switch(NetPacket.PeekType(buffer,length)) {\n'+case+'\n}LastParsed=parsed;}\n}\n}\n'
+ bindings={'schema':'multiplayer-cheat-capability-ingress-projection-v1','source_files':{str(p.relative_to(ROOT)):sha(p) for p in paths},
+  'exact_projections':{'FfsNetTransport.RaiseReceived':hashlib.sha256(receive.encode()).hexdigest(),'NetAvatarDriver.MsgExtrasCase':hashlib.sha256(case.encode()).hexdigest(),'VersionGuard.registry':hashlib.sha256(registry.encode()).hexdigest(),'NetProtocol.used_constants':hashlib.sha256(constants.encode()).hexdigest()},
+  'generated_sha256':hashlib.sha256(generated.encode()).hexdigest(),'ports':['Decoded PresenceState and version-only/batch recognition supplied by explicit decode ports; real codec is unchanged and not proved here','Fragment assembly, sockets and native presentation drawing are unexercised ports','Only driver MsgExtras case is projected; surrounding switch/test receiver wrapper is explicit, not a replacement claimed as full OnPacketReceived proof','Complete production RaiseReceived, including its native guard, batch recursion, early return and fallback dispatch, is compiled without edits']}
+ return generated,paths,bindings
 def main():
  ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/multiplayer-cheats-runtime');ap.add_argument('--production-only',action='store_true');args=ap.parse_args()
  args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()));print('evidence: '+str(run),flush=True)
@@ -44,17 +68,22 @@ def main():
  inputs=[ROOT/'src/GloomhavenVR/WorldUI/Options'/n for n in PRODUCTION]+list((ROOT/'scripts/multiplayer-cheats-runtime').glob('*.cs'))+[Path(__file__).resolve(),native_manifest]
  gate=ROOT/'src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs'
  inputs.append(gate)
+ ingress,projected,projection=capability_ingress();inputs.extend(projected)
  text=gate.read_text();signature='    internal static void OverrideRequirements(';begin=text.index(signature);end=text.index('\n    }',begin)+6
  shared_signature='    internal static void SetFromSharedHost(';shared_begin=text.index(shared_signature);shared_end=text.index('\n    }',shared_begin)+6
  gate_method='using System; using MapRuleLibrary.MapState; using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI.Patches; internal static partial class ScenarioGateCheat {\n'+text[shared_begin:shared_end]+'\n'+text[begin:end]+'\n}\n'
  pins={str(p.relative_to(ROOT)):sha(p) for p in inputs};(run/'source-pins.json').write_text(json.dumps(pins,indent=2)+'\n')
+ (run/'ingress-projection-bindings.json').write_text(json.dumps(projection,indent=2)+'\n')
+ originals=run/'originals';originals.mkdir()
+ for p in projected:shutil.copyfile(p,originals/p.name)
  try:
   variants=['production']+([] if args.production_only else list(MUTATIONS))
   for variant in variants:
    case=run/variant;case.mkdir();source=case/'Sources';source.mkdir()
    for p in inputs:
-    if p.suffix=='.cs' and p!=gate:shutil.copyfile(p,source/p.name)
+    if p.suffix=='.cs' and p!=gate and p not in projected:shutil.copyfile(p,source/p.name)
    (source/'GateMethods.cs').write_text(gate_method)
+   (source/'CapabilityIngress.cs').write_text(ingress)
    if variant!='production':
     name,old,new,expected=MUTATIONS[variant];p=source/name;text=p.read_text();assert old in text,variant;p.write_text(text.replace(old,new))
    project=case/'Cheats.csproj';project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NoWarn>CS0649;CS0414;CS0162</NoWarn></PropertyGroup></Project>')
@@ -62,6 +91,8 @@ def main():
    build=subprocess.run(['dotnet','build',str(project),'--configuration','Release','-v:q','--nologo'],cwd=ROOT,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);(case/'build.log').write_text(build.stdout)
    if build.returncode:raise RuntimeError('Variant failed to compile: '+variant+'\n'+build.stdout)
    execute=subprocess.run(['dotnet',str(case/'bin/Release/net8.0/Cheats.dll')],cwd=ROOT,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);(case/'runtime.log').write_text(execute.stdout)
+   retained=case/'executed-binaries';shutil.copytree(case/'bin/Release/net8.0',retained)
+   (case/'artifact-manifest.json').write_text(json.dumps({str(p.relative_to(case)):sha(p) for p in sorted([*source.glob('*.cs'),*retained.iterdir()]) if p.is_file()},indent=2)+'\n')
    passed=execute.returncode==0 if variant=='production' else execute.returncode!=0 and expected in execute.stdout
    row={'name':variant,'passed':passed,'exit_code':execute.returncode,'output':execute.stdout};results.append(row)
    print(('PASS ' if passed else 'FAIL ')+variant+': '+execute.stdout.strip(),flush=True)

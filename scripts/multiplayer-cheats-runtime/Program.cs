@@ -11,7 +11,7 @@ using MapRuleLibrary.State;
 using MapRuleLibrary.MapState;
 using ScenarioRuleLibrary;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _checks;
     private static void Check(bool value, string why) { ++_checks; if (!value) throw new Exception(why); }
@@ -293,7 +293,7 @@ internal static class Program
     }
     internal static void Main()
     {
-        Client(AcceptedGold()); Refusals(); OtherCheats(); Reveal(); NativePermits(); Storage(); NativeFailure(); Codec();
+        Client(AcceptedGold()); Refusals(); OtherCheats(); Reveal(); NativePermits(); Storage(); NativeFailure(); Codec(); CapabilityIngress();
         System.Console.WriteLine("Multiplayer cheats: "+_checks+" production/queued-native assertions passed.");
     }
     private static void GoldModeFixture(this CMapParty party) => AdventureState.MapState!.GoldMode=EGoldMode.PartyGold;

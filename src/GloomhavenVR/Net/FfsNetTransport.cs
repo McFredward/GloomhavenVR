@@ -537,6 +537,9 @@ internal sealed class FfsNetTransport : INetTransport
             {
                 VersionGuard.NotePacket(senderId);
                 VersionGuard.NoteExtras(senderId, in version);
+                // Version-only announcements end here instead of reaching the driver.
+                // Bind the same explicit advertisement to its current native peer too.
+                WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, version.ModBuild);
                 return;
             }
             int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
