@@ -92,7 +92,8 @@ def main():
         'VRRigDriver.cs', 'VRRigDriver.HeadCamera.cs', 'VRRigDriver.Recenter.cs')]
     bank = ROOT / 'src/GloomhavenVR/Assets/SteamLink/scene.bundle'
     overlay = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
-    inputs += [bank, overlay, GPU / 'run.py', *GPU.glob('*.shader'), *[p for p in HERE.iterdir() if p.is_file()]]
+    ui_assembly = ROOT / 'libs/RefAsm/UnityEngine.UI.dll'
+    inputs += [bank, overlay, ui_assembly, GPU / 'run.py', *GPU.glob('*.shader'), *[p for p in HERE.iterdir() if p.is_file()]]
     pins = {str(path.relative_to(ROOT)): sha(path) for path in inputs}
     copies = run / 'sources'; copies.mkdir()
     for index, path in enumerate(inputs): shutil.copyfile(path, copies / (str(index) + '-' + path.name))
@@ -100,7 +101,7 @@ def main():
     frozen_bank = run / 'actual-shipping-scene.bundle'; shutil.copyfile(bank, frozen_bank)
     managed = args.unity.parent / 'Data/Managed'
     metadata = [managed / 'UnityEngine' / ('UnityEngine.' + name + 'Module.dll')
-                for name in ('Core', 'XR', 'VR', 'AssetBundle', 'JSONSerialize')]
+                for name in ('Core', 'XR', 'VR', 'AssetBundle', 'JSONSerialize', 'UI')]
     metadata_pins = {str(path): sha(path) for path in metadata}
     (run / 'metadata-pins.json').write_text(json.dumps(metadata_pins, indent=2) + '\n')
     framework = Path.home() / '.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
@@ -138,7 +139,7 @@ def main():
             try:
                 status = helper.execute([dotnet, 'build', '--disable-build-servers', str(build / 'Fixture.csproj'),
                     '-c', 'Release', '--configfile', str(HERE / 'NuGet.Config'), '-p:FrozenSource=' + str(frozen),
-                    '-p:FixtureDir=' + str(HERE), '-p:UnityManaged=' + str(managed),
+                    '-p:FixtureDir=' + str(HERE), '-p:UnityManaged=' + str(managed), '-p:UiAssembly=' + str(ui_assembly),
                     '-p:FrameworkReferenceDir=' + str(framework), '-p:UseSharedCompilation=false'], case / 'compile.log')
                 assert status == 0, 'Actual production extraction must compile 0W0E: ' + str(case)
                 dll = build / 'bin/Release/net472/MenuRigLifecycleFixture.dll'; shutil.copyfile(dll, case / dll.name)
@@ -149,7 +150,7 @@ def main():
                 for path in GPU.glob('*.shader'): shutil.copyfile(path, assets / path.name)
                 shutil.copyfile(overlay, assets / 'OriginalOverlay.shader')
                 (project / 'Packages').mkdir(); (project / 'Packages/manifest.json').write_text(
-                    '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.xr":"1.0.0"}}\n')
+                    '{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.xr":"1.0.0","com.unity.ugui":"1.0.0"}}\n')
                 settings = project / 'ProjectSettings'; settings.mkdir()
                 (settings / 'ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
                 (settings / 'ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 26\n  m_ActiveColorSpace: 0\n')
