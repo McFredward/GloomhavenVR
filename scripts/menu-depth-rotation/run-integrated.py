@@ -63,6 +63,7 @@ def main():
     inputs = {path: read(path) for path in relative}
     sources = {Path(path).name: content.decode() for path, content in inputs.items() if path.startswith(base)}
     sources['Pointer.cs'] = shared.pointer_source(inputs[relative[-1]].decode())
+    sources['SharedScrollBoundary762.cs'] = shared.inactive_shared_scroll_source()
     cases = [
         ('production', '', '', '', ''),
         ('lost-enrollment', 'MenuDepthCharacters.cs',

@@ -43,6 +43,28 @@ def member(source, signature):
     return source[start:end] + '\n'
 
 
+def inactive_shared_scroll_source():
+    # Portrait input is private; the shared publisher is deliberately absent.
+    return """// This private native-pointer fixture has no shared-window session or input publisher.
+// An absent production SharedWindowScrollBridge.Submit returns false as declared here;
+// all original native callback, scroll, geometry and control oracles still execute.
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI {
+internal enum SharedScrollInput : byte { Wheel = 2, Position = 3, PointerDown = 5, PointerDrag = 6, PointerUp = 7 }
+internal sealed class SharedWindowScrollProxy : MonoBehaviour {
+    internal bool CanScroll => false;
+    internal byte Control => 0;
+}
+internal static class SharedWindowScrollBridge {
+    internal static bool Wheel(Component control, Vector2 delta) => false;
+    internal static bool Pointer(Component control, SharedScrollInput input, PointerEventData data) => false;
+}
+}
+"""
+
+
 def pointer_source(source):
     # Native input eligibility/hover are explicit inputs. The production press,
     # drag, release and cancellation dispatch methods execute without edits.
@@ -57,6 +79,9 @@ private readonly string _sourceTag="rotation-fixture-laser";
 private PointerEventData? _data;
 private GameObject? _hovered, _pressed, _pressedClickHandler, _dragTarget;
 private bool _dragging;
+// Match only the two additional production pointer storage fields.
+private Component? _sharedScrollDrag;
+private bool _sharedScrollbarPress;
 private Vector2 _lastDragPos;
 private GameObject? Pressing {get=>_pressed;set=>_pressed=value;}
 internal UguiPointer(int id){_pointerId=id;}
@@ -139,7 +164,7 @@ def main():
     pointer_path = ROOT / 'src/GloomhavenVR/Hands/Interact/UguiPointer.cs'
     ray_path = ROOT / 'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
     flat_path = ROOT / 'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.6.Pointer.cs'
-    sources = {'MenuDepthCharacterRotation.cs': production_path.read_text(), 'Pointer.cs': pointer_source(pointer_path.read_text()),
+    sources = {'SharedScrollBoundary762.cs': inactive_shared_scroll_source(), 'MenuDepthCharacterRotation.cs': production_path.read_text(), 'Pointer.cs': pointer_source(pointer_path.read_text()),
         'Upstream.cs': upstream_source(ray_path.read_text(), flat_path.read_text())}
     variants = [
         ('production', '', '', '', ''),

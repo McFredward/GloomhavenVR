@@ -44,6 +44,28 @@ def execute(argv, log, timeout=180):
             process.wait()
 
 
+# Keep this unrelated shared-input service explicitly unbound, exactly as a
+# private window behaves with no multiplayer scroll publisher installed.
+INACTIVE_SHARED_SCROLL = """// This private native-pointer fixture has no shared-window session or input publisher.
+// An absent production SharedWindowScrollBridge.Submit returns false as declared here;
+// all original native callback, scroll, geometry and control oracles still execute.
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI {
+internal enum SharedScrollInput : byte { Wheel = 2, Position = 3, PointerDown = 5, PointerDrag = 6, PointerUp = 7 }
+internal sealed class SharedWindowScrollProxy : MonoBehaviour {
+    internal bool CanScroll => false;
+    internal byte Control => 0;
+}
+internal static class SharedWindowScrollBridge {
+    internal static bool Wheel(Component control, Vector2 delta) => false;
+    internal static bool Pointer(Component control, SharedScrollInput input, PointerEventData data) => false;
+}
+}
+"""
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -78,6 +100,7 @@ def main():
               'namespace GloomhavenVR.Hands {internal enum HandSide {Left,Right}'
               'internal sealed class VRHand {internal HandSide Side;internal UnityEngine.Vector2 Thumbstick;}}')
     sources = {'ActualScroll.cs': actual, 'UiScrollFocus.cs': focus_path.read_text()}
+    sources['SharedScrollBoundary762.cs'] = INACTIVE_SHARED_SCROLL
     cases = [
         ('production', '', '', ''),
         ('old-empty-event-trigger', 'ExecuteEvents.Execute(target, data, ExecuteEvents.scrollHandler);',

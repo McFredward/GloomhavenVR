@@ -28,6 +28,28 @@ def execute(argv,log,timeout=240):
             if child.poll()is None:os.killpg(child.pid,signal.SIGKILL)
             child.wait()
 
+# Keep this unrelated shared-input service explicitly unbound, exactly as a
+# private window behaves with no multiplayer scroll publisher installed.
+INACTIVE_SHARED_SCROLL = """// This private native-pointer fixture has no shared-window session or input publisher.
+// An absent production SharedWindowScrollBridge.Submit returns false as declared here;
+// all original native callback, scroll, geometry and control oracles still execute.
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI {
+internal enum SharedScrollInput : byte { Wheel = 2, Position = 3, PointerDown = 5, PointerDrag = 6, PointerUp = 7 }
+internal sealed class SharedWindowScrollProxy : MonoBehaviour {
+    internal bool CanScroll => false;
+    internal byte Control => 0;
+}
+internal static class SharedWindowScrollBridge {
+    internal static bool Wheel(Component control, Vector2 delta) => false;
+    internal static bool Pointer(Component control, SharedScrollInput input, PointerEventData data) => false;
+}
+}
+"""
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');args=parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):parser.error('Use a private ADB_SERVER_SOCKET.')
@@ -42,6 +64,7 @@ def main():
         ROOT/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs',ROOT/'src/GloomhavenVR/Hands/Interact/UguiRaycastCoordinates.cs',ROOT/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs',
         ROOT/'src/GloomhavenVR/Hands/HoverHaptics.cs',ROOT/'src/GloomhavenVR/Hands/Interact/IPokeable.cs']
     sources={p.name:p.read_text()for p in paths}
+    sources['SharedScrollBoundary762.cs'] = INACTIVE_SHARED_SCROLL
     hand_path=ROOT/'src/GloomhavenVR/Hands/VRHand.cs';hand=hand_path.read_text()
     sources['ActualHoverSender.cs']='namespace GloomhavenVR.Hands { internal sealed partial class VRHand {\n'+block(hand,'internal void SendHoverHaptic(')+'\n'+block(hand,'public void SendHaptic(')+'\n}}'
     ray_path=ROOT/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs';ray=ray_path.read_text()

@@ -132,3 +132,39 @@ fresh coverage. No new scroll/cheat behavior is qualified by this old evidence.
 Run the audit again at the actual final source freeze. All original failed
 invocations remain failed; no prior partial receipt becomes a fresh full pass.
 Headset, Photon and D3D11 acceptance remain separate from this source/input audit.
+
+## Exact projection follow-up and fixture repairs
+
+The previous fresh menu-world warning was conditional on changes to its imported
+Ray Tick/TickPressed/Cancel kernels. The scroll checkpoint changes only
+TickStickScroll. An independent source-generation audit now regenerates ALL31
+menu-world production/control source sets from the current recipe and compares
+them byte-for-byte to the actual executed761 cases. All31 match, all31 DLL hashes
+match, and the other124 full input pins plus1239 native/toolchain inputs match.
+TickStickScroll and UguiPointer are explicit unrelated ports in that container;
+this reuse does not qualify the new shared scroll feature.
+
+The LevelUp94 producer likewise imports only TryIntersect/HitCorners/ToScreen/
+HitRectOf from RayUguiDriver. Current PopupRay759.cs matches every retained case
+(SHA256 e1cf9178d41445b32cb8b0dfd765ed5c7b57bef59aafb1d9be6248626e8d4b5b).
+The other61 full source inputs,156 native exports,102 executed binaries and
+1239 shared native/toolchain inputs match; all eight original editor domains
+completed all94 variants. `levelup-projection-reuse.py/json` retains that complete
+prior proof without rerunning it or weakening the old source pins. Both projection
+audits must run once more against the final integrated freeze.
+
+By explicit integrator delegation, four private pointer-fixture imports now carry
+an INACTIVE SharedScrollBoundary762: ugui-scroll760-runtime, menu-depth-laser,
+menu-depth-rotation and its integrated container. No session/publisher exists in
+those containers; Wheel/Pointer returning false is the production bridge's exact
+unbound behavior. Manual rotation pointer storage includes the two new production
+fields. Native callback/scroll/geometry assertions and all mutation recipes stay
+unchanged. The dedicated shared-scroll fixture owns active multiplayer proof.
+
+All four repaired production variants compile before the Unity launch boundary.
+The compile-only wrapper deliberately stops before any editor or runtime oracle;
+this is not a suite pass. The initial scroll preparation stopped because this
+worktree lacked the read-only decompiled reference link; that failure is retained.
+After linking the original read-only source tree, preparation/compilation succeeds.
+Canonical completion cleanup runs for both the preparation failure and intentional
+compile-only stops. Root runs each affected complete containing suite once.
