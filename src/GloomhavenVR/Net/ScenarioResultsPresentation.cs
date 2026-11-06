@@ -39,9 +39,14 @@ internal sealed class ScenarioResultsPresentation
     private readonly Dictionary<ushort, Copy> _copies = new();
     private readonly TownServiceAssets _assets = new();
     private readonly ScenarioResultsVisualLease _lease = new();
+    private readonly ScenarioResultsVisualLease _closedLease = new();
     private Transform? _sourceWindow;
     private int _roleIdentity;
     private GameObject? _quarantine, _picture;
+    private GameObject? _closedAnchor;
+    private UIWindow? _closedWindow;
+    private int _closedAuthor;
+    private uint _closedKey;
     private ConvertedPanel? _panel;
     private RectTransform? _previousFitRoot;
     private bool _previousFitEnabled;
@@ -70,8 +75,23 @@ internal sealed class ScenarioResultsPresentation
     internal void Apply(ScenarioResultsState state)
     {
         if (!state.HasPresentation) return;
-        _pending = state; _retryAt = 0;
-        if (!state.Visible) RetirePicture();
+        _retryAt = 0;
+        if (state.Visible)
+        {
+            if (_closedAuthor == state.Author && _closedKey == state.Key) ReleaseClosedLease();
+            _pending = state;
+            return;
+        }
+        // A received close can precede this client's native close/wait transition.
+        // Keep that private output suppressed without retaining public picture ink
+        // or interfering with the native controllers that finish the local episode.
+        bool current = Matches(_displayed, state.Author, state.Key) || Matches(_pending, state.Author, state.Key)
+            || _displayed == null && _pending == null;
+        if (!current) return;
+        if (_pending == null || Matches(_pending, state.Author, state.Key)) _pending = state;
+        BeginClosedLease(state.Author, state.Key);
+        RetirePicture();
+        TickClosedLease();
     }
 
     /// <summary>A native closure retires only its own public opening. A complete
@@ -80,12 +100,17 @@ internal sealed class ScenarioResultsPresentation
     {
         if (_displayed != null && _displayed.Author == author && _displayed.Key == key) RetirePicture();
         if (_pending != null && _pending.Author == author && _pending.Key == key) _pending = null;
+        if (_closedAuthor == author && _closedKey == key) ReleaseClosedLease();
     }
 
     /// <summary>Called at Update and at the final visual boundary. Build at most once per frame;
     /// the cheap output lease is reasserted at both boundaries against native late writes.</summary>
     internal void Tick()
     {
+        TickClosedLease();
+        // An early packet for the next public opening cannot borrow the still-open
+        // native window belonging to the preceding accepted close.
+        if (_closedAnchor != null) return;
         if (_pending == null || !_pending.Visible)
         { _lease.Dispose(); return; }
         if (_lastFrame != Time.frameCount)
@@ -453,6 +478,37 @@ internal sealed class ScenarioResultsPresentation
     { var copy = new TownServiceNode { Binding = node.Binding }; foreach (var p in node.Values) copy.Values.Add(p.Key, p.Value); return copy; }
     private static TownServiceFrame Frame(ScenarioResultsPart part) => new() { Structure = part.Structure, Nodes = part.Nodes };
 
+    private static bool Matches(ScenarioResultsState? state, int author, uint key)
+        => state != null && state.Author == author && state.Key == key;
+
+    private void BeginClosedLease(int author, uint key)
+    {
+        UIWindow? window = ScenarioResultsNative.Window;
+        if (window == null || !window.gameObject.activeInHierarchy || (!window.IsOpen && !window.IsVisible)) return;
+        if (_closedAuthor == author && _closedKey == key && _closedWindow == window && _closedAnchor != null) return;
+        ReleaseClosedLease();
+        _closedAuthor = author; _closedKey = key; _closedWindow = window;
+        // No Canvas, Graphic or Renderer: this is only a lifetime/lease identity.
+        // It is outside the native target, so its controllers remain untouched.
+        _closedAnchor = new GameObject("GloomhavenVR.Results.AcceptedClose");
+    }
+
+    private void TickClosedLease()
+    {
+        if (_closedAnchor == null) return;
+        if (_closedWindow == null || ScenarioResultsNative.Window != _closedWindow
+            || !_closedWindow.gameObject.activeInHierarchy || (!_closedWindow.IsOpen && !_closedWindow.IsVisible))
+        { ReleaseClosedLease(); return; }
+        _closedLease.Tick(_closedAnchor.transform);
+    }
+
+    private void ReleaseClosedLease()
+    {
+        _closedLease.Dispose();
+        if (_closedAnchor != null) { _closedAnchor.SetActive(false); Object.Destroy(_closedAnchor); }
+        _closedAnchor = null; _closedWindow = null; _closedAuthor = 0; _closedKey = 0;
+    }
+
     private void RetireCopies()
     {
         _lease.Dispose();
@@ -478,7 +534,7 @@ internal sealed class ScenarioResultsPresentation
     }
     internal void Reset()
     {
-        RetirePicture(); ClearSources(); _assets.Clear(); _roles.Clear(); _pending = null;
+        RetirePicture(); ReleaseClosedLease(); ClearSources(); _assets.Clear(); _roles.Clear(); _pending = null;
         _lastFrame = -1; _retryAt = 0; _lastFailure = string.Empty;
         if (_quarantine != null) Object.Destroy(_quarantine); _quarantine = null;
     }

@@ -21,7 +21,7 @@ public static class InputManager { public static bool GamePadInUse; }
 public static class ActionProcessor { public static int Writes;public static void SetState(ActionProcessorStateType s,ActionPhaseType p=default){Writes++;} }
 namespace GLOOM { public static class LocalizationManager { public static string GetTranslation(string key)=>key; } }
 namespace FFSNet { public static class PlayerRegistry { public static NetworkPlayer MyPlayer=new(); } }
-namespace UnityEngine.UI { public class UIWindow:MonoBehaviour { public bool IsOpen=true;public bool IsVisible=>IsOpen;public readonly UnityEvent onHidden=new();internal int Shows,Hides;public void Show(){Shows++;IsOpen=true;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=1;}public void Hide(){Hides++;onHidden.Invoke();IsOpen=false;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=0;} } }
+namespace UnityEngine.UI { public class UIWindow:MonoBehaviour { public bool IsOpen=true,ClosingTail;public bool IsVisible=>IsOpen||ClosingTail;public readonly UnityEvent onHidden=new();internal int Shows,Hides;public void Show(){Shows++;IsOpen=true;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=1;}public void Hide(){Hides++;onHidden.Invoke();IsOpen=false;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=0;} } }
 public class UIResultsManager:MonoBehaviour { public UIWindow myWindow=null!; }
 public class GUIAnimator:MonoBehaviour { public bool IsPlaying; }
 public class HeaderHighlightText:MonoBehaviour { public GUIAnimator highlightAnimator=null!; }

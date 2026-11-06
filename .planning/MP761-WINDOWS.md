@@ -194,3 +194,31 @@ are retained. The generic Frame container is the actual source; unused null NPC
 carrier types are explicit fixture ports that throw if touched. This is evidence
 for payload feasibility and smooth output, not proof of the pending FFS/reliable
 baseline scheduling or headset timing.
+
+## Accepted close before local native completion
+
+A final review found a genuine draw-order gap: receiving author `Visible=false`
+retired the common picture and restored the client's original Results/wait-help
+before its own native close arrived. No network order can guarantee simultaneous
+native transition completion, so this could flash a private view.
+
+The bounded repair retains an empty, active, mod-owned lease anchor after public
+ink/fit retirement. It suppresses only the original Results/ready output and exact
+native wait-for-host tip while that same author/key/native-window episode is
+still visible (including the native closing alpha tail). The original window,
+controllers, readiness, permissions and callbacks are untouched. There is no
+expiry or synthetic Hide/continuation. Exact local retirement or actual native
+window closure releases the lease. An early future complete picture remains
+pending and cannot borrow the preceding native closing tail; retirement of the
+old key cannot discard the future one.
+
+`results-presentation-runtime/run-xnhiemkd` passes27 actual Unity assertions plus
+two causal controls: removing the empty close lease reproduces the private flash;
+clearing unrelated pending content loses the future opening. The accepted-close
+head capture is completely black while both native Results and the native wait
+help remain open; readiness/callback counters do not change. Suppression survives
+IsOpen=false/IsVisible=true and then releases on exact local retirement. Current
+production also strict-compiles0W0E against the final integrated DTO/delta source;
+its DLL, borrowed dependency snapshots, source hashes and canonical cleanup are
+retained in `mp761-results-accepted-close-compile`. No unrelated Rest or Initiative
+suite was repeated. Headset/Photon outcomes remain unverified.
