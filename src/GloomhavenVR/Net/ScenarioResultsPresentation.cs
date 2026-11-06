@@ -416,6 +416,7 @@ internal sealed class ScenarioResultsPresentation
             var frame = new TownServiceFrame { Structure = part.Structure, Nodes = nodes };
             copy.Binding.Apply(frame, _assets); RootPose(copy.Binding.Root, nodes[0]);
         }
+        if (_copies.TryGetValue(1, out Copy? rootCopy)) SharedWindowScrollSync.AttachResultsInputs(rootCopy.Binding.Root);
         if (_picture != null) _picture.SetActive(true);
     }
     private static void RootPose(Transform root, TownServiceNode node)

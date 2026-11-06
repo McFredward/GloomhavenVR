@@ -153,7 +153,7 @@ internal static partial class ModalFallback
         GameObject? hovered = hand.RayUgui.Hovered ?? hand.Poke.HoveredUi;
         if (hovered == null || !hovered.transform.IsChildOf(wp.Panel.HostTransform))
             return;
-        if (hovered.GetComponentInParent<ScrollRect>() != null)
+        if (hovered.GetComponentInParent<ScrollRect>() != null || hovered.GetComponentInParent<SharedWindowScrollProxy>() != null)
             return; // generic RayUguiDriver stick-scroll owns this hover — never double-drive
 
         // SCROLL BEATS FLIGHT (user 2026-08-03), reported from the same place the scroll is
@@ -183,7 +183,8 @@ internal static partial class ModalFallback
             float notches = Mathf.Sign(y) * response * ResultsScrollNotchesPerSecond * Time.unscaledDeltaTime;
             _resultsScrollData ??= new PointerEventData(EventSystem.current);
             _resultsScrollData.scrollDelta = new Vector2(0f, notches);
-            ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
+            if (!SharedWindowScrollBridge.Wheel(scroll, _resultsScrollData.scrollDelta))
+                ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
             _resultsScrollData.scrollDelta = Vector2.zero;
             if (live)
                 UiScrollFocus.NoteScrollDelivered(hand, scroll, "ModalFallback.ResultsScroll");
@@ -197,8 +198,9 @@ internal static partial class ModalFallback
             // scrollbars (the uGUI vertical-list convention), shrinks for the other two.
             float dir = bar.direction == Scrollbar.Direction.BottomToTop
                      || bar.direction == Scrollbar.Direction.LeftToRight ? 1f : -1f;
-            bar.value = Mathf.Clamp01(bar.value
+            float next = Mathf.Clamp01(bar.value
                 + dir * Mathf.Sign(y) * response * ResultsScrollbarUnitsPerSecond * Time.unscaledDeltaTime);
+            if (!SharedWindowScrollBridge.Position(bar, new Vector2(next, 0))) bar.value = next;
             if (live)
                 UiScrollFocus.NoteScrollDelivered(hand, bar, "ModalFallback.ResultsScroll");
         }

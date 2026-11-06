@@ -511,6 +511,19 @@ internal sealed class RayUguiDriver
         GameObject? hovered = _pointer.Hovered;
         if (hovered == null)
             return;
+        WorldUI.SharedWindowScrollProxy? proxy = hovered.GetComponentInParent<WorldUI.SharedWindowScrollProxy>();
+        if (proxy != null)
+        {
+            if (proxy.CanScroll) UiScrollFocus.NoteScrollHover(_hand, proxy, nameof(RayUguiDriver));
+            float stick = _hand.Thumbstick.y;
+            if (Mathf.Abs(stick) >= ScrollDeadzone)
+            {
+                float proxyResponse = (Mathf.Abs(stick) - ScrollDeadzone) / (1f - ScrollDeadzone);
+                _pointer.Scroll(new Vector2(0f, Mathf.Sign(stick) * proxyResponse * ScrollNotchesPerSecond * Time.unscaledDeltaTime));
+                if (proxy.CanScroll) UiScrollFocus.NoteScrollDelivered(_hand, proxy, nameof(RayUguiDriver));
+            }
+            return;
+        }
         ScrollRect? scrollable = hovered.GetComponentInParent<ScrollRect>();
         if (scrollable == null || !scrollable.isActiveAndEnabled)
             return;
