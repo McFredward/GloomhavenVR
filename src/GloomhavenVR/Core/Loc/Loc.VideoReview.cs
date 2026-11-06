@@ -11,8 +11,8 @@ internal static partial class Loc
 
     internal static string VideoReviewHeading => VideoText("Videos", "Videos");
     internal static string VideoReviewCheatsScope => VideoText(
-        "Actions that change progress are single-player only. Video previews also work in multiplayer and are visible to the other players.",
-        "Aktionen, die den Spielfortschritt ändern, sind nur im Einzelspieler verfügbar. Video-Vorschauen funktionieren auch im Mehrspieler und sind für die Mitspieler sichtbar.");
+        "Cheats change real progress. In multiplayer, the host controls progress cheats; video previews are visible to the other players.",
+        "Cheats verändern den echten Spielfortschritt. Im Mehrspieler steuert der Host die Fortschritts-Cheats; Video-Vorschauen sind für die Mitspieler sichtbar.");
     internal static string VideoReviewCheatsRequired => VideoText(
         "Enable Cheats to play test videos.", "Aktiviere Cheats, um Testvideos abzuspielen.");
     internal static string VideoReviewHint => VideoText(

@@ -10,7 +10,7 @@ internal static class GoldCheat
 {
     internal static string UnavailableReason()
     {
-        if (FFSNetwork.IsOnline) return "cheat_gold_online";
+        if (FFSNetwork.IsOnline && MultiplayerCheats.UnavailableReason() is string reason && reason.Length != 0) return reason;
         if (!MapRoomDriver.Active || AdventureState.MapState?.MapParty == null)
             return "cheat_gold_no_map";
         if (MapRoomHand.OwnedMerchantCharacter() == null)
@@ -31,12 +31,18 @@ internal static class GoldCheat
         character = MapRoomHand.OwnedMerchantCharacter();
         var state = AdventureState.MapState;
         var save = SaveData.Instance;
-        if (character == null || state?.MapParty == null || save == null || FFSNetwork.IsOnline)
+        if (character == null || state?.MapParty == null || save == null)
             return false;
 
         // Guildmaster can use a shared party purse. Its rules deliberately reject per-character
         // ModifyGold, so the same visible shortcut credits the purse the shop actually reads.
         partyGold = state.GoldMode == EGoldMode.PartyGold;
+        if (FFSNetwork.IsOnline)
+        {
+            // Send the exact selected character identity, never ask each receiver's selection.
+            balance = partyGold ? state.MapParty.PartyGold : character.CharacterGold;
+            return MultiplayerCheats.TryQueue(MultiplayerCheatKind.Gold, character.CharacterID, partyGold, characterName: character.CharacterName);
+        }
         if (partyGold)
         {
             state.MapParty.ModifyPartyGold(100, useGoldModifier: false);
