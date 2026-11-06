@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**244 patch classes, 367 patched methods.**
+**251 patch classes, 376 patched methods.**
 
 ## Board
 
@@ -159,6 +159,12 @@ runtime, which is why a runtime audit could never do this job (see
 | `UIManager_ToggleLockUI_Patch`<br/><sub>src/GloomhavenVR/Core/Events/GameEventPatches.cs:73</sub> | `UIManager.ToggleLockUI()` | postfix | `VREventsModule`:37 |
 | `UIWindow_Transition_Patch`<br/><sub>src/GloomhavenVR/Core/Events/GameEventPatches.cs:101</sub> | `UIWindow.EvaluateAndTransitionToVisualState()` *(private)* | postfix | `VREventsModule`:38 |
 | `MaterialLoader_LoadMaterials_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/MaterialLoaderHeal.cs:1180</sub> | `MaterialLoader.LoadMaterials()` | postfix | `CompatModule`:175 |
+| `NativeFigureAudioPatches.FigureAudioProducer` *(degrades by design)*<br/><sub>src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs:27</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `NativeFigureAudioPatches`:19 |
+| &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
+| `NativeFigureAudioPatches.PickCommit`<br/><sub>src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs:49</sub> | `CardsHandUI.OnLoseCardClick()` *(private)* | prefix | `NativeFigureAudioPatches`:21 |
+| &nbsp; | `CardsHandUI.OnLoseCardClick()` *(private)* | finalizer | &nbsp; |
+| `NativeFigureAudioPatches.PickRequests`<br/><sub>src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs:59</sub> | `AudioController.PlayAudioItem()` | postfix | `NativeFigureAudioPatches`:22 |
+| `NativeFigureAudioPatches.FigureAudioObjects`<br/><sub>src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs:65</sub> | `AudioController.PlayAudioSubItem()` | postfix | `NativeFigureAudioPatches`:20 |
 | `ApparanceEntity_ObjectPlacementContextPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioDecorativePlacement.cs:173</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `ScenarioDecorativePlacement`:48 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
 | `ApparanceEntity_DecorativePlacementPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioDecorativePlacement.cs:195</sub> | `ApparanceEntity.CreateInstance()` | prefix | `ScenarioDecorativePlacement`:49 |
@@ -193,6 +199,9 @@ runtime, which is why a runtime audit could never do this job (see
 | `TilesOcclusionVolume_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:308</sub> | `TilesOcclusionVolume.Start()` *(private)* | postfix | `SceneRegistry`:156 |
 | `UnityGameEditorDoorProp_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:320</sub> | `UnityGameEditorDoorProp.Start()` *(private)* | postfix | `SceneRegistry`:171 |
 | `ProceduralTileObserver_OnEnable_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:336</sub> | `ProceduralTileObserver.OnEnable()` *(private)* | postfix | `SceneRegistry`:186 |
+| `SceneMaterialGraphicArrival`<br/><sub>src/GloomhavenVR/Core/SteamLink/SceneMaterialObservers.cs:61</sub> | `GraphicRegistry.RegisterGraphicForCanvas()` | postfix | `SceneMaterialObservers`:21 |
+| `SceneMaterialGraphicRebuilt`<br/><sub>src/GloomhavenVR/Core/SteamLink/SceneMaterialObservers.cs:68</sub> | `Graphic.UpdateMaterial()` *(private)* | postfix | `SceneMaterialObservers`:22 |
+| `SceneMaterialPoolArrival` *(degrades by design)*<br/><sub>src/GloomhavenVR/Core/SteamLink/SceneMaterialObservers.cs:75</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `SceneMaterialObservers`:23 |
 | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch`<br/><sub>src/GloomhavenVR/Core/Water/WaterTerrainVR.cs:3536</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `WaterTerrainVR`:303 |
 
 ## Hands
@@ -449,6 +458,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Cards/CardsModule.cs` | `AbilityCardUI_Init_HistoricalBurn_Patch`, `AbilityCardUI_OnReturnedToPool_BurnLifetime`, `ActiveDismissConfirmation`, `BurnCardTimeline_PreserveSpentStart_Patch`, `BurnCardTimeline_Track`, `CardsHandManager_ShowAll_Patch`, `CardsHandManager_ShowHands_Patch`, `CardsHandManager_ShowList_Patch`, `CardsHandUI_AnimateCardsLost_Lifetime`, `CardsHandUI_CancelAnimateCardLost_Lifetime`, `CardsHandUI_DestroyCardUI_Patch`, `CardsHandUI_HandleLongRest_PickFlowEnd`, `CardsHandUI_Hide_PickFlowEnd`, `CardsHandUI_OnDestroy_Patch`, `CardsHandUI_OnLoseCardClick_Gate`, `CardsHandUI_UpdateView_PickFlowOpen`, `DialogPopup_Show_HoverStrip`, `FullAbilityCard_Enter_HalfHoverSync`, `FullAbilityCard_Exit_HalfHoverSync`, `FullAbilityCard_Init_CensusLifetime`, `FullAbilityCard_OnDestroy_CensusLifetime`, `FullAbilityCard_OnEnable_CensusLifetime`, `FullAbilityCard_ShowCard_ArtGuard`, `FullAbilityCard_UpdatePosition_AdoptedLayout`, `FullAbilityCard_UpdateScale_AdoptedLayout`, `FullCardEventPusher_Enter_LaserGeometric`, `FullCardEventPusher_Exit_LaserGeometric`, `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`, `ObjectPool_GetCardInstance_NativeHierarchy`, `ObjectPool_RecycleCard_NativeHierarchy`, `RestoreCard_Once`, `RestoreCard_PreservePlayback_Patch`, `ReturnedToPool_Retire`, `SceneController_LoadScene_CardLifetime`, `TakeDamagePanel_BurnHover_Skip`, `ToggleAdditiveEffect_Once`, `ToggleAdditiveEffect_PreservePlayback_Patch`, `ToggleEffect_Once`, `ToggleEffect_PreserveSpentStart_Patch` |
 | `src/GloomhavenVR/Compat/CompatModule.cs` | `CreateSeam`, `InitialInputSkip`, `LevelEventsController_MessageWasDismissed_Patch`, `LevelEventsController_MessageWasDisplayed_Patch`, `LevelEventsController_StartListeningForEvents_Patch`, `LevelMessagePageUI_OnLanguageChanged_Patch`, `LevelMessageUILayoutGroup_Show_Patch`, `LevelMessageUILayout_Title_Patch`, `LoadoutHostingGuard`, `MaterialLoader_LoadMaterials_RegisterPatch`, `NameClassSeam`, `NativeBugFixes_ItemReplayActor`, `NativeBugFixes_ShowUsableItemsActor`, `NativeCardsRestorePhaseFix`, `OriginSeam`, `ReservedNameSeam`, `TutorialChainHold`, `TutorialService_StartTutorial_Patch`, `WallFadeDisable` |
 | `src/GloomhavenVR/Core/Events/VREventsModule.cs` | `Choreographer_ProcessMessage_Patch`, `Choreographer_SetChoreographerState_Patch`, `UIManager_ToggleLockUI_Patch`, `UIWindow_Transition_Patch` |
+| `src/GloomhavenVR/Core/Patches/NativeFigureAudioPatches.cs` | `FigureAudioObjects`, `FigureAudioProducer`, `PickCommit`, `PickRequests` |
 | `src/GloomhavenVR/Core/Perf/ScenarioDecorativePlacement.cs` | `ApparanceEntity_DecorativePlacementPatch`, `ApparanceEntity_ObjectPlacementContextPatch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs` | `Camera_FinalPreCull_BudgetPatch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.cs` | `ApparanceEntity_EnvironmentBudgetPatch`, `MaterialLoaderData_Load_EnvironmentBudgetPatch`, `MaterialLoaderData_Ready_EnvironmentBudgetPatch`, `ProceduralBase_Placed_EnvironmentBudgetPatch`, `ProceduralMapTile_Show_EnvironmentBudgetPatch`, `SceneController_Loaded_EnvironmentBudgetPatch` |
@@ -458,6 +468,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs` | `MaterialLoaderData_Ready_SceneryBudgetPatch`, `ProceduralBase_ContentPlaced_SceneryBudgetPatch`, `ProceduralMapTile_ShowContent_SceneryBudgetPatch`, `SceneController_LoadingComplete_SceneryBudgetPatch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs` | `StructuralInstancing_LoadedPatch`, `StructuralInstancing_MaterialPatch`, `StructuralInstancing_PlacedPatch`, `StructuralInstancing_ShownPatch` |
 | `src/GloomhavenVR/Core/SceneRegistry.cs` | `ProceduralTileObserver_OnEnable_RegisterPatch`, `TilesOcclusionVolume_Start_RegisterPatch`, `UnityGameEditorDoorProp_Start_RegisterPatch` |
+| `src/GloomhavenVR/Core/SteamLink/SceneMaterialObservers.cs` | `SceneMaterialGraphicArrival`, `SceneMaterialGraphicRebuilt`, `SceneMaterialPoolArrival` |
 | `src/GloomhavenVR/Core/Water/WaterTerrainVR.cs` | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch` |
 | `src/GloomhavenVR/Hands/HandsModule.cs` | `GraphicRaycaster_SyntheticCoordinates`, `PointerInputModuleExtended_CapturedCoordinates` |
 | `src/GloomhavenVR/Net/NetModule.cs` | `ClientButtonLocker_TryLockButton_Patch`, `UIDistributePointsPopup_Hide_AssignmentPatch`, `UIDistributePointsPopup_RefreshAssignedPoints_Patch`, `UIDistributePointsSlot_AddPoint_Patch`, `UIDistributePointsSlot_EnableAddPoints_Patch`, `UIDistributePointsSlot_EnableRemovePoints_Patch`, `UIDistributePointsSlot_RemovePoint_Patch`, `UIDistributeReward_Distribute_Patch`, `UIDistributeReward_OnConfirmClick_Patch`, `UIDistributeReward_SetButtonInteractable_Patch`, `UIEventPanel_ClientContinueRoadEvent_Patch`, `UIEventPanel_CompleteEvent_Patch`, `UIEventPanel_ContinueEvent_Patch` |

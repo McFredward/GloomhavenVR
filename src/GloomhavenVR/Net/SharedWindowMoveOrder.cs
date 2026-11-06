@@ -24,7 +24,7 @@ internal struct SharedWindowMoveEntry
     internal uint ParentClaim;
     internal int ParentAuthor;
 
-    internal bool Valid => Kind >= 1 && Kind <= 6 && Phase <= SharedWindowMovePhase.Automatic
+    internal bool Valid => Kind >= 1 && Kind <= 7 && Phase <= SharedWindowMovePhase.Automatic
         && ContentKey != 0 && OpeningAuthor > 0 && Opening != 0 && Sequence != 0
         && (Phase == SharedWindowMovePhase.Initial ? Claim == 0 : Claim != 0)
         && (Phase == SharedWindowMovePhase.Automatic
@@ -51,7 +51,7 @@ internal sealed class SharedWindowMoveOrder
             int kinds = 0;
             foreach (SharedWindowMoveEntry row in Entries)
             {
-                if (!row.Valid || (kinds & (1 << row.Kind)) != 0) return false;
+                if (!row.Valid || row.Kind > 6 || (kinds & (1 << row.Kind)) != 0) return false;
                 kinds |= 1 << row.Kind;
             }
             return true;

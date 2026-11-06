@@ -101,9 +101,9 @@ internal static class SharedWindowMoveOrderTests
         }
         t.True(complete != null && PresenceSerializer.TryRead(complete, complete.Length, out read)
             && read.WindowMoves != null && read.WindowMoves.Entries.Length == 6, "reversed fragment delivery retains atomic six-window pose order");
-        t.True(PresenceSerializer.MaxSize == 12955 && ExtrasFragments.MaxSnapshotBytes == 12800
-            && PresenceSerializer.MaxSize - (12515 + 183) == 257 && ExtrasFragments.MaxSnapshotBytes - (12515 + 183) == 102,
-            "allocation margin and unchanged reassembly cap account for the exact maximum123");
+        t.True(PresenceSerializer.MaxSize == 13001 && ExtrasFragments.MaxSnapshotBytes == 12800
+            && PresenceSerializer.MaxSize - (12515 + 183 + 46) == 257 && ExtrasFragments.MaxSnapshotBytes - (12515 + 183) == 102,
+            "allocation margin and unchanged reassembly cap account for the exact maximum123 plus46-byte public124");
         // Exercise the largest real original writer groups, not only a paper buffer sum:
         // every recent launch and durable completion plus all six new pose-order rows.
         var maximumFactory = typeof(CardDismissOriginVectors).GetMethod("Maximum",

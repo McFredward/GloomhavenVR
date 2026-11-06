@@ -145,12 +145,12 @@ internal sealed class NativeFigureAudioFollower : MonoBehaviour
     private AudioSubItem? _subItem;
     private double _started;
     private Vector3 _localOffset;
-    private bool _reported;
+    private bool _receiptReported;
     internal void Reused() { if (++Generation == 0) Generation++; _owner = null; }
     internal void Bind(NativeFigureAudio.Capture owner, ulong generation)
     {
         if (generation != Generation || Source == null || NativeFigureAudio.Admit(owner) == NativeFigureAudio.Admission.Invalid) return;
-        _owner = owner; _subItem = Source.subItem; _started = Source.startedPlayingAtTime; _reported = false;
+        _owner = owner; _subItem = Source.subItem; _started = Source.startedPlayingAtTime; _receiptReported = false;
         _localOffset = owner.PreserveOffset ? owner.Producer.transform.InverseTransformPoint(Source.transform.position) : Vector3.zero;
         Follow();
     }
@@ -172,7 +172,7 @@ internal sealed class NativeFigureAudioFollower : MonoBehaviour
         if (float.IsNaN(target.x) || float.IsInfinity(target.x) || float.IsNaN(target.y)
             || float.IsInfinity(target.y) || float.IsNaN(target.z) || float.IsInfinity(target.z)) return;
         Source.transform.position = target;
-        if (!_reported) { _reported = true; NativeFigureAudio.Report(owner, Source); }
+        if (!_receiptReported) { _receiptReported = true; NativeFigureAudio.Report(owner, Source); }
     }
     private void OnDisable() => _owner = null;
 }

@@ -99,7 +99,7 @@ internal static class SharedWindowMotionVectors
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdSharedWindowMotion == 77
             && NetProtocol.SharedWindowMotionRecordBytes == 2 && NetProtocol.SharedWindowMotionDefinedMask == 7,
             "additive ownership leaves v3 and all earlier record identities unchanged");
-        t.True(12698 <= ExtrasFragments.MaxSnapshotBytes && PresenceSerializer.MaxSize == 12955
+        t.True(12698 <= ExtrasFragments.MaxSnapshotBytes && PresenceSerializer.MaxSize == 13001
             && PresenceSerializer.MaxSize - 12698 >= 257,
             "opening histories and town presence retain the largest-record margin and fragmentation bound");
     }

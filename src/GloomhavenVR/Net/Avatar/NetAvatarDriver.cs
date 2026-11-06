@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -1013,6 +1014,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private void OnEnable()
     {
         _instance = this;
+        VREvents.WindowVisibility += OnResultsWindowVisibility;
         Subscribe();
     }
 
@@ -1020,6 +1022,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     {
         // Presentation owners can already be destroyed on scene/module shutdown. Their cleanup
         // must not retain departed peers or skip held-object restoration later in this sequence.
+        VREvents.WindowVisibility -= OnResultsWindowVisibility;
         TickGuard.Run("Net.Disable.Unsubscribe", Unsubscribe, "Net");
         _pending.Clear();
         _pendingExtras.Clear();
@@ -4128,6 +4131,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     if (samples.Count == 0 || animation.SampleTime > samples[samples.Count - 1].SampleTime)
                         PresentationPending.Append(samples, animation, PresentationPending.SameBonusIdentity);
                 }
+                break;
+
+            case ScenarioResultsCodec.MessageType:
+                parsed = QueueResults(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
             case NetProtocol.MsgCardPlume:

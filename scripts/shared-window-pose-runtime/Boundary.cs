@@ -23,6 +23,8 @@ namespace UnityEngine
         public bool Equals(Vector3 other) => x == other.x && y == other.y && z == other.z;
         public override bool Equals(object? value) => value is Vector3 v && Equals(v);
         public override int GetHashCode() => HashCode.Combine(x,y,z);
+        public static bool operator ==(Vector3 a,Vector3 b)=>a.Equals(b);
+        public static bool operator !=(Vector3 a,Vector3 b)=>!a.Equals(b);
         public static Vector3 operator +(Vector3 a, Vector3 b) => new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a, Vector3 b) => new(a.x-b.x,a.y-b.y,a.z-b.z);
         public static Vector3 operator *(Vector3 a, float f) => new(a.x*f,a.y*f,a.z*f);
@@ -39,6 +41,8 @@ namespace UnityEngine
         internal static Quaternion Euler(float x, float y, float z) => new() { Value = N.Quaternion.CreateFromYawPitchRoll(y*MathF.PI/180,x*MathF.PI/180,z*MathF.PI/180) };
         internal Vector3 eulerAngles => new(0,(MathF.Atan2(2*(Value.W*Value.Y+Value.X*Value.Z),1-2*(Value.Y*Value.Y+Value.X*Value.X))*180/MathF.PI+360)%360,0);
         internal static Quaternion Inverse(Quaternion q) => new() { Value = N.Quaternion.Inverse(q.Value) };
+        public static bool operator ==(Quaternion a,Quaternion b)=>a.Equals(b);
+        public static bool operator !=(Quaternion a,Quaternion b)=>!a.Equals(b);
         public static Quaternion operator *(Quaternion a, Quaternion b) => new() { Value = a.Value*b.Value };
         public static Vector3 operator *(Quaternion q, Vector3 v) => Vector3.From(N.Vector3.Transform(v.Native,q.Value));
         public bool Equals(Quaternion q) => Value.Equals(q.Value);
@@ -60,6 +64,7 @@ namespace UnityEngine
         internal static int RoundToInt(float v)=>(int)MathF.Round(v);
     }
     internal static class Time { internal static float unscaledTime = 10; internal static int frameCount = 100; }
+    internal sealed class GameObject { internal bool activeInHierarchy = true; }
     internal sealed class Transform
     {
         internal Vector3 position, localScale=Vector3.one;
@@ -68,7 +73,7 @@ namespace UnityEngine
 }
 internal static class FFSNetwork { internal static bool IsOnline=true,IsHost=false; }
 namespace FFSNet { internal static class FixtureNamespace { } }
-namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; } }
+namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; internal bool IsOpen=true,IsVisible=true; internal UnityEngine.GameObject gameObject=new(); } }
 internal sealed class DialogLineDTO { internal string text="page-key", character="hero-guid"; }
 internal sealed class UICharacterStoryBox { internal List<DialogLineDTO>? dialogs=new() { new() }; internal int currentDialogIndex=0; }
 internal sealed class UIQuestPopup { internal uint Key = 303; }
@@ -81,7 +86,7 @@ namespace GloomhavenVR.WorldUI
 {
     using UnityEngine;
     using UnityEngine.UI;
-    internal enum SharedWindowKind { None,ScenarioStory,MapStory,QuestConfirm,Encounter,Video,RewardShowcase }
+    internal enum SharedWindowKind { None,ScenarioStory,MapStory,QuestConfirm,Encounter,Video,RewardShowcase,Results }
     internal interface IPanelGrabOwner { Transform? GrabRoot { get; } bool GrabVisible { get; } }
     internal sealed class GrabbableModal : IPanelGrabOwner
     {
@@ -199,6 +204,7 @@ namespace GloomhavenVR.WorldUI
         internal static void ObserveCompletions(int sender,GloomhavenVR.Net.MapStoryOpening[] entries) { }
         internal static bool MatchesPose(int sender,int local,uint key,GloomhavenVR.Net.MapStoryOpening[]? entries)=>true;
     }
+    internal static class ScenarioResultsNative { internal static UnityEngine.UI.UIWindow? Window = new(); }
     internal static class NativeVideoWindow { internal static bool SharedInitialPoseReady=>ModalFallback.Ready; }
 }
 namespace GloomhavenVR.WorldUI.MapRoom

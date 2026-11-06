@@ -278,7 +278,8 @@ internal sealed class ExtrasFragments
         return payload;
     }
 
-    private static bool PayloadAllowed(int type) => type == NetProtocol.MsgExtras
+    private static bool PayloadAllowed(int type) => type == NetProtocol.MsgScenarioResults
+        || type == NetProtocol.MsgExtras
         || type == TownServices.TownServiceCodec.MessageType
         || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume
         || type == NetProtocol.MsgNativeUseBar || type == NetProtocol.MsgNativeBoard

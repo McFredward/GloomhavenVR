@@ -54,6 +54,8 @@ internal static class SharedWindowSpawnAuthority
     private static bool TryInitialPose(SharedWindowKind kind, out Vector3 position,
         out Quaternion rotation, out float factor) => kind == SharedWindowKind.ScenarioStory
         ? RemoteStorySync.TryInitialPose(out position, out rotation, out factor)
+        : kind == SharedWindowKind.Results
+            ? ScenarioResultsPose.TryInitial(out position, out rotation, out factor)
         : kind == SharedWindowKind.Video
             ? RemoteMapStory.TryVideoSharedInitialPose(out position, out rotation, out factor)
             : RemoteMapStory.TryInitialPose(kind, out position, out rotation, out factor);

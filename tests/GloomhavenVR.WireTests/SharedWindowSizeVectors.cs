@@ -534,8 +534,8 @@ internal static class SharedWindowSizeVectors
             string body = start >= 0 && end > start ? src[start..end] : string.Empty;
             int members = Regex.Matches(body, @"^\s{4}[A-Z][A-Za-z]*\s*=\s*\d+\s*,",
                                         RegexOptions.Multiline).Count;
-            t.Equal(7, members,
-                    "SharedWindowKind has 7 members (None + six shared windows, including native video and rewards). A new one "
+            t.Equal(8, members,
+                    "SharedWindowKind has 8 members (None + seven shared windows, including native video, rewards and Results). A new one "
                     + "means a new window the 1:1 size guarantee has to be given a design frame for "
                     + "— see SharedWindowSize.TryDesignFrame — so update that and this count "
                     + "together.");

@@ -82,6 +82,10 @@ def sources(root):
     town_branch = "a.Identity is TownServices.TownServiceFrame v && b.Identity is TownServices.TownServiceFrame u\n                            && TownServices.TownServiceSendQueue.SameIdentity(v, u)"
     if extras.count(town_branch) != 1: raise RuntimeError("Town queue identity binding drift")
     extras = extras[:start] + "        internal static bool Same(Pending a, Pending b) => " + town_branch + ";" + extras[end:]
+    # Results125's specialized baseline queue is outside this town-only scope.
+    # Its complete source is pinned here; actual Results queue/batch/receive
+    # behavior executes in the independent wire vectors, not an inert stand-in.
+    extras = extras.replace(method(extras, "internal void EnqueueResults(byte[] bytes, int length, ScenarioResultsState state)"), "")
     bound["ExtrasSendQueue.cs"] = extras
     pending = (base / "Net/PresentationPending.cs").read_text()
     bound["PresentationPending.cs"] = "using System;\nusing System.Collections.Generic;\nnamespace GloomhavenVR.Net;\ninternal static class PresentationPending {\n" + method(pending, "internal static void Append<T>(List<T> samples, T value, Func<T, T, bool> sameIdentity)") + "\n}\n"
@@ -95,7 +99,7 @@ def sources(root):
     protocol = (base / "Net/NetProtocol.cs").read_text()
     queue_constants = ("MsgExtras", "MsgExtrasFragments", "MsgPresentationCompression", "ExtIdExtrasFragment", "ExtIdPresentationCompression",
         "MsgUseBarAnimation", "MsgCardPlume", "MsgNativeUseBar", "MsgNativeBoard", "MsgCardAppearance", "MsgNativeDecisionPrompt",
-        "MsgItemAppearance", "MsgMapButtonTooltip", "MsgNativeUseBarFragments")
+        "MsgItemAppearance", "MsgMapButtonTooltip", "MsgNativeUseBarFragments", "MsgScenarioResults", "MsgScenarioResultsFragments")
     for name in ("ExtrasSendQueue.cs", "ExtrasFragments.cs", "TownServiceFragments.cs"):
         for constant in queue_constants:
             value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)

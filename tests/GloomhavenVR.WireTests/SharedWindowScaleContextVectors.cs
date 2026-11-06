@@ -236,7 +236,7 @@ internal static class SharedWindowScaleContextVectors
     private static void Fragmented(Harness t)
     {
         t.Case("shared scales121: the full encoded worst case stays below bounded12800");
-        t.Equal(12955, PresenceSerializer.MaxSize, "allocation includes257 spare bytes after actual12698 maximum");
+        t.Equal(13001, PresenceSerializer.MaxSize, "allocation includes257 spare bytes after actual12744 maximum including public124");
         t.Equal(12800, ExtrasFragments.MaxSnapshotBytes, "transport reassembly capacity is unchanged");
         foreach (int size in new[] { 38, 12698, 8000 })
         {

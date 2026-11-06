@@ -161,6 +161,10 @@ internal static class NetProtocol
     public const byte ExtIdRigSecondHeldCard = 111;
     /// <summary>Receipt for exact retained original metadata, never gameplay permission.</summary>
     public const byte MsgTownOriginalReceipt = 28;
+    // Independent original Results picture and gesture: no presence budget or legacy kind change.
+    public const byte MsgScenarioResults = 29;
+    public const byte MsgScenarioResultsFragments = 30;
+    public const byte ExtIdScenarioResults = 125;
     public const byte ExtIdTownOriginalReceipt = 112;
     /// <summary>One owner-authored native card return clock with exact public
     /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
@@ -640,7 +644,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 760;
+    public const ushort ModBuild = 761;
+
+    // ModBuild761 — paired759 multiplayer presentation review.
+    // The exact ESC player chooser now retires with its native pause-menu owner.
+    // Public HAND forced-pick identity and physical occupancy travel atomically in
+    // additive124; frozen39 keeps its original Discard/Burn semantics. Native
+    // flights retain their exact public source rather than mixed guessed fronts.
+    // World health/modifier symbols receive no MR readability plates. Original
+    // rest silhouettes glow, and initiative edge clicks reach the actual avatar
+    // Graphic/callback instead of stopping at its smaller parent rect.
+    // Live figure loops follow the exact native producer/model generation; their
+    // original clip, spatial settings and gameplay callback timing are retained.
+    // Results uses independent29/30+125 and the common shared-world gesture law;
+    // original native ready/gameplay authority remains separate from presentation.
+    // Original GUI/VFX alpha coverage is corrected only for the VR scene camera;
+    // RGB, program, depth and stencil remain native. See MP761-INTEGRATION.md for
+    // concrete causes, source-bound proof and unverified hardware boundaries.
 
     // ModBuild760 — retain complete windows at maximum zoom-in.
     // A native millimeter-per-pixel host made raw unit-axis cross products

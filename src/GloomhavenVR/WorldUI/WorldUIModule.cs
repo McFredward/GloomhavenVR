@@ -289,6 +289,7 @@ internal sealed class WorldUIModule : IVRModule
         TownServiceAssets.Reset();
         MapRoom.MapRetirementPrompt.Reset();
         MenuDepth.MenuDepthDriver.Shutdown();
+        ScenarioResultsReadyPark.Reset();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -437,6 +438,8 @@ internal sealed class WorldUIModule : IVRModule
                 ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("TownPalmConfirmation", TownServicePalmConfirmation.Tick), // restore/position owned native controls before fallback scans
                 ("MapRetirementPrompt", () => MapRoom.MapRetirementPrompt.Tick(MapRoom.MapRoomDriver.Active)),
+                // FRAME-ORDER WorldUIModule.ResultsReady [ScenarioResultsReadyPark.Tick, ModalFallback.Tick]
+                ("ScenarioResultsReadyPark", ScenarioResultsReadyPark.Tick),
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownTempleApproach", TownServiceTempleOffering.TickApproach),
                 ("TownServicePresentation", TownServicePresentation.Tick),

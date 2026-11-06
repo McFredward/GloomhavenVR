@@ -3464,6 +3464,135 @@
         "ci"
       ],
       "weight": 2
+    },
+    {
+      "id": "esc-roster-close",
+      "command": [
+        "python3",
+        "scripts/check-esc-roster-close.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "public-hand-pick-runtime",
+      "command": [
+        "python3",
+        "scripts/check-public-hand-pick-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "figure-audio-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-audio-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "results-window-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-window-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "mr-scene-symbol761",
+      "command": [
+        "python3",
+        "scripts/mr-scene-symbol761/run.py",
+        "--output",
+        ".planning/debug/mr-scene-symbol761"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "steamlink-material-scope",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-transparent-materials/run.py",
+        "--output",
+        ".planning/debug/steamlink-material-scope",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-native-alpha",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-transparent-materials/run.py",
+        "--native-alpha-only",
+        "--output",
+        ".planning/debug/steamlink-native-alpha",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-native-shader-preservation",
+      "command": [
+        "python3",
+        "scripts/steamlink-scene-render/check-native-variants.py",
+        "--root",
+        ".",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle",
+        "--output",
+        ".planning/debug/steamlink-native-shader-preservation/result.json"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "results-presentation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-presentation-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "results-transport-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-transport-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
     }
   ]
 }

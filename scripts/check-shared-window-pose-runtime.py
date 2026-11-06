@@ -42,7 +42,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/shared-window-pose-runtime')
-    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return'), default='complete', help='Partial development reproduction; requires --case production')
+    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return','results-poses'), default='complete', help='Partial development reproduction; requires --case production')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
     if args.scenario != 'complete' and args.case != ['production']: parser.error('Partial scenarios require exactly --case production')
@@ -68,6 +68,8 @@ def main():
             'video': 'Net/Remote/RemoteMapStory.Video.cs', 'playback': 'Net/Remote/RemoteVideoPlayback.cs',
             'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
             'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
+            'results_pose': 'Net/ScenarioResultsPose.cs', 'results_state': 'Net/ScenarioResultsState.cs',
+            'results_nodes': 'Net/TownServices/TownServiceFrame.cs',
             'move_order': 'Net/SharedWindowMoveOrder.cs', 'move_register': 'Net/SharedWindowMoveRegister.cs',
             'roommaking': 'WorldUI/Modal/ModalFallback.WindowRoomMaking.cs', 'reflow': 'Net/Remote/RemoteMapStory.Reflow.cs', 'moves': 'Net/SharedWindowMoves.cs', 'move_bridge': 'WorldUI/Modal/SharedWindowInteractionBridge.cs',
         }
@@ -117,6 +119,9 @@ def main():
         video_observe = block(original['playback'], 'internal static void Observe(')
         video_tail = video_observe[video_observe.rindex('        if (extras.HasVideoWindow)'):-1]
         sources = {
+            'ResultsPose.cs': original['results_pose'],
+            'ResultsState.cs': prefix + 'using GloomhavenVR.Net.TownServices;\n' + block(original['results_state'], 'internal sealed class ScenarioResultsState') + '\n' + block(original['results_state'], 'internal sealed class ScenarioResultsPart') + '\n}',
+            'ResultsNodes.cs': 'using System; using System.Collections.Generic; namespace GloomhavenVR.Net.TownServices {\n' + block(original['results_nodes'], 'internal sealed class TownServiceNode') + '\n' + block(original['results_nodes'], 'internal sealed class TownServiceValue') + '\n}',
             'Reflow.cs': original['reflow'], 'MoveOrder.cs': original['move_order'], 'MoveRegister.cs': original['move_register'],
             'Moves.cs': original['moves'], 'MoveBridge.cs': original['move_bridge'],
             'Context.cs': original['context'], 'Scales.cs': original['scales'], 'Authority.cs': original['authority'],
@@ -144,6 +149,9 @@ def main():
         sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
             'internal static partial class ModalFallback {\n'+room+'\n}')
         variants = [
+            ('results-foreign-author', 'ResultsPose.cs',
+             'state.Author != SharedWindowSpawnAuthority.AuthorId', 'false',
+             'results refuses a foreign content author'),
             ('scenario-auto-author-missing', 'Moves.cs',
              'register.SetAutomaticAuthor(SharedWindowSpawnAuthority.AuthorId, Time.unscaledTime);',
              'register.SetAutomaticAuthor(0, Time.unscaledTime);',

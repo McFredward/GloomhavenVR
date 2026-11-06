@@ -16,14 +16,14 @@ internal static class NativeFigureAudioPatches
     internal static void Install()
     {
         if (_installed || VRSession.Harmony == null) return;
-        VRSession.Harmony.PatchAll(typeof(Producer));
-        VRSession.Harmony.PatchAll(typeof(Objects));
+        VRSession.Harmony.PatchAll(typeof(FigureAudioProducer));
+        VRSession.Harmony.PatchAll(typeof(FigureAudioObjects));
         VRSession.Harmony.PatchAll(typeof(PickCommit));
         VRSession.Harmony.PatchAll(typeof(PickRequests));
         _installed = true;
     }
     [HarmonyPatch]
-    private static class Producer
+    private static class FigureAudioProducer
     {
         private static IEnumerable<MethodBase> TargetMethods()
         {
@@ -61,7 +61,7 @@ internal static class NativeFigureAudioPatches
         private static void Postfix(AudioItem sndItem, AudioObject? __result) => NativePickAudioAudit.Observe(sndItem, __result);
     }
     [HarmonyPatch(typeof(AudioController), nameof(AudioController.PlayAudioSubItem))]
-    private static class Objects
+    private static class FigureAudioObjects
     {
         [HarmonyPostfix]
         private static void Postfix(AudioObject? __result) => NativeFigureAudio.Observe(__result);

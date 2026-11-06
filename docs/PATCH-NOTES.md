@@ -26,6 +26,30 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build761: native audio and scene-alpha presentation
+
+`NativeFigureAudioPatches` observes exact native SFX producer calls and pooled
+audio returns. A generation-bound follower keeps detached figure emitters at
+their original producer offset; native playback, settings and stop ownership
+remain unchanged. Exact CharacterManager/ActorPrefab sibling association is
+required. Unrelated previews and global/UI sounds are not retargeted.
+`CardsHandUI.OnLoseCardClick` and `AudioController.PlayAudioItem` are passive,
+bounded Debug correlation probes: no deduplication or additional playback.
+
+The Steam Link material hooks observe original Graphic registration, material
+rebinding and the exact pooled-object return. They enroll only audited material
+families. Private derivatives preserve original shader programs and RGB/depth/
+stencil behavior, changing scene-alpha coverage in the owned head camera only.
+Camera scopes restore their previous values; foreign writes and unsupported
+shader families retain original behavior. No extra render pass is introduced.
+See `.planning/MP761-MR-COVERAGE.md` for the D3D11 audit, actual GPU witnesses and
+the explicit native-program/headset coverage boundary.
+
+Results presentation reuses the existing native window-visibility event rather
+than adding native Show/Hide callbacks. Messages29/30 with record125 carry an
+inert common picture; native result controllers, ready votes and host final
+authority remain local/original. New124 carries public HAND provenance only.
+
 ## Build754: confirmations on cropped native windows
 
 The existing confirmation-producer hooks retain their original targets and
