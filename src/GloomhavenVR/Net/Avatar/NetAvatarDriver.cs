@@ -685,6 +685,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     {
         if (_subscribed)
             return;
+        SharedWindowScrollSync.Bind(_transport, (payload, length, hostOnly) =>
+            _transport is FfsNetTransport ffs && ffs.SendSharedWindowScroll(payload, length, hostOnly));
+        SharedWindowScrollSync.MapParticipant = RemoteMapRoom.IsPeerInRoom;
         _transport.PacketReceived += OnPacketReceived;
         _subscribed = true;
     }
@@ -1109,6 +1112,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         float dt = Time.unscaledDeltaTime;
         using (Core.PerfMonitor.Scope("Net.Avatar"))
         {
+            try { SharedWindowScrollSync.Tick(Time.unscaledTime); }
+            catch (Exception e) { LogPhaseError("Shared window scroll", e); }
             try { PrepareMerchantCards(); }
             catch (Exception e) { LogPhaseError("PrepareMerchantCards", e); }
             // EVERY phase runs behind its own catch, because the phases are INDEPENDENT and an
@@ -4138,6 +4143,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
+            case NetProtocol.MsgSharedWindowScroll:
+                parsed = SharedWindowScrollSync.Receive(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
             case NetProtocol.MsgCardPlume:
             case NetProtocol.MsgNativeUseBar:
             case NetProtocol.MsgNativeBoard:
@@ -4194,6 +4204,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // handshake registry (record present: their build; absent: pre-handshake
                     // build 0, a mismatch by definition).
                     VersionGuard.NoteExtras(senderId, in extras);
+                    // Cheat admission needs this exact native player generation,
+                    // not an earlier connection's cached numeric player/build pair.
+                    WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId,
+                        extras.HasModVersion ? extras.ModBuild : (ushort)0);
                     ExtrasToWorld(ref extras);
                     _pendingExtras[senderId] = extras; // dedup: keep only the newest
                 }

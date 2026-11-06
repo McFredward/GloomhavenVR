@@ -24,6 +24,7 @@ internal static class CleanupPorts
         GloomhavenVR.Core.VRLog.Lines.Clear();
         GloomhavenVR.Core.Events.VREvents.ResetForFixture();
         GloomhavenVR.Net.ScenarioResultsPose.ResetForFixture();
+        GloomhavenVR.Net.SharedWindowScrollSync.ResetForFixture();
         UnityEngine.Time.unscaledTime += 11f;
     }
 }
@@ -98,6 +99,17 @@ namespace GloomhavenVR.Net
         private void ForgetNativePresentation(int id) => CleanupPorts.Step("native:" + id);
     }
     internal static class ScenarioResultsPose
+    {
+        internal static int Observed;
+        internal static object? Window;
+        internal static bool Shown;
+        internal static void ObserveWindowVisibility(object window, bool shown)
+        { Observed++; Window = window; Shown = shown; }
+        internal static void ResetForFixture() { Observed = 0; Window = null; Shown = false; }
+    }
+    // Only the event destination is ported here. The shared-scroll suite executes
+    // the actual coordinator's episode retirement and native gesture release.
+    internal static class SharedWindowScrollSync
     {
         internal static int Observed;
         internal static object? Window;

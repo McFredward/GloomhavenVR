@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "shared-scroll762")
+        { SharedWindowScrollVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "results761")
         { ResultsPresentationVectors.Run(t); ResultsTransportVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "public-hand-pick761")
@@ -56,6 +58,7 @@ internal static class Program
             DamageDecisionPreviewVectors.Run(t);
             HeldFaceAtomicVectors.Run(t);
             PublicHandPickVectors.Run(t);
+            SharedWindowScrollVectors.Run(t);
             ResultsPresentationVectors.Run(t); ResultsTransportVectors.Run(t);
             TownItemHeldVectors.Run(t);
             SecondHeldCardAtomicVectors.Run(t);

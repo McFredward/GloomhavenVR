@@ -31,8 +31,7 @@ methods = [extract(source, name) for name in names]
 # payload/pose destination supplied by the explicit fixture boundary.
 enable = extract(source, '    private void OnEnable()')
 results_source = results_path.read_text()
-callback_start = results_source.index('    private static void OnResultsWindowVisibility(')
-callback = results_source[callback_start:results_source.index(';', callback_start) + 1]
+callback = extract(results_source, '    private static void OnResultsWindowVisibility(')
 # Only the unrelated sent-state assignment fields are type-erased boundary storage. The peer
 # dictionaries, snapshots, callbacks, method bodies and TickGuard execute their actual logic.
 scalars = sorted(set(re.findall(r'\b(_\w+)\s*=', methods[2])))
@@ -55,6 +54,7 @@ for label, before, after, expected in [
     ('unprotected-session-reset', 'TickGuard.Run("Net.DestroyAvatars.NativePresentation", ResetNativePresentation, "Net");', 'ResetNativePresentation();', 'teardown must isolate a failed owner'),
     ('unprotected-disable-video', 'TickGuard.Run("Net.Disable.Video", RemoteVideoPlayback.Reset, "Net");', 'RemoteVideoPlayback.Reset();', 'teardown must isolate a failed owner'),
     ('retained-results-callback', 'VREvents.WindowVisibility -= OnResultsWindowVisibility;', '/* Results unsubscribe omitted by causal control */', 'disable retires the exact Results visibility subscription'),
+    ('lost-scroll-visibility-forwarding', 'SharedWindowScrollSync.ObserveWindowVisibility(change.Window, change.Shown);', '', 'shared scroll observes the original exact window visibility transition'),
 ]:
     if label == 'blanket-clear-new-peers':
         text = production.replace(methods[1], methods[1][:-1] + '_avatars.Clear();\n    }')

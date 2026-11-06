@@ -132,12 +132,16 @@ internal static class Program
         GloomhavenVR.Core.Events.VREvents.Publish(window, true);
         Check(ScenarioResultsPose.Observed == 1 && ReferenceEquals(ScenarioResultsPose.Window, window) && ScenarioResultsPose.Shown,
             "the original forwarding callback preserves exact window and visibility payload");
+        Check(SharedWindowScrollSync.Observed == 1 && ReferenceEquals(SharedWindowScrollSync.Window, window) && SharedWindowScrollSync.Shown,
+            "shared scroll observes the original exact window visibility transition");
         Invoke(driver.Disable);
         Check(GloomhavenVR.Core.Events.VREvents.HandlerCount == 0,
             "disable retires the exact Results visibility subscription");
         GloomhavenVR.Core.Events.VREvents.Publish(window, false);
         Check(ScenarioResultsPose.Observed == 1,
             "a disabled driver cannot receive a later native Results opening");
+        Check(SharedWindowScrollSync.Observed == 1,
+            "a disabled driver cannot receive a later shared scroll transition");
         Invoke(driver.Disable);
         Check(GloomhavenVR.Core.Events.VREvents.HandlerCount == 0,
             "repeated disable never reinstates a retired Results callback");

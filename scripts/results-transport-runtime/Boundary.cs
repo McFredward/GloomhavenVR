@@ -23,13 +23,16 @@ namespace GloomhavenVR.Net
         internal bool IsOnline = true;
         private readonly ExtrasSendScheduler _extrasQueue = new(10, 3, 4);
         private byte[]? _failedResultsPage, _versionAnnouncement;
-        private float _resultsRetryBudget, _nextResultsRetryReport, _nextVersionAnnouncement = float.MaxValue, _nextFragmentReport;
+        private float _resultsRetryBudget, _nextResultsRetryReport, _nextVersionAnnouncement = float.MaxValue, _nextFragmentReport, _nextTownGrantFailureLog;
         private int _sentFragments, _receivedFragments, _completedSnapshots, _fragmentBytes;
         private readonly object?[] _sendArgs = new object?[8];
         private readonly ConstructorInfo? _customDataCtor = typeof(NativeToken).GetConstructor(new[] { typeof(byte[]), typeof(bool) });
         private readonly MethodInfo? _sendSideAction = typeof(NativeSocket).GetMethod(nameof(NativeSocket.Send));
         internal void Enqueue(byte[] bytes, ScenarioResultsState state) => _extrasQueue.Enqueue(bytes, bytes.Length, identity: state);
         internal bool HasFailed => _failedResultsPage != null;
+        internal bool EmissionFlagsRestored => _sendArgs[2] is true && _sendArgs[3] is false;
+        internal void SetControlAvailability(bool installed, bool degraded)
+        { _installed = installed; _degraded = degraded; }
         internal sealed class NativeToken
         {
             internal readonly byte[] Bytes;
@@ -38,11 +41,13 @@ namespace GloomhavenVR.Net
         internal static class NativeSocket
         {
             internal static readonly List<(byte[] Bytes, bool Unreliable)> Attempts = new();
+            internal static readonly List<bool> HostRoutes = new();
             internal static bool FailNext;
             public static void Send(object? type, object token, bool unreliable, object? host,
                 object? target, object? n1, object? n2, object? flag)
             {
                 Attempts.Add((((NativeToken)token).Bytes, unreliable));
+                HostRoutes.Add(host is true);
                 if (FailNext) { FailNext = false; throw new InvalidOperationException("controlled native emission rejection"); }
             }
         }
@@ -50,7 +55,13 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.Core
 {
-    internal static class ResultsDiagnostics { internal static void Error(string scope, string message) { } }
+    internal static class ResultsClock { internal static float Now = 1f; }
+    internal static class ResultsDiagnostics
+    {
+        internal static int Warnings;
+        internal static void Error(string scope, string message) { }
+        internal static void Warn(string scope, string message) { ++Warnings; }
+    }
     internal static class PerfMonitor
     {
         internal readonly struct Timing : IDisposable { public void Dispose() { } }

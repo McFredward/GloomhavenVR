@@ -26,6 +26,28 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build762: explicitly enabled multiplayer test commands
+
+`MultiplayerCheatActionPatch` admits only the reserved native action127 after a
+runtime enum guard. Native GameActionEvent has a seven-bit action type and a
+600-byte attachment bound; the explicit command remains at most512 bytes.
+The host checks opt-in, its exact issued payload, current native player objects,
+world identity and the complete forwarding roster before changing the model.
+Ordinary actions are untouched. Scenario victory uses the existing native
+DebugWinScenario path and remains compatible with unmodded clients; additional
+commands require compatible installed peers. Received commits never consult the
+receiver's private character selection or cheat-menu configuration.
+
+`MultiplayerCheatQueueGuard` preserves the original lock/ready/order and the
+player-choice permits around an explicit test command. A refused, exact owned
+host head cannot consume ProcessOneAndHalt/SwitchBack; accepted client commands
+remain neutral to those native permits. Reveal waits at the original pre-dequeue
+safe point. There are no forced phases, ACKs or automatic choices. Optional save,
+visual-refresh and logging failures cannot split a model commit. Actual accepted
+model failures deliberately retain native desync handling; see
+[the network-action ledger](NET-ACTION-SURFACE.md) and
+[the integration review](../.planning/MP762-INTEGRATION.md).
+
 ## Build761: native audio and scene-alpha presentation
 
 `NativeFigureAudioPatches` observes exact native SFX producer calls and pooled

@@ -165,6 +165,10 @@ internal static class NetProtocol
     public const byte MsgScenarioResults = 29;
     public const byte MsgScenarioResultsFragments = 30;
     public const byte ExtIdScenarioResults = 125;
+    /// <summary>Reliable, opening-scoped native scroll input and common viewport state.
+    /// Private windows never enter this independent control stream.</summary>
+    public const byte MsgSharedWindowScroll = 31;
+    public const byte ExtIdSharedWindowScroll = 126;
     public const byte ExtIdTownOriginalReceipt = 112;
     /// <summary>One owner-authored native card return clock with exact public
     /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
@@ -644,7 +648,13 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 761;
+    public const ushort ModBuild = 762;
+
+    // ModBuild762 — every visitor can scroll a genuine shared multiplayer window;
+    // its original native scroll target has one common ordered input/state author.
+    // Private window scrolling remains local. Explicit test cheats gain online
+    // paths through native game authority, retaining opt-in and incompatible-peer
+    // admission. See MP762-INTEGRATION.md for final implementation and proof.
 
     // ModBuild761 — paired759 multiplayer presentation review.
     // The exact ESC player chooser now retires with its native pause-menu owner.

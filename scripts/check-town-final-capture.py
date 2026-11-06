@@ -74,6 +74,12 @@ internal sealed partial class NetAvatarDriver
     }
     private void TickResultsSend(float now) => FinalCaptureState.Trace.Add("Results.Send");
 }
+// Shared scrolling is inactive in this Town-only publication proof. Its actual
+// native input and common-author state are exercised by the shared-scroll suite.
+internal static class SharedWindowScrollSync
+{
+    internal static void LateTick(float now) { }
+}
 """
     # The current driver binds its real cached send helpers and receipt collector
     # above. Compatible peer collection and queue admission remain the declared

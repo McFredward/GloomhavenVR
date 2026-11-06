@@ -25,7 +25,7 @@ internal static class ResultsTransportProof
     }
     public static int Main()
     {
-        try { Ingress(); Emission(); Console.WriteLine("PASS " + _assertions + " exact Results ingress/emission assertions"); return 0; }
+        try { Ingress(); Emission(); SharedScrollTransport(); Console.WriteLine("PASS " + _assertions + " exact Results/shared-scroll ingress/emission assertions"); return 0; }
         catch (Exception error) { Console.Error.WriteLine(error.Message); return 1; }
     }
     private static void Ingress()
@@ -92,5 +92,52 @@ internal static class ResultsTransportProof
         var current = target.Take(1);
         Check(sawFull && sawDelta && current?.Revision == 2 && current.BaseRevision == 0,
             "failed emission repair completes the exact latest native picture without a missing basis");
+    }
+
+    private static void SharedScrollTransport()
+    {
+        var source = new FfsNetTransport();
+        var message = new SharedWindowScrollMessage { Operation = SharedScrollOperation.Wheel,
+            Kind = 7, Control = 1, Epoch = 10, Opening = 20, Generation = 1,
+            Sequence = 1, Author = 1, Requester = 2, Path = "/NativeScroll:0", Y = 1f };
+        byte[] bytes = SharedWindowScrollCodec.Write(message);
+        var attempts = FfsNetTransport.NativeSocket.Attempts;
+        attempts.Clear(); FfsNetTransport.NativeSocket.HostRoutes.Clear();
+        Check(source.SendSharedWindowScroll(bytes, bytes.Length, true) && attempts.Count == 1,
+            "valid shared scroll input reaches the existing native control seam once");
+        Check(!attempts[0].Unreliable, "shared scroll uses native reliable ordered delivery");
+        Check(FfsNetTransport.NativeSocket.HostRoutes[0],
+            "shared scroll requests route to the native host when requested");
+        byte[] emitted = attempts[0].Bytes;
+        bytes[0] ^= 0xff;
+        Check(!ReferenceEquals(emitted, bytes) && SharedWindowScrollCodec.TryRead(emitted, emitted.Length, out _),
+            "shared scroll emission owns immutable bytes after caller reuse");
+        Check(!source.SendSharedWindowScroll(bytes, bytes.Length, true) && attempts.Count == 1,
+            "malformed scroll input never reaches the native socket");
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length - 1, true) && attempts.Count == 1,
+            "truncated scroll input never reaches the native socket");
+        byte[] results = ScenarioResultsCodec.Write(Picture(1));
+        Check(!source.SendSharedWindowScroll(results, results.Length, false) && attempts.Count == 1,
+            "the scroll control seam refuses a different native presentation stream");
+        Check(source.SendSharedWindowScroll(emitted, emitted.Length, false)
+            && !FfsNetTransport.NativeSocket.HostRoutes[1] && attempts.Count == 2,
+            "common scroll state can broadcast without changing the host request route");
+        Check(source.EmissionFlagsRestored, "successful control delivery restores ordinary emission flags");
+        source.IsOnline = false;
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 2,
+            "offline shared scroll never invokes the native socket");
+        source.IsOnline = true; NetSession.FlatNetMode = true;
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 2,
+            "flat-net mode never emits a shared scroll command");
+        NetSession.FlatNetMode = false; source.SetControlAvailability(false, false);
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 2,
+            "uninstalled transport cannot emit a shared scroll command");
+        source.SetControlAvailability(true, true);
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 2,
+            "degraded transport cannot emit a shared scroll command");
+        source.SetControlAvailability(true, false); FfsNetTransport.NativeSocket.FailNext = true;
+        Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 3,
+            "native reliable control rejection is reported without throwing into gameplay");
+        Check(source.EmissionFlagsRestored, "failed control delivery restores ordinary emission flags");
     }
 }

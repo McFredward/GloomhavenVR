@@ -20,15 +20,23 @@ def main():
     for name in ['_pendingResults','_resultsRevisions','_resultsBases','_resultsLatestData','_resultsQueued']:
         kernel+=next(line for line in driver.splitlines() if 'private readonly Dictionary' in line and ' '+name+' ' in line)+'\n'
     kernel+=member(driver,'private bool QueueResults(')+'\n'+member(driver,'private void QueueResultsReady(')+'\n}\n'
-    kernel+='internal sealed partial class FfsNetTransport {\n'+member(transport,'internal void TickFragments(')+'\n'+member(transport,'private void SendToken(')+'\n}\n'
-    kernel=kernel.replace('VRLog.Error(', 'ResultsDiagnostics.Error(')
+    kernel+='internal sealed partial class FfsNetTransport {\n'+member(transport,'internal void TickFragments(')+'\n'+member(transport,'private void SendToken(')+'\n'+member(transport,'internal bool SendSharedWindowScroll(')+'\n'+member(transport,'private bool SendReliableTownPacket(')+'\n}\n'
+    # Only the original native clock and diagnostic sink are substituted. The
+    # actual admission, reflection call, cloned bytes and finally flags execute.
+    kernel=kernel.replace('VRLog.Error(', 'ResultsDiagnostics.Error(').replace('VRLog.Warn(', 'ResultsDiagnostics.Warn(').replace('UnityEngine.Time.unscaledTime', 'ResultsClock.Now')
     paths=[source/'Avatar/NetAvatarDriver.Results.cs',source/'FfsNetTransport.cs',Path(__file__),*sorted((ROOT/'scripts/results-transport-runtime').glob('*.cs'))]
     project=ROOT/'tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj';paths.append(project)
-    for name in ['ScenarioResultsState.cs','ScenarioResultsDelta.cs','ExtrasSendQueue.cs','ExtrasFragments.cs','PresentationBatch.cs'] :paths.append(source/name)
+    for name in ['ScenarioResultsState.cs','ScenarioResultsDelta.cs','ExtrasSendQueue.cs','ExtrasFragments.cs','PresentationBatch.cs','SharedWindowScrollCodec.cs'] :paths.append(source/name)
     pins={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths};(run/'source-pins.json').write_text(json.dumps(pins,indent=2)+'\n');(run/'ActualKernels.cs').write_text(kernel)
     status=1;child=None;results=[]
     try:
         variants=[('production','','',''),('lossy-results','            && !PresentationBatch.HasResultsPage(bytes, bytes.Length)','', 'Results emission requests native reliable ordered delivery'),('lost-failed-page','_failedResultsPage = page;', '_failedResultsPage = null;', 'native rejection retains the exact pending Results page'),('missing-delta-expand','complete = ScenarioResultsDelta.Expand(basis, latest);','complete = latest;','a sparse picture waits without replacing the complete visible native graph'),('no-latest-coalescing','queue.Clear(); queue.Add(state);','queue.Add(state);','two same-frame complete updates publish only the latest coherent picture')]
+        variants += [
+            ('lossy-shared-scroll','_sendArgs[2] = false;','_sendArgs[2] = true;','shared scroll uses native reliable ordered delivery'),
+            ('lost-scroll-author-route','_sendArgs[3] = hostOnly;','_sendArgs[3] = false;','shared scroll requests route to the native host when requested'),
+            ('unvalidated-shared-scroll','SharedWindowScrollCodec.TryRead(payload, length, out _)','length > 0','malformed scroll input never reaches the native socket'),
+            ('borrowed-scroll-buffer','var bytes = new byte[length];\n            Buffer.BlockCopy(payload, 0, bytes, 0, length);','var bytes = payload;','shared scroll emission owns immutable bytes after caller reuse'),
+        ]
         dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
         for name,before,after,failure in variants:
             case=run/name;case.mkdir();code=kernel

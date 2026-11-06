@@ -135,10 +135,13 @@ internal sealed class WorldUIModule : IVRModule
         // keyed on MapRoomDriver.Active — inert in every other scene.
         VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
         // CHEATS (temporary), 2026-09-03: the "every scenario loadable" test toggle on the Cheats
-        // page. Both patches are inert while the toggle is off (a static bool, off at every start)
-        // and while FFSNetwork.IsOnline. Removal: step 6 in VROptionsTab.Cheats.cs's header.
+        // page. ModBuild762 additionally admits an explicit common host-authorized
+        // multiplayer lease; no client-local toggle may override that common verdict.
+        // Removal: step 6 in VROptionsTab.Cheats.cs's header and the queued-action patch below.
         VRSession.Harmony?.PatchAll(typeof(Patches.CQuestStateExtensions_CheckRequirements_Patch)); // CHEATS (temporary)
         VRSession.Harmony?.PatchAll(typeof(Patches.UnityGameEditorRuntime_LoadScenario_Patch)); // CHEATS (temporary)
+        VRSession.Harmony?.PatchAll(typeof(MultiplayerCheatActionPatch)); // CHEATS (temporary): ordered native host action, never a cosmetic state mutation
+        VRSession.Harmony?.PatchAll(typeof(MultiplayerCheatQueueGuard)); // CHEATS (temporary): original reveal safe point before dequeue
         // User request 2026-09-03: "Bitte deaktiviere die animationen für das mouseover im
         // Kartenraum wenn ich über ein Kartensymbol hovere - an der Stelle möchte ich es nicht."
         // MapLocation.Highlight pops the symbol to 1.2x and starts a NodeHoverIndicator particle

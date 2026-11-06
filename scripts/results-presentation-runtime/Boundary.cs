@@ -12,6 +12,9 @@ namespace GloomhavenVR.Cards { internal static class CardFaceMipBake {internal s
 namespace GloomhavenVR.WorldUI { internal static class PanelMipBake {internal static Texture OriginalFor(Texture t)=>t;} }
 namespace GloomhavenVR.Core {internal static class BundleShaders {internal static Shader? Resolve(string n,string s,string a,string b)=>Shader.Find(n);} }
 namespace GloomhavenVR.Net {
+ // Scroll input is inactive in this original-widget/capture proof. The dedicated
+ // shared-scroll runtime exercises the real native coordinator and input proxies.
+ internal static class SharedWindowScrollSync {internal static void AttachResultsInputs(Transform root, Canvas? host = null) {}}
  internal sealed class RigPose {internal Vector3 Position;internal Quaternion Rotation=Quaternion.identity;}
  internal enum SharedWindowMovePhase:byte {Initial,Held,Released,Automatic}
  internal struct SharedWindowMoveEntry {internal byte Kind;internal SharedWindowMovePhase Phase;internal uint ContentKey,Opening,Claim,Sequence,ParentClaim;internal int OpeningAuthor,ParentAuthor;}

@@ -370,6 +370,14 @@ internal sealed class FfsNetTransport : INetTransport
             && SendReliableTownPacket(payload, length, hostOnly);
     }
 
+    /// <summary>Original shared-window input cannot use the lossy presentation queue.
+    /// Reuse the existing reliable ordered native side action without images or new RPCs.</summary>
+    internal bool SendSharedWindowScroll(byte[] payload, int length, bool hostOnly)
+    {
+        return SharedWindowScrollCodec.TryRead(payload, length, out _)
+            && SendReliableTownPacket(payload, length, hostOnly);
+    }
+
     private bool SendReliableTownPacket(byte[] payload, int length, bool hostOnly)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null

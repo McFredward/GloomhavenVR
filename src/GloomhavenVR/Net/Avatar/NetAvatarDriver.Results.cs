@@ -20,8 +20,11 @@ internal sealed partial class NetAvatarDriver
     private ulong _resultsRevision;
     private float _nextResultsCapture, _nextResultsRefresh;
 
-    private static void OnResultsWindowVisibility(WindowVisibilityEvent change) =>
+    private static void OnResultsWindowVisibility(WindowVisibilityEvent change)
+    {
         ScenarioResultsPose.ObserveWindowVisibility(change.Window, change.Shown);
+        SharedWindowScrollSync.ObserveWindowVisibility(change.Window, change.Shown);
+    }
 
     private void TickResultsSend(float now)
     {

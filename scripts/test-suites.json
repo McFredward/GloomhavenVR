@@ -3593,6 +3593,28 @@
         "local"
       ],
       "weight": 10
+    },
+    {
+      "id": "shared-window-scroll-runtime",
+      "command": [
+        "python3",
+        "scripts/shared-window-scroll-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "multiplayer-cheats-runtime",
+      "command": [
+        "python3",
+        "scripts/check-multiplayer-cheats.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
     }
   ]
 }
