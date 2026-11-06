@@ -56,9 +56,10 @@ internal static class ResultsPresentationVectors
         t.Case("761: independent results125 hidden picture is a byte-exact metadata packet");
         var empty = Empty(); byte[] encoded = ScenarioResultsCodec.Write(empty);
         byte[] golden = Hex.Bytes(@"
-            31 52 56 47 03 1D 7D 6F 01 00 69 00 00 00 // GVR1,msg29,TLV125,raw envelope105
-            01 04                                     // grammar1,presentation=true,hidden,no move
+            31 52 56 47 03 1D 7D 77 01 00 71 00 00 00 // GVR1,msg29,TLV125,raw envelope113
+            02 04                                     // grammar2,presentation=true,hidden,no move
             01 02 03 04 05 06 07 08 09 0A 0B 0C       // key/revision
+            00 00 00 00 00 00 00 00                   // complete baseline,not a delta
             00 00 00 00 0D 0E 0F 10                   // time0,original content author
             00 00 00 00 00 00 00 00 00 00 00 00       // pose origin
             00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F // pose unit rotation
@@ -72,7 +73,7 @@ internal static class ResultsPresentationVectors
         t.True(ScenarioResultsCodec.TryRead(golden, golden.Length, out var read) && read != null
             && read.Key == empty.Key && read.Author == empty.Author && read.Revision == empty.Revision
             && read.HasPresentation && !read.Visible && read.Parts.Length == 0, "independent golden decodes exact content identity");
-        t.Equal(119, encoded.Length, "small hidden packet stays raw and deterministic");
+        t.Equal(127, encoded.Length, "small hidden packet stays raw and deterministic");
         for (int length = 0; length < encoded.Length; length++)
             t.True(!ScenarioResultsCodec.TryRead(encoded, length, out _), "truncated metadata packet rejected at" + length);
         var unknown = encoded.Concat(Hex.Bytes("FA 02 AB CD")).ToArray();
@@ -108,9 +109,9 @@ internal static class ResultsPresentationVectors
         var incoming = Envelope(encoded).Skip(6).ToArray(); var layout = Layout(incoming);
         ReaderBad(t, incoming, 2, new byte[4], "zero incoming content key");
         ReaderBad(t, incoming, 6, new byte[8], "zero incoming content revision");
-        ReaderBad(t, incoming, 18, new byte[4], "zero incoming content author");
-        ReaderBad(t, incoming, 14, Hex.Bytes("00 00 C0 7F"), "nonfinite incoming sample time");
-        ReaderBad(t, incoming, 34, new byte[16], "zero incoming pose rotation");
+        ReaderBad(t, incoming, 26, new byte[4], "zero incoming content author");
+        ReaderBad(t, incoming, 22, Hex.Bytes("00 00 C0 7F"), "nonfinite incoming sample time");
+        ReaderBad(t, incoming, 42, new byte[16], "zero incoming pose rotation");
         ReaderBad(t, incoming, layout.Parts[1], Hex.Bytes("01 00"), "duplicate incoming part ID");
         ReaderBad(t, incoming, layout.Parts[1] + 2, Hex.Bytes("07 00"), "missing incoming parent");
         ReaderBad(t, incoming, layout.Parts[1] + 4, Hex.Bytes("55 00 00 00"), "missing incoming parent binding");
@@ -188,13 +189,73 @@ internal static class ResultsPresentationVectors
             Structure = 1, Address = "results.cycle", Nodes = new[] { new TownServiceNode { Binding = 0x33 } } } }).ToArray();
         t.True(Rejected(() => ScenarioResultsCodec.Write(cycle)), "cyclic parent graph is bounded and refused");
         var hiddenRaw = Envelope(ScenarioResultsCodec.Write(Empty())).Skip(6).ToArray();
-        foreach (int offset in new[] { 98, 100, 102 })
+        foreach (int offset in new[] { 106, 108, 110 })
         {
             var malformed = hiddenRaw.ToArray(); malformed[offset] = malformed[offset + 1] = 255; byte[] packet = Raw(malformed);
             t.True(!ScenarioResultsCodec.TryRead(packet, packet.Length, out _), "oversized declared pool rejected before allocations at" + offset);
         }
-        var tooMany = hiddenRaw.ToArray(); tooMany[104] = 65; var badParts = Raw(tooMany);
+        var tooMany = hiddenRaw.ToArray(); tooMany[112] = 65; var badParts = Raw(tooMany);
         t.True(!ScenarioResultsCodec.TryRead(badParts, badParts.Length, out _), "oversized declared part count rejected");
+
+        t.Case("761: cumulative property updates use one exact complete baseline, never a cascade");
+        var basis = Picture(); basis.Revision = 10; var current = Picture(); current.Revision = 11;
+        current.Parts[1].Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { "changed native result" } };
+        current.Pose.Position = new Vector3(7, 8, 9); current.FrameSize = new Vector2(2500, 1800);
+        t.True(ScenarioResultsDelta.Compatible(basis, current), "identical original topology admits cumulative native properties");
+        var delta = ScenarioResultsDelta.Create(basis, current);
+        t.True(delta != null && delta.BaseRevision == 10 && delta.Revision == 11 && delta.Parts.Length == 2
+            && delta.Parts[0].Nodes.Length == 0 && delta.Parts[1].Nodes.Length == 1
+            && delta.Parts[1].Nodes[0].Values.Count == 1, "sparse delta retains every part header but only changed native property");
+        byte[] deltaBytes = ScenarioResultsCodec.Write(delta!);
+        t.True(ScenarioResultsCodec.TryRead(deltaBytes, deltaBytes.Length, out var receivedDelta)
+            && receivedDelta!.BaseRevision == 10 && receivedDelta.Parts[0].Nodes.Length == 0,
+            "independent125 codec carries sparse nodes only with explicit baseline revision");
+        var expanded = ScenarioResultsDelta.Expand(basis, receivedDelta!);
+        t.True(expanded != null && expanded.BaseRevision == 0 && expanded.Revision == 11
+            && expanded.Parts[0].Nodes.Length == 1 && expanded.Parts[1].Nodes[0].Values[TownServiceProperty.TmpText].Text[0] == "changed native result"
+            && expanded.Pose.Position.x == 7 && expanded.FrameSize.x == 2500,
+            "exact baseline expands complete original content and current full geometry headers");
+        t.Equal("Märchen – 日本語\nowner text", basis.Parts[1].Nodes[0].Values[TownServiceProperty.TmpText].Text[0], "expansion never mutates immutable baseline");
+        var newest = Picture(); newest.Revision = 12;
+        newest.Parts[1].Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { "latest after lost intermediate sample" } };
+        var direct = ScenarioResultsDelta.Create(basis, newest);
+        var afterLost = ScenarioResultsDelta.Expand(basis, direct!);
+        t.True(afterLost != null && afterLost.Parts[1].Nodes[0].Values[TownServiceProperty.TmpText].Text[0] == "latest after lost intermediate sample",
+            "missing or reordered intermediate delta cannot lose a cumulative native update");
+        t.True(ScenarioResultsDelta.Expand(null, delta!) == null, "unknown baseline never yields partial roots or guessed values");
+        t.True(ScenarioResultsDelta.Expand(expanded, direct!) == null, "a prior expanded sample cannot impersonate named baseline10");
+        t.True(!ScenarioResultsDelta.Compatible(delta, newest) && ScenarioResultsDelta.Create(delta, newest) == null,
+            "a sparse packet can never be the next baseline");
+        var wrongBasis = Picture(); wrongBasis.Revision = 9;
+        t.True(ScenarioResultsDelta.Expand(wrongBasis, delta!) == null, "same topology with different baseline revision refused");
+        wrongBasis.Revision = 10; wrongBasis.Author++;
+        t.True(ScenarioResultsDelta.Expand(wrongBasis, delta!) == null, "baseline content author cannot migrate");
+        wrongBasis.Author = basis.Author; wrongBasis.Key++;
+        t.True(ScenarioResultsDelta.Expand(wrongBasis, delta!) == null, "baseline opening key cannot migrate");
+        var incompatible = Picture(); incompatible.Revision = 11; incompatible.Parts[1].ParentBinding = 0x22;
+        t.True(!ScenarioResultsDelta.Compatible(basis, incompatible), "changed parent identity forces a fresh complete picture");
+        incompatible = Picture(); incompatible.Revision = 11; incompatible.Parts[1].Nodes[0].Values.Remove(TownServiceProperty.TmpText);
+        t.True(ScenarioResultsDelta.Create(basis, incompatible) == null, "removed original property forces a fresh complete picture");
+        var injected = ScenarioResultsDelta.Create(basis, current)!;
+        injected.Parts[1].Nodes[0].Values.Add(TownServiceProperty.Active, new TownServiceValue { Numbers = new[] { 1f } });
+        t.True(ScenarioResultsDelta.Expand(basis, injected) == null, "incoming delta cannot add a property outside exact original topology");
+        injected = ScenarioResultsDelta.Create(basis, current)!; injected.Parts[1].Nodes[0].Binding = 0x99;
+        t.True(ScenarioResultsDelta.Expand(basis, injected) == null, "incoming delta cannot create an unknown node");
+        var signChanged = Picture(); signChanged.Revision = 11;
+        signChanged.Parts[0].Nodes[0].Values[TownServiceProperty.Material].Numbers[0] = -0f;
+        var exactSign = ScenarioResultsDelta.Expand(basis, ScenarioResultsDelta.Create(basis, signChanged)!);
+        t.True(exactSign != null && BitConverter.SingleToInt32Bits(exactSign.Parts[0].Nodes[0].Values[TownServiceProperty.Material].Numbers[0]) == int.MinValue,
+            "generic native diff's signed-zero equivalence cannot drop results wire bits");
+        var emptyFullPart = Picture(); emptyFullPart.Parts[0].Nodes = Array.Empty<TownServiceNode>();
+        t.True(Rejected(() => ScenarioResultsCodec.Write(emptyFullPart)), "empty node list cannot impersonate a complete visible original");
+        var pendingBinding = ScenarioResultsDelta.Create(basis, current)!; pendingBinding.Parts[1].ParentBinding = 0x99;
+        t.True(ScenarioResultsCodec.TryRead(ScenarioResultsCodec.Write(pendingBinding), ScenarioResultsCodec.Write(pendingBinding).Length, out _)
+            && ScenarioResultsDelta.Expand(basis, pendingBinding) == null,
+            "codec defers parent-node existence for sparse headers but expansion requires exact original binding");
+        var emptyChange = Picture(); emptyChange.Revision = 11;
+        var noProperties = ScenarioResultsDelta.Create(basis, emptyChange)!;
+        t.True(noProperties.Parts.All(p => p.Nodes.Length == 0) && ScenarioResultsDelta.Expand(basis, noProperties) != null,
+            "unchanged property picture remains an empty cumulative update with complete headers");
 
         t.Case("761: large complete graph uses shared value pools and bounded atomic compression");
         var large = Large(64, 256); encoded = ScenarioResultsCodec.Write(large); byte[] envelope = Envelope(encoded);
@@ -244,7 +305,7 @@ internal static class ResultsPresentationVectors
     private static int U16(byte[] data, int at) => data[at] | data[at + 1] << 8;
     private static Offsets Layout(byte[] raw)
     {
-        var result = new Offsets(); int at = 98 + ((raw[1] & 2) != 0 ? 30 : 0);
+        var result = new Offsets(); int at = 106 + ((raw[1] & 2) != 0 ? 30 : 0);
         int n = U16(raw, at); at += 2 + 4 * n;
         int strings = U16(raw, at); at += 2;
         for (int i = 0; i < strings; i++) { int bytes = U16(raw, at); at += 2 + bytes; }

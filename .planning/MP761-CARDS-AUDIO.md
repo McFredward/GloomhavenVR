@@ -298,3 +298,51 @@ and a valid compressed body whose unused scalar pool exceeds1MiB. Three compilin
 causal controls fail as intended: omitting incoming validation, permitting Deflate
 read-ahead and removing the logical expansion limit. Each executed variant source,
 assembly, mutation recipe, build/execution log and cleanup receipt is retained.
+
+## Cumulative results property updates
+
+The actual native results capture is23 parts/579 nodes. The windows lane measured
+11287 encoded bytes with successful Mono decode, which is too large to resend
+for every native root/hover animation. Source-only compression comparison retained
+that exact packet: .NET8 Fastest12716B versus Optimal11287B, while the actual
+Unity Mono Fastest packet was already11287B. This does not establish a real Mono
+win from changing compression level; production retains Fastest.
+
+`ScenarioResultsDelta` adapts each part to the existing pure TownServiceDelta
+container only; it never emits NPC78 or imports NPC transaction authority.
+Updates are cumulative against one explicit complete BaseRevision, not the last
+arrived update. All original part headers/census and current geometry remain in
+each picture. Unknown/wrong/cascaded baseline, author/key/revision, original
+part/header/topology, unknown node and added/removed property are refused. Full
+parent-node validation runs after expansion. IEEE signed-zero changes omitted by
+the generic value comparison are explicitly retained. Published immutable
+baseline/current objects are never modified; unchanged immutable values may be
+shared, as in the existing pure helper.
+
+BaseRevision is now part of raw grammar2. The independent minimum golden grows
+intentionally to127 bytes; envelope grammar1 and outer GVR1/message29/TLV125 are
+unchanged. Complete parts require original nodes. Sparse empty node arrays are
+permitted only with a nonzero baseline revision; the codec can receive those
+headers before a baseline, but no incomplete graph is applied by Expand.
+`results761-delta/run-d7shfdoh` passes242 assertions using the actual full wire
+project dependencies, including full original TownServiceFrame/TownServiceDelta,
+with only a selector-only Program in a private project. No production/registered
+Program, project, presence or protocol file was changed for this proof.
+
+The windows lane independently executes actual native capture/Mono codec and
+expansion: full11288B versus one552B cumulative root-animation update, with the
+expanded second full packet byte-identical. Native/mirror final-pixel and
+consumer lifecycle proof remains owned by that lane; transport baseline delivery,
+priority, ordering and peer authorization remain owned by the integrator.
+
+Further card source audit confirms ordinary scenario hands retain the exact
+class-pool card objects (CCharacterClass1198/1208, MoveAbilityCard; AbilityCardUI479).
+The reported four ordinary forced-discard choices therefore fit124 provenance.
+Native copied SupplyCards restored at1430..1435 use Copy(instanceID), which is
+not an original pool object. The global reference-only provenance helper cannot
+name that copy. The donor-supply desk test covers an original donated supply
+object, not those copies; absent exact copied-instance provenance stays anonymous
+and never borrows an unrelated round front. This unimplemented edge is explicit,
+not a claimed hardware/card-type qualification. It was deferred by the integrator
+behind the measured results-stream work; no prototype guessing/global helper
+change was made.

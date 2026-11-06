@@ -14,7 +14,7 @@ namespace GloomhavenVR.Net;
 internal sealed class ScenarioResultsState
 {
     internal uint Key;
-    internal ulong Revision;
+    internal ulong Revision, BaseRevision;
     internal float SampleTime;
     internal bool Visible, HasPresentation = true;
     internal RigPose Pose = new() { Rotation = Quaternion.identity };
@@ -61,9 +61,9 @@ internal static class ScenarioResultsCodec
         using var raw = new LimitedStream(MaxRawBytes);
         using (var writer = new BinaryWriter(raw, Utf8, true))
         {
-            writer.Write((byte)1);
+            writer.Write((byte)2);
             writer.Write((byte)((state.Visible ? 1 : 0) | (state.Move.HasValue ? 2 : 0) | (state.HasPresentation ? 4 : 0)));
-            writer.Write(state.Key); writer.Write(state.Revision); writer.Write(state.SampleTime); writer.Write(state.Author);
+            writer.Write(state.Key); writer.Write(state.Revision); writer.Write(state.BaseRevision); writer.Write(state.SampleTime); writer.Write(state.Author);
             Vector(writer, state.Pose.Position); QuaternionValue(writer, state.Pose.Rotation);
             writer.Write(state.Size); writer.Write(state.Reference);
             Vector(writer, state.Origin); QuaternionValue(writer, state.Rotation); writer.Write(state.Scale);
@@ -165,11 +165,11 @@ internal static class ScenarioResultsCodec
                 raw = decoded.ToArray();
             }
             using var stream = new MemoryStream(raw, false); using var reader = new BinaryReader(stream, Utf8, true);
-            if (reader.ReadByte() != 1) return false;
+            if (reader.ReadByte() != 2) return false;
             byte flags = reader.ReadByte(); if ((flags & ~7) != 0) return false;
             var picture = new ScenarioResultsState {
                 Visible = (flags & 1) != 0, HasPresentation = (flags & 4) != 0,
-                Key = reader.ReadUInt32(), Revision = reader.ReadUInt64(), SampleTime = reader.ReadSingle(), Author = reader.ReadInt32(),
+                Key = reader.ReadUInt32(), Revision = reader.ReadUInt64(), BaseRevision = reader.ReadUInt64(), SampleTime = reader.ReadSingle(), Author = reader.ReadInt32(),
                 Pose = new RigPose { Position = ReadVector(reader), Rotation = ReadQuaternion(reader) },
                 Size = reader.ReadSingle(), Reference = reader.ReadSingle(), Origin = ReadVector(reader), Rotation = ReadQuaternion(reader), Scale = reader.ReadSingle(),
                 FrameSize = new Vector2(reader.ReadSingle(), reader.ReadSingle()) };
@@ -227,13 +227,14 @@ internal static class ScenarioResultsCodec
         Finite(state.SampleTime); if (state.SampleTime < 0) throw new InvalidDataException("Invalid results sample time.");
         Finite(state.Pose.Position); Unit(state.Pose.Rotation); Finite(state.Origin); Unit(state.Rotation);
         Positive(state.Size); Positive(state.Reference); Positive(state.Scale); Positive(state.FrameSize.x); Positive(state.FrameSize.y);
-        if (!state.HasPresentation && (state.Parts.Length != 0 || !state.Move.HasValue)) throw new InvalidDataException("Pose-only results require an ordered move and no content.");
+        if (state.BaseRevision > state.Revision) throw new InvalidDataException("Results delta precedes its named complete baseline.");
+        if (!state.HasPresentation && (state.BaseRevision != 0 || state.Parts.Length != 0 || !state.Move.HasValue)) throw new InvalidDataException("Pose-only results require an ordered move and no content.");
         if (state.Move is SharedWindowMoveEntry move && !ValidMove(move, state)) throw new InvalidDataException("Invalid results move context.");
         var parts = new Dictionary<ushort, ScenarioResultsPart>(); int references = 0;
         foreach (ScenarioResultsPart part in state.Parts)
         {
             if (part == null || part.Id == 0 || parts.ContainsKey(part.Id) || part.Structure == 0 || string.IsNullOrEmpty(part.Address)
-                || part.Nodes == null || part.Nodes.Length > MaxNodes || TextBytes(part.Address) > MaxTextBytes)
+                || part.Nodes == null || part.Nodes.Length > MaxNodes || state.BaseRevision == 0 && part.Nodes.Length == 0 || TextBytes(part.Address) > MaxTextBytes)
                 throw new InvalidDataException("Invalid results part.");
             parts.Add(part.Id, part); var bindings = new HashSet<uint>();
             foreach (TownServiceNode node in part.Nodes)
@@ -259,7 +260,8 @@ internal static class ScenarioResultsCodec
             { if (part.ParentId != 0 || part.ParentBinding != 0) throw new InvalidDataException("Invalid results root binding."); continue; }
             if (part.ParentId == 0 || !parts.TryGetValue(part.ParentId, out ScenarioResultsPart? parent) || part.ParentBinding == 0)
                 throw new InvalidDataException("Missing results parent.");
-            bool binding = false; foreach (TownServiceNode node in parent.Nodes) if (node.Binding == part.ParentBinding) { binding = true; break; }
+            bool binding = state.BaseRevision != 0;
+            if (!binding) foreach (TownServiceNode node in parent.Nodes) if (node.Binding == part.ParentBinding) { binding = true; break; }
             if (!binding) throw new InvalidDataException("Unknown results parent binding.");
             ushort at = part.Id;
             for (int depth = 0; at != 1; depth++)
@@ -310,6 +312,7 @@ internal static class ScenarioResultsCodec
         public int GetHashCode(TownServiceValue value)
         { int hash = 17; foreach (float n in value.Numbers) hash = unchecked(hash * 31 + Bits(n)); foreach (string t in value.Text) hash = unchecked(hash * 31 + StringComparer.Ordinal.GetHashCode(t)); return hash; }
     }
+    internal static bool SameValue(TownServiceValue a, TownServiceValue b) => ExactValueComparer.Instance.Equals(a, b);
     private sealed class Pools
     {
         internal readonly List<float> Numbers = new(); internal readonly Dictionary<int, ushort> NumberIndex = new();
