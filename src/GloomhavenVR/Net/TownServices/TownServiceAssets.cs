@@ -222,6 +222,12 @@ internal sealed partial class TownServiceAssets
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 7
             || texture.name == "T_sphere_norm" && texture.width == 512 && texture.height == 512
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 10
+            // Build762 Results exposed duplicate runtime wrappers for this GUI noise.
+            // Read-only census of all28 original scene/*.assets files finds exactly
+            // one serialized source: sharedassets1.assets/801. Only its complete
+            // native descriptor is canonical; arbitrary same-name textures refuse.
+            || texture.name == "3DNoise" && texture.width == 256 && texture.height == 256
+               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 9
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

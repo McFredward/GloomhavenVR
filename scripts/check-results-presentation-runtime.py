@@ -3,7 +3,7 @@
 Native controllers/bootstrap and animation clocks are explicit ports. Original static
 rects, sprites/fonts and actual Unity final pixels are compared independently.
 """
-import argparse,hashlib,json,os,re,shutil,signal,subprocess,tempfile
+import argparse,hashlib,importlib.util,json,os,re,shutil,signal,subprocess,tempfile
 from pathlib import Path
 from town_run_retention import cleanup_completed_run
 ROOT=Path(__file__).resolve().parents[1]
@@ -21,12 +21,13 @@ def command(cmd,log,timeout=240):
    p.wait()
 def main():
  parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
- out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__)
+ out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
  fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=ROOT/'src/GloomhavenVR';pins=[]
  try:
   inputs=folder/'inputs';inputs.mkdir();assert command([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(ROOT),str(inputs)],folder/'export.log')==0,'Original export failed'
   paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
   sources={p.name:p.read_text() for p in paths};pins+=paths
+  sources['TownServiceBinding.cs']=sources['TownServiceBinding.cs'].replace('    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {','    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {\n        ResultsApplyFault.BeforeApply(Root);')
   sources['ScenarioResultsPresentation.cs']=sources['ScenarioResultsPresentation.cs'].replace('Time.unscaledTime','ResultsClock.Now').replace('Time.frameCount','ResultsClock.Frame')
   dto=args.codec_source_root/'src/GloomhavenVR/Net/ScenarioResultsState.cs'
   sources['ScenarioResultsState.cs']=dto.read_text() if dto.exists() else subprocess.check_output(['git','show','e08f04ebb:src/GloomhavenVR/Net/ScenarioResultsState.cs'],cwd=ROOT,text=True)
@@ -35,11 +36,20 @@ def main():
   native=ROOT/'decompiled/GH.Runtime/UINewAdventureResultsManager.cs';sources['NativeReady.cs']='using System;using FFSNet;using GLOOM;using UnityEngine;using UnityEngine.Events; public partial class UINewAdventureResultsManager {\n'+method(native.read_text(),'private void ShowReadyUpToggles(string buttonText, Action callback, bool autoReadyUp')+'\n}'
   roles=json.loads((inputs/'roles.json').read_text());sources['NativePaths.cs']='internal static class NativePaths {'+'\n'.join('internal const string '+key+'='+json.dumps(roles['resultsPaths'][str(roles[key])])+';' for key in ['header','resultsPanel','statsPanel','buttonsContainer'])+'}'
   cases=[('production',None,None,None,None),
+   ('old-native-image-import','Program.cs','if(c.HasAttribute("nativeMaterial"))image.material=NativeMaterials.Load(c.GetAttribute("nativeMaterial"));','','original custom image materials survive native results and ready import'),
+   ('noise-descriptor-refuses','TownServiceAssets.cs','|| texture.name == "3DNoise" && texture.width == 256 && texture.height == 256\n               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 9','|| false','a whole native picture becomes visible atomically in the converted owner'),
+   ('no-inactive-preparation','ScenarioResultsPresentation.cs','''            foreach (ScenarioResultsPart part in state.Parts)
+            {
+                Copy copy = copies[part.Id];
+                copy.Binding.Apply(Frame(part), _assets);
+                RootPose(copy.Binding.Root, part.Nodes[0]);
+            }
+''','','post-validation widget failure keeps the previous complete final pixels'),
    ('obsolete-author-close-lease','ScenarioResultsPresentation.cs','(_closedAuthor != state.Author || _closedKey == state.Key)','(_closedAuthor == state.Author && _closedKey == state.Key)','a newly elected content author replaces an obsolete accepted-close lease without native reopening'),
    ('early-close-restores-native','ScenarioResultsPresentation.cs','        BeginClosedLease(state.Author, state.Key);','','accepted public close suppresses private native results and wait-help until local closure'),
    ('missing-row-prefab','ScenarioResultsPresentation.cs','row = manager != null ? (field?.GetValue(manager) as Component)?.transform : null;','row = null;','a whole native picture becomes visible atomically in the converted owner'),
    ('mutable-capture','ScenarioResultsPresentation.cs','(TownServiceNode[])sampled.Clone()','sampled','published prior node arrays remain immutable across native sampler reuse'),
-   ('root-pose-skipped','ScenarioResultsPresentation.cs','copy.Binding.Apply(frame, _assets); RootPose(copy.Binding.Root, nodes[0]);','copy.Binding.Apply(frame, _assets);','whole remote native picture matches original pixels including separately docked ready footer'),
+   ('root-pose-skipped','ScenarioResultsPresentation.cs','copy.Binding.Apply(frame, _assets); RootPose(copy.Binding.Root, nodes[0]);','copy.Binding.Apply(frame, _assets);','native transform animation advances smoothly between complete network samples'),
    ('controllers-live','ScenarioResultsPresentation.cs','                TownServiceNeutralize.Apply(clone);','','observer clones contain no native gameplay or readiness controller'),
    ('future-opening-discarded','ScenarioResultsPresentation.cs','if (_pending != null && _pending.Author == author && _pending.Key == key) _pending = null;','if (_pending != null) _pending = null;','early future opening survives native retirement of the previous results'),
    ('no-smooth-output','ScenarioResultsPresentation.cs','float amount = _blendDuration <= 0f ? 1f : Mathf.Clamp01((ResultsClock.Now - _receivedAt) / _blendDuration);','float amount = 1f;','native transform animation advances smoothly between complete network samples'),
@@ -50,14 +60,17 @@ def main():
   manifest={'result':str(folder/'results.txt'),'evidence':str(folder/'captures'),'cases':[]}
   for name,file,before,after,expected in cases:
    case=folder/name;prod=case/'production';prod.mkdir(parents=True)
-   for filename,text in sources.items():
+   for filename,text in {**sources, 'Program.cs':(fixture/'Program.cs').read_text()}.items():
     if filename==file:assert text.count(before)==1;text=text.replace(before,after)
     (prod/filename).write_text(text)
    csproj=case/'Presentation.csproj';shutil.copy2(fixture/'Presentation.csproj',csproj);assembly='ResultsPresentation_'+name.replace('-','_')
    code=command([str(Path.home()/'.dotnet/dotnet'),'build',str(csproj),'-c','Release','--nologo','--verbosity','quiet','-p:UseSharedCompilation=false','-nodeReuse:false','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(prod),'-p:LifecycleBoundary='+str(ROOT/'scripts/results-window-runtime/Boundary.cs'),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(managed)],case/'build.log')
    assert code==0,(case/'build.log').read_text()
    dll=case/'bin/Release/netstandard2.1'/(assembly+'.dll');target=project/'Assets/Plugins'/dll.name;shutil.copy2(dll,target);manifest['cases'].append({'name':name,'dll':str(target),'expected':expected or ''})
-  runner=ROOT/'scripts/multiplayer-progression-runtime/Editor/ProgressionRunner.cs';shutil.copy2(runner,project/'Assets/Editor/ProgressionRunner.cs')
+  spec=importlib.util.spec_from_file_location('native_material_ports',fixture/'native-material-ports.py');ports=importlib.util.module_from_spec(spec);spec.loader.exec_module(ports);ports.write_ports(inputs,project/'Assets/Resources/OriginalShaders')
+  runner=ROOT/'scripts/multiplayer-progression-runtime/Editor/ProgressionRunner.cs'
+  runner_text=runner.read_text();cleanup='foreach (var obj in UnityEngine.Object.FindObjectsOfType<GameObject>()) UnityEngine.Object.DestroyImmediate(obj);';assert runner_text.count(cleanup)==1
+  (project/'Assets/Editor/ProgressionRunner.cs').write_text(runner_text.replace(cleanup,cleanup+'\n                    Assembly.LoadFile(entry.dll).GetType("ProgressionTests").GetMethod("Cleanup").Invoke(null, null);'))
   for file in ['UnityEngine.UI.dll','Unity.TextMeshPro.dll']:shutil.copy2(managed/file,project/'Assets/Plugins'/file)
   shaders=ROOT/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars';source=(shaders/'ActorBarSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarSDF"','Shader "TextMeshPro/Distance Field"',1);source=source.replace('\n\t\t\t#include "ActorBarForeground.cginc"','',1);source=re.sub(r'\n\t\t\tGHVRActorBarForegroundClip\([^;]*\);','',source);source=re.sub(r'\n\t\t\tfloat4 ghvrScreenPosition : TEXCOORD7;','',source);source=re.sub(r'\n\t\t\tOUT.ghvrScreenPosition = ComputeScreenPos\(OUT.vertex\);','',source);source=source.replace('\n\t\t\t\tComputeScreenPos(vPosition),','');source=source.replace('Fallback "GloomhavenVR/ActorBarMobileSDF"','Fallback "TextMeshPro/Mobile/Distance Field"')
   (project/'Assets/Resources/OriginalShaders/NativeSDF.shader').write_text(source)

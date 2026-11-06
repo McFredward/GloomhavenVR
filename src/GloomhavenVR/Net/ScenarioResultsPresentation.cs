@@ -380,8 +380,15 @@ internal sealed class ScenarioResultsPresentation
             mount.anchorMin = mount.anchorMax = panel.HostRect.pivot; mount.pivot = panel.HostRect.pivot;
             mount.anchoredPosition3D = Vector3.zero; mount.localScale = Vector3.one; mount.localRotation = Quaternion.identity;
             mount.sizeDelta = state.FrameSize;
-            // All modules have validated before a single copy can draw. Native output
-            // is leased only after Paint submits the complete replacement picture.
+            // Material/widget application can still fail after shape validation.
+            // Prepare the complete inactive candidate before retiring a valid picture;
+            // neither the native output lease nor observers may see a partial stage.
+            foreach (ScenarioResultsPart part in state.Parts)
+            {
+                Copy copy = copies[part.Id];
+                copy.Binding.Apply(Frame(part), _assets);
+                RootPose(copy.Binding.Root, part.Nodes[0]);
+            }
             RetireCopies();
             _picture = candidate;
             foreach (var pair in copies) _copies.Add(pair.Key, pair.Value);
