@@ -15,6 +15,7 @@ internal static class Program
     {
         Calls.Events.Clear();
         FFSNetwork.IsOnline = false;
+        FFSNetwork.IsHost = false;
         Choreographer.s_Choreographer = new Choreographer();
         SceneController.Instance = new SceneController();
         ScenarioManager.Scenario = new CScenario();
@@ -85,6 +86,21 @@ internal static class Program
         Check(ScenarioWinCheat.UnavailableReason() == "cheat_win_ending", "requested scenario remains unavailable");
         Check(!ScenarioWinCheat.TryWin(ready, Close), "duplicate request refused before native coroutine catches up");
         Check(Calls.Events.Count == 0, "duplicate request never closes menus or starts another victory");
+
+        ready = Reset();
+        FFSNetwork.IsOnline = true;
+        FFSNetwork.IsHost = true;
+        Check(ScenarioWinCheat.UnavailableReason() == "", "native host win is available online");
+        Check(ScenarioWinCheat.TryWin(ready, Close), "online host invokes original win dispatch");
+        Check(string.Join(",", Calls.Events) == "options-close,float-release,esc-hide,win",
+            "online host uses exactly the native WinNoToggle seam once");
+
+        ready = Reset();
+        FFSNetwork.IsOnline = true;
+        FFSNetwork.IsHost = true;
+        Check(!ScenarioWinCheat.TryWin(ready, () => { Close(); FFSNetwork.IsHost = false; }),
+            "host authority lost during close refuses native victory");
+        Check(!Calls.Events.Contains("win"), "former host cannot invoke a client-local victory");
 
         ready = Reset();
         Singleton<ESCMenu>.Instance.Window.IsOpen = false;

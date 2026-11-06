@@ -7,7 +7,7 @@ internal static class Calls
 {
     internal static readonly List<string> Events = new();
 }
-internal static class FFSNetwork { internal static bool IsOnline; }
+internal static class FFSNetwork { internal static bool IsOnline; internal static bool IsHost; }
 internal sealed class Choreographer
 {
     internal static Choreographer? s_Choreographer;
