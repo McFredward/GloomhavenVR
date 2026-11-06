@@ -37,6 +37,17 @@ def uncomment(source):
     return re.sub(r'^\s*//[^\n]*\n', '', source, flags=re.MULTILINE)
 
 
+def legacy_empty_recess_binding(board):
+    # Public124 overrides only its matching context. In this fixture's absent124
+    # population the actual null guard and original-mask fallback must preserve
+    # the same owner-authored occupancy and empty-recess clearing as before.
+    compact = re.sub(r'\s+', '', uncomment(board))
+    return ('intwire=exhausted?0:PublicPickOccupancy(actor,_owner.SlotOccupancyKnown?_owner.BoardSlotMask:-1);' in compact
+            and 'privateintPublicPickOccupancy(CPlayerActor?actor,intoriginal)=>PublicPickContextMatches(_owner.PublicHandPick,actor)?_owner.PublicHandPick!.BoardSlots:original;' in compact
+            and 'privatestaticboolPublicPickContextMatches(PublicHandPickState?state,CPlayerActor?actor)=>state!=null&&' in compact
+            and '_cards[i].Set(null,showFronts,actor);' in compact)
+
+
 def source_inputs(root):
     # Reuse the central wire project's real production input list, not substitute
     # serializers. Vector/test files are excluded; their separate golden gate stays intact.
@@ -101,10 +112,15 @@ def generated_sources(root):
         'furniture_owner_mask_authoritative': 'wantedMask = owner.WantedGlowMask;' in glow,
         'slot_order_changes_preempt_ordinary_cadence': '&& !slotOrderChanged' in driver,
         'physical_order_recomputed_by_board_each_frame': 'OrderRoundCards(actor);' in block(board, 'public void Tick('),
-        'empty_recess_wire_overrules_lagged_model': 'int wire = exhausted ? 0 : _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;' in board and '_cards[i].Set(null, showFronts, actor); // empty recess' in board,
+        'empty_recess_wire_overrules_lagged_model': legacy_empty_recess_binding(board),
     }
     if not all(bindings.values()):
         raise AssertionError('Publication/application source binding drift: ' + repr(bindings))
+    for before, after in (
+            ('? _owner.PublicHandPick!.BoardSlots : original;', '? _owner.PublicHandPick!.BoardSlots : 0;'),
+            ('state != null && state.MatchesScenario(', 'true && state.MatchesScenario(')):
+        assert board.count(before) == 1, 'Absent124 occupancy source-control binding drift'
+        assert not legacy_empty_recess_binding(board.replace(before, after, 1)), 'Absent124 occupancy source control survived'
     return paths, {name: uncomment(code) for name, code in sources.items()}, bindings
 
 
