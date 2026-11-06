@@ -20,7 +20,7 @@ def command(cmd,log,timeout=240):
    except ProcessLookupError:pass
    p.wait()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__)
  fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=ROOT/'src/GloomhavenVR';pins=[]
  try:
@@ -28,9 +28,10 @@ def main():
   paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
   sources={p.name:p.read_text() for p in paths};pins+=paths
   sources['ScenarioResultsPresentation.cs']=sources['ScenarioResultsPresentation.cs'].replace('Time.unscaledTime','ResultsClock.Now').replace('Time.frameCount','ResultsClock.Frame')
-  dto=base/'Net/ScenarioResultsState.cs'
+  dto=args.codec_source_root/'src/GloomhavenVR/Net/ScenarioResultsState.cs'
   sources['ScenarioResultsState.cs']=dto.read_text() if dto.exists() else subprocess.check_output(['git','show','e08f04ebb:src/GloomhavenVR/Net/ScenarioResultsState.cs'],cwd=ROOT,text=True)
-  frame=base/'Net/TownServices/TownServiceFrame.cs';s=frame.read_text();sources['Values.cs']='using System;using System.Collections.Generic; namespace GloomhavenVR.Net.TownServices {'+'\n'.join(method(s,k) for k in ['internal sealed class TownServiceNode','internal sealed class TownServiceValue\n','internal sealed class TownServiceValueComparer','internal static class TownServiceProperty'])+'\n}'
+  delta=args.codec_source_root/'src/GloomhavenVR/Net/ScenarioResultsDelta.cs';sources[delta.name]=delta.read_text();sources['TownServiceDelta.cs']=(base/'Net/TownServices/TownServiceDelta.cs').read_text();pins += [dto,delta,base/'Net/TownServices/TownServiceDelta.cs'];
+  frame=base/'Net/TownServices/TownServiceFrame.cs';s=frame.read_text();sources['Frame.cs']='#pragma warning disable CS0649\nusing System;using System.Collections.Generic;namespace GloomhavenVR.Net.TownServices {'+method(s,'internal sealed class TownServiceFrame')+'}' ;sources['Values.cs']='using System;using System.Collections.Generic; namespace GloomhavenVR.Net.TownServices {'+'\n'.join(method(s,k) for k in ['internal sealed class TownServiceNode','internal sealed class TownServiceValue\n','internal sealed class TownServiceValueComparer','internal static class TownServiceProperty'])+'\n}'
   native=ROOT/'decompiled/GH.Runtime/UINewAdventureResultsManager.cs';sources['NativeReady.cs']='using System;using FFSNet;using GLOOM;using UnityEngine;using UnityEngine.Events; public partial class UINewAdventureResultsManager {\n'+method(native.read_text(),'private void ShowReadyUpToggles(string buttonText, Action callback, bool autoReadyUp')+'\n}'
   roles=json.loads((inputs/'roles.json').read_text());sources['NativePaths.cs']='internal static class NativePaths {'+'\n'.join('internal const string '+key+'='+json.dumps(roles['resultsPaths'][str(roles[key])])+';' for key in ['header','resultsPanel','statsPanel','buttonsContainer'])+'}'
   cases=[('production',None,None,None,None),

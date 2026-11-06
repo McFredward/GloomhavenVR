@@ -17,9 +17,12 @@ namespace GloomhavenVR.Net {
  internal struct SharedWindowMoveEntry {internal byte Kind;internal SharedWindowMovePhase Phase;internal uint ContentKey,Opening,Claim,Sequence,ParentClaim;internal int OpeningAuthor,ParentAuthor;}
 }
 namespace GloomhavenVR.Net.TownServices {
- internal sealed class TownServiceFrame {
-  internal const int MaxBytes=60000,MaxNodes=256,MaxProperties=254;internal uint Structure,Session;internal float SampleTime;internal TownServiceNode[] Nodes=Array.Empty<TownServiceNode>();
- }
+ internal sealed class TownCardReturnOrigin { }
+ internal sealed class TownOfferedHover { }
+ internal sealed class TownRackState {internal TownRackState Copy()=>throw new InvalidOperationException("Results never populate NPC rack metadata");}
+ internal sealed class TownRackStamp {internal TownRackStamp Copy()=>throw new InvalidOperationException("Results never populate NPC rack metadata");}
+ internal sealed class TownCatalogBank {internal TownCatalogBank Copy()=>throw new InvalidOperationException("Results never populate NPC catalog metadata");internal TownCatalogBank Retain()=>throw new InvalidOperationException("Results never populate NPC catalog metadata");}
+
 }
 
 internal static class ResultsClock {internal static float Now=10;internal static int Frame=1;}

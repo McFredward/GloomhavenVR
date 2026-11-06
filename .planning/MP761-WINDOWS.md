@@ -183,3 +183,14 @@ Every run, including compile/export/bootstrap failures, has canonical completion
 cleanup after process retirement. Original source, metadata, packets and captures
 remain; regenerated Unity/compiler caches were removed. No release archive or
 hardware success is claimed.
+
+The final independently based sparse codec consumer was then exercised with
+its actual pure `ScenarioResultsDelta` and `TownServiceDelta` implementations.
+`run-625m9zhm` passes21 actual Unity assertions: the complete579-node/23-part
+picture is11288 bytes in body grammar2; a native root-transform animation update
+is552 bytes and fits one existing event. Actual Mono encode/decode/expansion
+reconstructs the full second packet byte-for-byte. Full, second and sparse packets
+are retained. The generic Frame container is the actual source; unused null NPC
+carrier types are explicit fixture ports that throw if touched. This is evidence
+for payload feasibility and smooth output, not proof of the pending FFS/reliable
+baseline scheduling or headset timing.
