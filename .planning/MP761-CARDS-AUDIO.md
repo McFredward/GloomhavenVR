@@ -346,3 +346,21 @@ and never borrows an unrelated round front. This unimplemented edge is explicit,
 not a claimed hardware/card-type qualification. It was deferred by the integrator
 behind the measured results-stream work; no prototype guessing/global helper
 change was made.
+
+Final bounded qualification: `results761-delta/run-dxr2z6q3` passes243 managed
+assertions. Four compiling causal variants each fail exactly its corresponding
+source boundary: adding a property outside the original topology, dropping the
+signed-zero supplement, changing the baseline author, and electing a complete-
+looking sparse packet as a new baseline. The preceding `run-isb6i5x9` also executed
+243 passing assertions but its runner initially expected the wrong success-label
+text; its evidence and cleanup receipt remain retained. This was a harness output
+oracle correction only, with no production or assertion change.
+
+`results761-delta/run-26qwgiau` compiles the final plugin sources with warnings as
+errors successfully (exit0; no compiler diagnostics). Both cumulative production
+files remain input-hash stable. `public-hand-pick-runtime/run-0kkhn4td` passes48
+producer/consumer assertions, adding the explicit copied-Supply anonymous-seat
+controls to the earlier46. The earlier ten causal controls remain applicable:
+these two new assertions are at the end of the production sequence and no prior
+fixture initialization or source inputs changed. No copied-Supply identity
+support, new card flight, audio suppression, or HMD outcome is claimed.

@@ -174,6 +174,14 @@ internal static class Program
                 "later ordinary round placement advances atomic occupancy after hand tombstone");
             PlayTray.Override = -1;
             LocalRigSampler.Presented = donor; var foreign = Sample(); Check(foreign.Occupied == 0 && foreign.Named == 0, "presented character ownership mismatch cannot publish another hand");
+            LocalRigSampler.Presented = a; a.Ours = true;
+            var copiedSupply = new CAbilityCard(10103); a.CharacterClass.HandAbilityCards.Add(copiedSupply);
+            CardsDriver.Seats[0] = Seat(a, copiedSupply); var copyState = Sample();
+            Check(copyState.Occupied == 1 && copyState.Named == 0,
+                "copied supply instance absent from immutable original pool remains anonymous without prototype guessing");
+            board._owner.Actor = a; board._owner.PublicHandPick = copyState; a.Ours = false;
+            Check(board.Resolve(0, a, out var copiedArt) && copiedArt == null,
+                "unresolved copied supply hand still claims its real seat without unrelated round fallback");
             RevealGate.InScenario = false; CardsDriver.Seats[0] = Seat(a, left); Check(Sample().Occupied == 0, "map has no scenario public hand pick");
             Console.WriteLine("PASS " + _checks + " source-bound producer/consumer/flight assertions; native callback/Photon/rendering boundary explicit"); return 0;
         }

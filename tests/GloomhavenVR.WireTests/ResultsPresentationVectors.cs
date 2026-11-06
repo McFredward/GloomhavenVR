@@ -206,7 +206,8 @@ internal static class ResultsPresentationVectors
         t.True(delta != null && delta.BaseRevision == 10 && delta.Revision == 11 && delta.Parts.Length == 2
             && delta.Parts[0].Nodes.Length == 0 && delta.Parts[1].Nodes.Length == 1
             && delta.Parts[1].Nodes[0].Values.Count == 1, "sparse delta retains every part header but only changed native property");
-        byte[] deltaBytes = ScenarioResultsCodec.Write(delta!);
+        if (delta == null) return; // A causal producer-control failure must report, not throw.
+        byte[] deltaBytes = ScenarioResultsCodec.Write(delta);
         t.True(ScenarioResultsCodec.TryRead(deltaBytes, deltaBytes.Length, out var receivedDelta)
             && receivedDelta!.BaseRevision == 10 && receivedDelta.Parts[0].Nodes.Length == 0,
             "independent125 codec carries sparse nodes only with explicit baseline revision");
@@ -226,6 +227,10 @@ internal static class ResultsPresentationVectors
         t.True(ScenarioResultsDelta.Expand(expanded, direct!) == null, "a prior expanded sample cannot impersonate named baseline10");
         t.True(!ScenarioResultsDelta.Compatible(delta, newest) && ScenarioResultsDelta.Create(delta, newest) == null,
             "a sparse packet can never be the next baseline");
+        var completeLookingDelta = Picture(); completeLookingDelta.Revision = 11; completeLookingDelta.BaseRevision = 10;
+        t.True(!ScenarioResultsDelta.Compatible(completeLookingDelta, newest)
+            && ScenarioResultsDelta.Create(completeLookingDelta, newest) == null,
+            "even a complete-looking delta can never be elected as another baseline");
         var wrongBasis = Picture(); wrongBasis.Revision = 9;
         t.True(ScenarioResultsDelta.Expand(wrongBasis, delta!) == null, "same topology with different baseline revision refused");
         wrongBasis.Revision = 10; wrongBasis.Author++;
