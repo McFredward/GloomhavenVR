@@ -74,6 +74,9 @@ def main():
     status = 1
     try:
         pins = stage_sources(root, project)
+        for name in ('native_variants.py', 'native-variants.json'):
+            path = Path(__file__).parent / name
+            pins[str(path.relative_to(root))] = digest(path.read_bytes())
         (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
         command = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-nographics',
             '-projectPath', str(project), '-executeMethod', 'SceneShaderBuilder.Build',
@@ -95,13 +98,23 @@ def main():
         with (run / 'metadata.log').open('w') as stream:
             subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'),
                 str(Path(__file__).parent / 'verify_bundle.py'), str(bank),
-                str(root / 'tests/steamlink-transparent-materials/variants.json'), str(run / 'metadata.json')],
+                str(root / 'tests/steamlink-transparent-materials/variants.json'), str(run / 'metadata.json'), '--owned-only'],
                 stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=60)
+        native_bank = run / 'native-scene.bundle'
+        subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'),
+            str(Path(__file__).parent / 'native_variants.py'), '--root', str(root),
+            '--base', str(bank), '--output', str(native_bank), '--report', str(run / 'native-derivatives.json')],
+            check=True, timeout=60)
+        subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'),
+            str(Path(__file__).parent / 'verify_bundle.py'), str(native_bank),
+            str(root / 'tests/steamlink-transparent-materials/variants.json'), str(run / 'final-metadata.json')],
+            check=True, timeout=60)
         asset = root / 'src/GloomhavenVR/Assets/SteamLink/scene.bundle'
         asset.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(bank, asset)
+        shutil.copyfile(native_bank, asset)
         receipt = {'unity': '2021.3.5f1', 'target': 'StandaloneWindows64',
             'graphics_apis': ['Direct3D11', 'OpenGLCore', 'Vulkan'], 'source_pins': pins,
+            'native_derivatives': json.loads((run / 'native-derivatives.json').read_text()),
             'bundle_sha256': digest(asset.read_bytes()), 'bundle_bytes': asset.stat().st_size,
             'resource': 'GloomhavenVR.SteamLink.scene.bundle',
             'limits': 'Compiled shader bank only; GPU and real XR routing require separate checks.'}

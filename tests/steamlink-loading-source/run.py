@@ -96,7 +96,8 @@ def main():
     copies = run/'sources'; copies.mkdir()
     inputs = [source/PRODUCTION/name for name in FILES]
     overlay = source/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
-    inputs += [overlay, bank, *[p for p in HERE.iterdir() if p.is_file()]]
+    ui_assembly = source/'libs/RefAsm/UnityEngine.UI.dll'
+    inputs += [overlay, bank, ui_assembly, *[p for p in HERE.iterdir() if p.is_file()]]
     pins = {str(p): sha(p) for p in inputs}
     for path in inputs:
         shutil.copy2(path, copies/(path.name+'-'+pins[str(path)][:12]))
@@ -132,7 +133,7 @@ def main():
                 status = execute([dotnet, 'build', '--disable-build-servers', str(build/'Fixture.csproj'),
                                   '-c', 'Release', '--configfile', str(HERE/'NuGet.Config'),
                                   '-p:FrozenSource='+str(frozen), '-p:FixtureDir='+str(HERE),
-                                  '-p:UnityManaged='+str(managed), '-p:FrameworkReferenceDir='+str(framework),
+                                  '-p:UnityManaged='+str(managed), '-p:UiAssembly='+str(ui_assembly), '-p:FrameworkReferenceDir='+str(framework),
                                   '-p:UseSharedCompilation=false'], case/'compile.log')
                 assert status == 0, 'Actual production source compile failed: '+str(case)
                 dll = build/'bin/Release/net472/SteamLinkLoadingSourceFixture.dll'
@@ -144,7 +145,7 @@ def main():
                     shutil.copy2(shader, assets/shader.name)
                 shutil.copy2(overlay, assets/'OriginalOverlay.shader')
                 packages = project/'Packages'; packages.mkdir()
-                (packages/'manifest.json').write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.xr":"1.0.0"}}\n')
+                (packages/'manifest.json').write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.xr":"1.0.0","com.unity.ugui":"1.0.0"}}\n')
                 settings = project/'ProjectSettings'; settings.mkdir()
                 (settings/'ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
                 (settings/'ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 26\n  m_ActiveColorSpace: 0\n')
