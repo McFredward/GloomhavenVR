@@ -43,7 +43,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
     log = run / 'completion.log'
-    log.write_text('Native scene-symbol admission/retirement; no gameplay bootstrap or pixel claim.\n')
+    log.write_text('evidence: ' + str(run) + '\nNative scene-symbol admission/retirement; no gameplay bootstrap or pixel claim.\n')
     source_path = root / 'src/GloomhavenVR/WorldUI/MrBacking.cs'
     policy_path = source_path.with_name('MrBackingSceneSymbols.cs')
     source = source_path.read_text()
