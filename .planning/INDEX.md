@@ -1,5 +1,11 @@
 # Planning index
 
+Updated2026-11-06: Build762 adds visitor-operated shared-window scrolling and
+default-off ordered host cheats, with exact native capability-ingress repair.
+All292 local obligations are qualified once across frozen/updated/inherited
+proof; no full repeat after the bounded repair. See MP762-INTEGRATION.md for
+complete scope, timings, actual native metadata and hardware handoff.
+
 Updated2026-11-06: Build761 integrates the paired multiplayer presentation review:
 ESC roster lifetime, public forced-loss provenance, original rest glow/portrait
 input, figure audio, native MR coverage and common Results presentation/pose.
@@ -37,6 +43,11 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP762-INTEGRATION.md](MP762-INTEGRATION.md) | Shared scroll/host cheats, final292-ID aggregate, bounded repair, cleanup and hardware handoff |
+| [MP762-SCROLL.md](MP762-SCROLL.md) | Exact common viewport input, per-kind authority, source permissions and source-bound Unity checks |
+| [MP762-CHEATS.md](MP762-CHEATS.md) | Original gameplay-queue authority, exact recipient/roster and one-action permit handling |
+| [MP762-INDEPENDENT-REVIEW.md](MP762-INDEPENDENT-REVIEW.md) | Independent native/projection audit and inherited proof boundaries |
+| [MP762-CAPABILITY-INGRESS.md](MP762-CAPABILITY-INGRESS.md) | Actual version-only/sparse ingress,268+18 full proof and native reflection/constructor verification |
 | [MP761-INTEGRATION.md](MP761-INTEGRATION.md) | Ten-point paired multiplayer repair, complete aggregate qualification, evidence reuse and hardware handoff |
 | [POPUP-SCALE-759-REVIEW.md](POPUP-SCALE-759-REVIEW.md) | Current confirmation blackout cause, actual image/input proof and bounded final union qualification |
 | [DECISION-HELP-759.md](DECISION-HELP-759.md) | Three owner-local explanation modes, final150s default and existing remote banner provenance |

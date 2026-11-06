@@ -1,3 +1,29 @@
+**Shared multiplayer scrolling and test cheats, Build762,2026-11-06.**
+
+Every visitor can scroll an actual shared multiplayer window; one common
+original executes input and publishes position/motion. Results input targets
+the visible common viewport, including differing private row counts. Private
+windows/loadout lists stay local. Existing readiness, native choices, placement
+authority and masks remain; mixed2D-host/3D-visitor scroll election is per kind.
+
+Default-off host cheats now work online. Native scenario win includes unmodded
+peers; gold/unlock/reveal/requirements use the original reliable gameplay queue
+and require every actual native player on the current build. Exact weak native
+identity, joins, world/recipient and one-action permits are preserved. Final
+ingress review fixes version-only early returns and sparse version omission.
+
+ClassC final unique aggregate:292 local IDs (269 frozen fresh, one updated full
+worker container,22 audited prior),16sources,307211 actual wire assertions.
+Original central270/270 PASS85.6min; updated cheats268assertions/18controls once.
+Final Release/Debug0W0E10.11/10.28s; metadata0W0E14.55s. Compiled23changed/15added/
+0removed;32resources exact. The bounded final repair changes only two callbacks
+and retains explicitly audited unchanged proof instead of repeating the full
+gate. Original setup failures remain recorded. See MP762-INTEGRATION.md and
+owned Scroll/Cheats/Independent/Capability-Ingress reviews for source bindings,
+native metadata, timings and hardware limits. No new HMD/Photon/WindowsD3D11
+acceptance. Dev only; no ZIP/release or Frame writes. Own worktrees/caches retire
+after verified proof preservation and push.
+
 **Paired multiplayer presentation, Build761,2026-11-06.**
 
 Options closure includes its exact native player chooser. Public forced HAND
