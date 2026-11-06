@@ -199,3 +199,32 @@ TryRoster, not compare only native player-ID fingerprints. Reconnecting/replacin
 a participant must not resurrect a previous compatible-only override merely
 because a native player ID is reused. The existing exact-build admission helper
 provides this check without adding another network protocol.
+
+## One-action permits and replicated override lifetime
+
+The native ProcessAction consumes ProcessOneAndHalt before Execute, and native
+FinishProcessingAction consumes ProcessOneAndSwitchBack even for a rejected
+command. Final review therefore also covers the narrowly admitted custom head:
+an exact still-unforwarded host pending command may withdraw before the native
+one-action path; accepted receiver commands execute only at an unlocked, ready,
+non-processing native head without consuming the receiver's ordinary choice
+permit. Synchronous receiver application owns one finally-released reentrancy
+boolean; every nested TryProcessNextAction yields while that scope is active.
+Foreign actions, native lock/readiness, phase, IDs and ordinary dispatch remain
+native. Exact pending payload equality is required for host withdrawal. Actual
+accepted rule failures deliberately enter the original HandleDesync behavior.
+
+The new causal fixture must retain the original ProcessorState value semantics
+and SetState readiness/previous-state behavior, not only the native ProcessAction
+body: a two-field class port can hide the exact one-slot bug. This specific proof
+gap was sent to the worker/integrator before the final freeze.
+
+A replicated requirements enable also needs an explicit shared-origin marker.
+Otherwise a default-off receiving client can leave multiplayer and accidentally
+carry the host's temporary override into an unrelated single-player campaign.
+Retire that shared-origin enable on session/map/roster retirement before the next
+native verdict; preserve explicitly selected offline behavior. An accepted client
+identity snapshot must not become permanently null merely because a transient
+local joining flag lags the host: after the flags settle, an unchanged admitted
+native cohort must regain the same lease, while a real entity replacement revokes
+it. These two concrete lifetime cases were sent for production/fixture repair.
