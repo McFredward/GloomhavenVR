@@ -85,6 +85,44 @@ Windows headset picture was replayed. Earlier fixture-only compile/occluder
 failures remain preserved. The actual original native LeanTween path continues to
 execute in the inherited cold-conversion case.
 
-## Results
+## Results native ownership and presentation lease
 
-Native ownership/presentation integration is being completed. Final evidence follows.
+ScenarioResultsNative reads UIResultsManager.myWindow and its original Header,
+Results, Stats, Buttons, GUIAnimator output subjects and Player/NotSet ready root.
+The native Singleton getters are plain existing-instance reads; nothing is
+instantiated by polling. SharedWindows adds Results7 without renumbering1..6.
+The primary agent owns the independent Results125 stream and shared pose contexts.
+
+The original ready toggle remains game-owned. VR seats it inside the fitted
+Results frame, using an independent sibling dock and exact native-home receipt.
+It yields to existing map/loadout ownership and keeps native reveal/interactivity,
+host exit authority and the game's client auto-ready. The common transfer seam
+restores its real home before another composite records it. Native OnHidden
+restores synchronously; owner deactivation only silences the independent dock,
+then the ordinary tick restores home. Native owner destruction cannot destroy its
+pooled child. A preliminary child-based OnDisable restoration hit Unity's
+prohibition against reparenting while a parent deactivates; that failed control
+is retained and the final dock avoids that unsupported operation.
+
+ScenarioResultsVisualLease hides only original CanvasRenderer/mesh output while
+an inert public picture is present. Original controllers, active flags, votes,
+callbacks and interactability keep running. The exact client wait-for-host tip
+yields too; a different native tip is restored immediately. Losing the common
+picture restores the latest native draw state. Native closing fade tails remain
+eligible via IsOpen or IsVisible.
+
+`results-window-runtime/run-78g52_he` passes36 actual Unity assertions and four
+causal controls (missing native-home handoff, stealing map ownership, failure to
+restore native output, suppressing unrelated help). It executes the original
+UINewAdventureResultsManager ready-decision method against explicit native
+registry/network/acknowledgement ports; real Unity rects, GraphicRaycaster/button
+callbacks, final pixels, capture-root membership and owner deactivate/destroy
+lifecycle execute. It is not Photon, the entire native campaign-end bootstrap,
+Net125 delivery or a headset claim. The read-only original level6 census confirms
+112 standard Images,94 TMP texts and standard mask/shadow render components; no
+custom Graphic adapter is required. Five unrelated transfer fixtures gained only
+an inert no-Results boundary; ready-phase-owner68+4controls, map-ready-handoff52+
+5controls and hint48+8controls pass with their actual existing transfer consumers.
+
+The additional Net presentation sampler/replayer is now being implemented; its
+qualification and full-frame payload measurements will be recorded separately.

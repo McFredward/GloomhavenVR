@@ -19,7 +19,7 @@ internal static class ScenarioResultsNative
         if (manager == null || window == null) { parts = default; return false; }
         var adventure = manager as UINewAdventureResultsManager;
         UIReadyToggle? ready = null;
-        if (window.IsOpen && FFSNetwork.IsOnline && Singleton<UIReadyToggle>.IsInitialized)
+        if ((window.IsOpen || window.IsVisible) && FFSNetwork.IsOnline && Singleton<UIReadyToggle>.IsInitialized)
         {
             UIReadyToggle candidate = Singleton<UIReadyToggle>.Instance;
             if (candidate != null && candidate.readyUpToggleState == EReadyUpToggleStates.NotSet

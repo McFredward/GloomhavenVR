@@ -24,7 +24,7 @@ internal sealed class ScenarioResultsVisualLease : IDisposable
     internal bool Tick(Transform? visibleMirror)
     {
         if (visibleMirror == null || !visibleMirror.gameObject.activeInHierarchy
-            || !ScenarioResultsNative.TryRead(out var parts) || !parts.Window.IsOpen
+            || !ScenarioResultsNative.TryRead(out var parts) || (!parts.Window.IsOpen && !parts.Window.IsVisible)
             || ReferenceEquals(visibleMirror, parts.Window.transform)
             || parts.Window.transform.IsChildOf(visibleMirror))
         { Dispose(); return false; }
