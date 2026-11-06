@@ -304,7 +304,9 @@ internal static class MoveOrderPairs
     {
         foreach(SharedWindowKind kind in Enum.GetValues<SharedWindowKind>())
         {
-            if(kind==SharedWindowKind.None)continue;
+            // These paired nodes publish legacy presence19/21/73/119/121/123.
+            // Results uses independent125 and has its own actual coordinator cases.
+            if(kind==SharedWindowKind.None || kind==SharedWindowKind.Results)continue;
             var a=new ActiveNode(1,kind);var b=new ActiveNode(2,kind);var initial=a.Publish();b.Receive(1,initial);b.Settle();
             Proof.Check(Proof.Same(a.Pose().Position,b.Pose().Position)&&MathF.Abs(b.Reference()-198.12f)<.001f,
                 "active "+kind+" initial producer/observer agrees on world pose and captured reference");
