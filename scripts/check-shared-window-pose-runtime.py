@@ -149,6 +149,7 @@ def main():
         sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
             'internal static partial class ModalFallback {\n'+room+'\n}')
         variants = [
+            ('production', '', '', '', ''),
             ('results-foreign-author', 'ResultsPose.cs',
              'state.Author != SharedWindowSpawnAuthority.AuthorId', 'false',
              'results refuses a foreign content author'),
@@ -160,7 +161,6 @@ def main():
              '(kind == SharedWindowKind.ScenarioStory ? SharedWindowSpawnAuthority.AuthorId\n                    : RemoteMapStory.SharedReflowAuthor())',
              'RemoteMapStory.SharedReflowAuthor()',
              'scenario recovery automatic pose reaches every original resolver'),
-            ('production', '', '', '', ''),
             ('initial-hint-before-validation', 'MoveRegister.cs',
              '        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',
              '        if (row.Phase == SharedWindowMovePhase.Initial) See(row.Sequence);\n        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',

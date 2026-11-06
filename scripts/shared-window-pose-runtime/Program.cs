@@ -326,8 +326,15 @@ internal static class Program
         SharedWindowSize.ReferenceWorldScale=999f;MapRoomDriver.Active=false;
         SharedWindowSpawnAuthority.SampleContext(ref all);all=Decode(all);
         foreach(var pair in SharedWindows.Grabs)
+        {
+            // Presence119/121 remain the frozen six-kind grammar. The seventh
+            // Results reference is independently captured/proven by ResultsPoseCases.
+            if (pair.Key == SharedWindowKind.Results) continue;
             Proof.Check(all.WindowScales!.Value.Reference((int)pair.Key)==pair.Value.SharedReferenceWorldScale,
                 "the actual presence sampler publishes each posed grab's captured reference rather than ambient geometry");
+        }
+        Proof.Check(all.WindowScales!.Value.Reference(7) == 0,
+            "the independent Results reference never expands frozen presence121");
         ScenarioReference();MapReference();VideoReference();RewardReference();MissingReference();
         SharedWindowSize.ReferenceWorldScale=12;
     }
