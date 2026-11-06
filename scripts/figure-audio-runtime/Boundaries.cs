@@ -8,11 +8,14 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static readonly List<string> Lines = new();
-        internal static bool WantsDebug = true;
-        internal static void Info(string scope, string value) => Lines.Add(scope + ": " + value);
-        internal static void Note(string scope, string value) => Lines.Add(scope + ": " + value);
-        internal static void Debug(string scope, string value) => Lines.Add(scope + ": " + value);
-        internal static void Alert(string scope, string value) => throw new InvalidOperationException("Unexpected production alert: " + value);
+        internal static bool WantsDebug = true, ThrowSink;
+        internal static int SinkThrows;
+        private static void Write(string scope, string value)
+        { if (ThrowSink) { SinkThrows++; throw new System.IO.IOException("fixture diagnostic storage failure"); } Lines.Add(scope + ": " + value); }
+        internal static void Info(string scope, string value) => Write(scope, value);
+        internal static void Note(string scope, string value) => Write(scope, value);
+        internal static void Debug(string scope, string value) => Write(scope, value);
+        internal static void Alert(string scope, string value) { if (ThrowSink) { SinkThrows++; throw new System.IO.IOException("fixture diagnostic storage failure"); } throw new InvalidOperationException("Unexpected production alert: " + value); }
     }
 }
 // Native ActorBehaviour is real but its unrelated gameplay Update is disabled; only its exact

@@ -68,6 +68,7 @@ def main():
 
     variants = [
         ('production', '', '', '', ''),
+        ('diagnostic-sink', '', '', '', ''),
         ('original-detached-source', 'NativeFigureAudio.cs', 'Source.transform.position = target;',
             '/* original detached position remains stationary */', 'persistent original source follows moving/animated figure emitter'),
         ('pooled-generation-reused', 'NativeFigureAudio.cs', 'if (follower != null) follower.Reused();',
@@ -157,7 +158,7 @@ def main():
         if status or not (run / 'results.txt').exists():
             status = 1
             raise RuntimeError('Actual native figure audio proof failed: ' + str(run))
-        print('PASS selected native figure/audio cases: ' + str(len(variants)) + ' (' + str(sum(v[0] != 'production' for v in variants)) + ' causal controls)')
+        print('PASS selected native figure/audio cases: ' + str(len(variants)) + ' (' + str(sum(bool(v[4]) for v in variants)) + ' causal controls)')
     finally:
         editors = cleanup_project_editors(project, unity, launcher_reaped=True)
         (run / 'editor-cleanup.json').write_text(json.dumps(editors, indent=2) + '\n')

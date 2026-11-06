@@ -238,3 +238,15 @@ before this repaired suffix and retain identical executed source/oracles. All
 processes are reaped and canonical caches cleaned. Earlier fixture compilation,
 wrong native reuse-position assumption and topology-factory spelling failures
 remain preserved; none was accepted as a causal control or hardware success.
+
+
+Integrator follow-up: both failure loggers now isolate exceptions from their own
+sink, and the patch summary accurately names native sibling ownership. Bounded
+`figure-audio-runtime/run-33hrlxhf` executes4 actual native/Unity assertions for
+throwing diagnostics: it resets only the fixture's bounded-report counter, proves
+both the real source receipt and its failure sink throw, retains exactly one
+original playback, and preserves the original forced-pick callback exception.
+The previous normal35-assertion prefix and6 controls remain unchanged before this
+new suffix. `run-3iavokf9` also completed37 assertions; the later4-assertion case
+strengthens its sink oracle with explicit throw counts instead of assuming the
+12-report budget had not already been used. No further headset claim is made.

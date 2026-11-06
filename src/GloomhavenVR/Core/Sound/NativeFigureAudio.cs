@@ -129,8 +129,9 @@ internal static class NativeFigureAudio
     }
     internal static void Failure(Exception ex)
     {
-        if (_failures++ < 3)
-            VRLog.Alert("Sound", $"FIGURE AUDIO follow failed: {ex.GetType().Name}: {ex.Message}. Original playback remains active.");
+        if (_failures++ >= 3) return;
+        try { VRLog.Alert("Sound", $"FIGURE AUDIO follow failed: {ex.GetType().Name}: {ex.Message}. Original playback remains active."); }
+        catch { /* A failed diagnostic sink must never replace a native audio exception. */ }
     }
 }
 

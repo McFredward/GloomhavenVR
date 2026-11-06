@@ -54,7 +54,8 @@ internal static class NativePickAudioAudit
     }
     private static void Failure(Exception ex)
     {
-        if (VRLog.WantsDebug && _failures++ < 3)
-            VRLog.Debug("Cards", $"PICK AUDIO diagnostic unavailable: {ex.GetType().Name}. Original callbacks and playback continue unchanged.");
+        if (!VRLog.WantsDebug || _failures++ >= 3) return;
+        try { VRLog.Debug("Cards", $"PICK AUDIO diagnostic unavailable: {ex.GetType().Name}. Original callbacks and playback continue unchanged."); }
+        catch { /* Diagnostic I/O failure cannot alter the original callback or exception. */ }
     }
 }

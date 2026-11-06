@@ -83,12 +83,46 @@ public static class FigureAudioProgram
         internal Picture(AudioObject source) { var s = source.primaryAudioSource; clip = s.clip; volume = s.volume; pitch = s.pitch; min = s.minDistance; max = s.maxDistance; spatial = s.spatialBlend; pan = s.panStereo; doppler = s.dopplerLevel; loop = s.loop; rolloff = s.rolloffMode; }
         internal bool Same(AudioObject source) { var s = source.primaryAudioSource; return ReferenceEquals(clip, s.clip) && volume == s.volume && pitch == s.pitch && min == s.minDistance && max == s.maxDistance && spatial == s.spatialBlend && pan == s.panStereo && doppler == s.dopplerLevel && loop == s.loop && rolloff == s.rolloffMode; }
     }
+    private static CardsHandUI AuditHand()
+    {
+        var go = Go("inert native forced-pick metadata"); go.SetActive(false);
+        var hand = go.AddComponent<CardsHandUI>();
+        AccessTools.Property(typeof(CardsHandUI), "currentMode").SetValue(hand, CardHandMode.DiscardCard, null);
+        return hand;
+    }
+    private static void ThrowingDiagnostics(AudioEffectPlayer producer, CardsHandUI hand)
+    {
+        // Exercise the first normal receipt rather than accidentally exhausting its12-line bound.
+        Set(typeof(NativeFigureAudio), "_reported", null, 0);
+        int before = Playing(Shot).Length, throws = VRLog.SinkThrows; VRLog.ThrowSink = true;
+        try
+        {
+            producer.PlayEffect(Shot);
+            Check(Playing(Shot).Length == before + 1,
+                "throwing source-bind diagnostic and failure sink cannot interrupt original native playback");
+            Check(VRLog.SinkThrows >= throws + 2, "actual source receipt and its failure logger both throw in the control");
+            var previous = NativePickAudioAudit.Begin(hand); AudioController.Play(Shot);
+            var error = new InvalidOperationException("original callback identity");
+            var finalizer = AccessTools.Method(AccessTools.Inner(typeof(NativeFigureAudioPatches), "PickCommit"), "Finalizer");
+            Check(ReferenceEquals(finalizer.Invoke(null, new object?[] { previous, error }), error),
+                "throwing forced-pick diagnostic and failure sink preserve original callback exception");
+        }
+        finally { VRLog.ThrowSink = false; }
+    }
     public static IEnumerator Run(string output)
     {
         checks = 0; trace = new StreamWriter(Path.Combine(output, "native-figure-sources.txt"));
         try
         {
-            Setup(); var rat = Figure("actual figure", new Vector3(3, 1, 2)); var producer = Idle(rat, .12f);
+            Setup();
+            if (typeof(FigureAudioProgram).Assembly.GetName().Name!.EndsWith("diagnostic_sink", StringComparison.Ordinal))
+            {
+                var sinkFigure = Figure("native throwing-logger figure", Vector3.right * 3);
+                var emitter = Go("native throwing-logger emitter"); emitter.transform.SetParent(sinkFigure.transform.parent, false);
+                ThrowingDiagnostics(emitter.AddComponent<AudioEffectPlayer>(), AuditHand());
+                yield return checks; yield break;
+            }
+            var rat = Figure("actual figure", new Vector3(3, 1, 2)); var producer = Idle(rat, .12f);
             Check(Playing(Loop).Length == 0, "native delay is not bypassed by follower");
             foreach (var step in Steps(Wait(.25f))) yield return step;
             Check(Playing(Loop).Length == 1, "one native delayed persistent source starts exactly once");
@@ -170,8 +204,7 @@ public static class FigureAudioProgram
             Check(Near(previewAudio.transform.position, previewAt), "destroyed manager before ActorPrefab cannot later bind another actor");
             Object.DestroyImmediate(pendingSource.gameObject); pendingRoot.transform.position += Vector3.one;
             Check(pendingSource == null, "destroyed native source remains destroyed without replay");
-            var auditGo = Go("inert native forced-pick metadata"); auditGo.SetActive(false);
-            var auditHand = auditGo.AddComponent<CardsHandUI>(); AccessTools.Property(typeof(CardsHandUI), "currentMode").SetValue(auditHand, CardHandMode.DiscardCard, null);
+            var auditHand = AuditHand();
             int playingBeforeAudit = Playing(Shot).Length; int logBeforeAudit = VRLog.Lines.Count;
             var priorAudit = NativePickAudioAudit.Begin(auditHand); var audited = AudioController.Play(Shot);
             var callbackError = new InvalidOperationException("original callback identity");
@@ -187,6 +220,7 @@ public static class FigureAudioProgram
             Check(VRLog.Lines.Count == offLog, "ordinary logging performs no forced-pick diagnostic formatting or trace"); VRLog.WantsDebug = true;
             VRSession.IsRunning = false; priorAudit = NativePickAudioAudit.Begin(auditHand); AudioController.Play(Shot); NativePickAudioAudit.End(priorAudit, null);
             Check(VRLog.Lines.Count == offLog, "flat-mode native audio remains outside forced-pick audit"); VRSession.IsRunning = true;
+            ThrowingDiagnostics(pendingEffect, auditHand);
             trace.WriteLine("Native runtime " + typeof(SFXOnEnable).Assembly.Location); foreach (string line in VRLog.Lines) trace.WriteLine(line); trace.Flush();
             Check(VRLog.Lines.All(line => !line.Contains("follow failed")), "native producer/observer scopes finish without swallowed ownership failures");
             yield return checks;

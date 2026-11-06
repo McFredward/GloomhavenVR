@@ -8,7 +8,8 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>Keep original figure-audio producers and all native settings/callbacks intact.
-/// Only actual ActorBehaviour descendants author a source-follow receipt.</summary>
+/// Exact native CharacterManager/ActorPrefab associations (or actual ActorBehaviour
+/// ancestry) author a generation-bound emitter-follow receipt.</summary>
 internal static class NativeFigureAudioPatches
 {
     private static bool _installed;
