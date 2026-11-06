@@ -32,6 +32,7 @@ internal sealed class SharedWindowScrollCoordinator
     private sealed class Window
     {
         internal Transform? Root;
+        internal UIWindow? Subject, NativeSubject;
         internal uint Opening, Revision, Epoch;
         internal ulong Content;
         internal bool Visible;
@@ -102,12 +103,19 @@ internal sealed class SharedWindowScrollCoordinator
         if (!Online || shown) return;
         SharedWindowKind kind = SharedWindows.KindOf(window);
         if (kind != SharedWindowKind.None && IsAuthor((byte)kind)) Windows[(byte)kind].Root = null;
+        // Native Hide can retire its shared identity before this notification.
+        // Capture's exact subject receipt survives that handoff; a fresh kind
+        // lookup alone would miss Hide+Show between consecutive Update calls.
+        for (byte value = 1; value <= 7; value++)
+            if (IsAuthor(value) && (Windows[value].Subject == window || Windows[value].NativeSubject == window))
+                Windows[value].Root = null;
     }
     internal void Reset()
     {
         foreach (Target target in Sources.Values) EndGesture(target);
         Sources.Clear(); Observed.Clear(); LastRequest.Clear(); Outgoing.Clear();
-        foreach (Window window in Windows) { window.Root = null; window.Opening = 0; window.Visible = false; window.Revision = 0; }
+        Scrolls.Clear(); Bars.Clear(); Retired.Clear(); Present.Clear();
+        foreach (Window window in Windows) { window.Root = null; window.Subject = window.NativeSubject = null; window.Opening = 0; window.Visible = false; window.Revision = 0; }
         Array.Clear(Authors, 0, Authors.Length); _epoch = NewEpoch(); _nextCapture = _nextWarning = _nextRequestSend = 0;
         _tail = null; Array.Clear(Closed, 0, Closed.Length);
         foreach (SharedWindowScrollProxy proxy in Proxies.Values) if (proxy != null) proxy.gameObject.SetActive(false);
@@ -126,7 +134,7 @@ internal sealed class SharedWindowScrollCoordinator
             foreach (string key in Retired) { EndGesture(Sources[key]); Sources.Remove(key); }
             Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == kind) Retired.Add(pair.Key);
             foreach (string key in Retired) Observed.Remove(key);
-            Window window = Windows[kind]; window.Root = null; window.Opening = window.Revision = window.Epoch = 0; window.Visible = false;
+            Window window = Windows[kind]; window.Root = null; window.Subject = window.NativeSubject = null; window.Opening = window.Revision = window.Epoch = 0; window.Visible = false;
             ++_proxyVersion;
         }
     }
@@ -155,7 +163,8 @@ internal sealed class SharedWindowScrollCoordinator
         {
             if (!IsAuthor(value)) continue;
             var kind = (SharedWindowKind)value; Window window = Windows[value];
-            Transform? root = SharedWindows.ParticipatesHere(kind) ? SharedWindowScrollBridge.PublicRoot(kind, out _) : null;
+            UIWindow? subject = null;
+            Transform? root = SharedWindows.ParticipatesHere(kind) ? SharedWindowScrollBridge.PublicRoot(kind, out subject) : null;
             bool visible = root != null && root.gameObject.activeInHierarchy;
             if (!visible)
             {
@@ -165,8 +174,11 @@ internal sealed class SharedWindowScrollCoordinator
                         Kind = value, Author = Local, Epoch = _epoch, Opening = window.Opening, Revision = Next(ref _revision) };
                     if (!Send(closed)) { Closed[value] = closed; Warn(); }
                 }
-                window.Visible = false; window.Root = null; continue;
+                window.Visible = false; window.Root = null; window.Subject = window.NativeSubject = null; continue;
             }
+            window.Subject = subject;
+            window.NativeSubject = kind == SharedWindowKind.MapStory && Singleton<MapStoryController>.IsInitialized
+                ? Singleton<MapStoryController>.Instance.window : subject;
             ulong content = Content(kind);
             if (!window.Visible || window.Root != root || window.Content != content)
             { window.Visible = true; window.Root = root; window.Content = content; window.Opening = Next(ref _opening); }
@@ -187,6 +199,7 @@ internal sealed class SharedWindowScrollCoordinator
             if (!Send(retired)) Warn();
             Sources.Remove(key);
         }
+        Scrolls.Clear(); Bars.Clear();
     }
     private void CaptureTarget(byte kind, Window window, Component component, byte control, float now)
     {

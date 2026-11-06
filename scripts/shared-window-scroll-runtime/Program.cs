@@ -81,7 +81,7 @@ internal static class Program
         internal void Select()
         {
             SharedWindows.Native = Windows; SharedWindows.MapActive = Map;
-            Singleton<MapStoryController>.Instance = Story == null ? null! : new MapStoryController { dialogBox = Story };
+            Singleton<MapStoryController>.Instance = Story == null ? null! : new MapStoryController { dialogBox = Story, window = Windows[2] };
             Core.Bind(Transport, (bytes, length, hostOnly) => {
                 if (FailSend) return false; var exact = new byte[length]; Array.Copy(bytes, exact, length); Sent.Add((exact, hostOnly)); return true; });
             Core.Tick(Time.unscaledTime);
@@ -217,6 +217,10 @@ internal static class Program
         SharedWindowSpawnAuthority.AuthorId = 1; host.Select(); host.Core.ObserveVisibility(host.Windows[7]!, false); host.Publish();
         SharedWindowScrollMessage reopened = FirstState(host);
         Check(reopened.Opening != opening.Opening, "same-frame native hide/show rejects preceding-opening input");
+        UIWindow identity = host.Windows[7]!; host.Windows[7] = null;
+        host.Core.ObserveVisibility(identity, false); host.Windows[7] = identity; host.Publish();
+        SharedWindowScrollMessage afterHandoff = FirstState(host);
+        Check(afterHandoff.Opening != reopened.Opening, "captured exact native subject survives shared-kind retirement before Hide notification");
         float reopenedBefore = host.Scroll.verticalNormalizedPosition;
         Receive(host, 2, new SharedWindowScrollMessage { Operation = SharedScrollOperation.Wheel, Kind = 7, Control = 1,
             Author = 1, Requester = 2, Epoch = opening.Epoch, Opening = opening.Opening, Generation = opening.Generation,

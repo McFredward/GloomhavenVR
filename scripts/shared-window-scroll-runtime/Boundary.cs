@@ -11,7 +11,7 @@ public static class Singleton<T> where T : class
 { public static T Instance = null!; public static bool IsInitialized => Instance != null; }
 public class UICharacterStoryBox : MonoBehaviour { public List<string>? dialogs; public int currentDialogIndex; }
 public sealed class StoryController { public UICharacterStoryBox? DialogBox; }
-public sealed class MapStoryController { public UICharacterStoryBox? dialogBox; }
+public sealed class MapStoryController { public UICharacterStoryBox? dialogBox; public UIWindow? window; }
 public sealed class UIEventPanel { public EventData? eventData; public Screen? currentScreen; public class EventData { public string ID = "event"; } public class Screen { public string Name = "page"; } }
 public class UIQuestPopup : MonoBehaviour { public Quest? quest; public class Quest { public string LocalisedNameKey = "quest"; } }
 namespace FFSNet { internal static class PlayerRegistry { internal static int HostPlayerID = 1; } }

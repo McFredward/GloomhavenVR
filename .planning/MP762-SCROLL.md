@@ -52,7 +52,10 @@ raycaster and register with the existing nested-pointer census. A picture lease
 unregisters them when that exact picture retires. Unchanged frames reuse inputs.
 
 Original dialog/page keys, encounter ID/screen keys and quest subject keys scope
-native page resets. Closing/reopening, source election and same-path component
+native page resets. Exact captured physical/native window receipts also retain
+Hide notifications whose shared-kind lookup has already retired; the receipts
+and scratch component lists release at native hiding/reset. Closing/reopening,
+source election and same-path component
 replacement invalidate old requests. Initial canonical states and heartbeats
 support late join; failed sends keep pending work. Continuous wheel/drag input is
 bounded/coalesced at the existing15Hz presentation cadence, not delayed by an
