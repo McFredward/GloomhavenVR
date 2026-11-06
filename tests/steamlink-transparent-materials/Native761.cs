@@ -57,6 +57,7 @@ public static partial class TransparentMaterialFixture
         foreach(string name in new[]{"room","opaque-wall","late-opaque-ui","two-translucent","smoke-over-wall","additive-room","alpha-clipped","stencil-clipped"})NativeCase761(name);
         NativeArrivalControls761();
         NativeGlobalLifetime761();
+        NativeGeneration761();
     }
     private static void NativeGlobalProbe761()
     {
@@ -248,13 +249,68 @@ public static partial class TransparentMaterialFixture
             var second=NativeGraphic761(NativeMaterial761("GUI/AbilityCard_Shd",Color.white),-.2f);
             second.SetMaterialDirty();Canvas.ForceUpdateCanvases();
             Check(second.material!=null,"observer exception remains isolated from native Graphic.UpdateMaterial");
-            SceneMaterialObservers.Unbind(bad);bad.Dispose();SceneMaterialObservers.Bind(helper);
+            SceneMaterialObservers.Unbind(bad);bad.Dispose();
+            RawImage destroyedDuring=null;
+            var disappearing=new SceneTransparentMaterials(name=>{UnityEngine.Object.DestroyImmediate(destroyedDuring.gameObject);return Variant(name);});disappearing.BindHead(head);
+            destroyedDuring=NativeGraphic761(NativeMaterial761("GUI/AbilityCard_Shd",Color.white),-.3f);Canvas.ForceUpdateCanvases();
+            SceneMaterialObservers.Bind(disappearing);
+            GraphicRegistry.RegisterGraphicForCanvas(destroyedDuring.canvas,destroyedDuring);
+            Check(destroyedDuring==null,"native GraphicRegistry return survives an object destroyed during passive enrollment");
+            SceneMaterialObservers.Unbind(disappearing);disappearing.Dispose();SceneMaterialObservers.Bind(helper);
         }
         finally
         {
             SceneMaterialObservers.Unbind(helper);helper.DisarmImmediate();
             for(int i=owned.Count-1;i>=first;i--){if(owned[i])UnityEngine.Object.DestroyImmediate(owned[i]);owned.RemoveAt(i);}
             Shader.SetGlobalFloat(SceneTransparentMaterials.NativeStraightAlpha,0);Shader.SetGlobalFloat(SceneTransparentMaterials.NativeAdditiveAlpha,0);
+            helper.BindHead(head);
+        }
+    }
+
+    private static void NativeGeneration761()
+    {
+        int first=owned.Count;
+        try
+        {
+            helper.BindHead(head);helper.RefreshCold();SceneMaterialObservers.Bind(helper);
+            var source=NativeMaterial761("GUI/AbilityCard_Shd",new Color(.2f,.3f,.4f,.3f));
+            var graphic=NativeGraphic761(source,0);Canvas.ForceUpdateCanvases();
+            Material stable=graphic.canvasRenderer.GetMaterial();Check(stable!=source,"generation fixture begins with actual private native UI binding");
+            SceneMaterialObservers.Unbind(helper);
+            var referenceMaterial=Keep(new Material(source));var reference=NativeGraphic761(referenceMaterial,0);
+            reference.canvas.gameObject.layer=29;reference.gameObject.layer=29;Canvas.ForceUpdateCanvases();
+            var referenceCamera=CameraFor("Unborrowed original reference");referenceCamera.cullingMask=1<<29;
+            foreach(bool foreignFirst in new[]{false,true})
+            foreach(string family in new[]{"VFX/GUI_Smoke_Shd","UI/Default","GUI/AbilityCard_Shd"})
+            {
+                Shader shader=family=="UI/Default"?Shader.Find(family):Resources.Load<Shader>("NativePorts761/"+family.Replace('/','-')+"-original");
+                source.shader=shader;source.color=new Color(.4f,.2f,.1f,family=="UI/Default"?.4f:.7f);
+                referenceMaterial.shader=shader;referenceMaterial.CopyPropertiesFromMaterial(source);
+                // Deliberately NO SetMaterialDirty, ForceUpdateCanvases, native
+                // rebuild, observer notification or cold scan between writes
+                // and the first head draw.
+                Color[] other=foreignFirst?Render(foreign,true):null;
+                Color[] candidate=Render(head,true);Color[] native=Render(referenceCamera,true);
+                if(!foreignFirst)other=Render(foreign,true);
+                Check(graphic.canvasRenderer.GetMaterial()==stable,"shader generation preserves batched private Material identity");
+                Check(reference.canvasRenderer.GetMaterial()==referenceMaterial,"independent native reference was never enrolled or borrowed");
+                for(int i=0;i<256;i++)
+                {
+                    float expected=family=="UI/Default"?native[i].a:source.color.a;
+                    Check(Mathf.Abs(candidate[i].a-expected)<.00002f,"first shader-generation head alpha without native rebuild: "+family+" actual="+candidate[i]+" native="+native[i]);
+                    Check(Bits(candidate[i].r)==Bits(native[i].r)&&Bits(candidate[i].g)==Bits(native[i].g)&&Bits(candidate[i].b)==Bits(native[i].b),"first shader-generation head RGB equals unborrowed native: "+family);
+                    Check(other[i]==native[i],"shader generation foreign RGBA equals unborrowed native: "+family);
+                }
+                Check(stable.shader.name==family+(family=="UI/Default"?"":SceneTransparentMaterials.Suffix),"new known shader derivative or exact unknown shader matches current source");
+            }
+            helper.DisarmImmediate();
+            Check(graphic.canvasRenderer.GetMaterial()==source,"generation disarm restores latest exact native source binding");
+            Check(Render(head,false)[128]==Render(referenceCamera,false)[128],"generation first OFF RGBA matches independent native reference");
+        }
+        finally
+        {
+            SceneMaterialObservers.Unbind(helper);helper.DisarmImmediate();
+            for(int i=owned.Count-1;i>=first;i--){if(owned[i])UnityEngine.Object.DestroyImmediate(owned[i]);owned.RemoveAt(i);}
             helper.BindHead(head);
         }
     }

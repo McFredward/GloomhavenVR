@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--native-global-only',action='store_true',help='Probe a global alpha-state binding without material property/GUI rebatching.')
     parser.add_argument('--native-arrivals-only',action='store_true',help='Only native pool/UI enrollment and global lifetime after a bounded arrival repair.')
     parser.add_argument('--old-pool-admission',action='store_true',help='Compiling negative control: unrelated pooled renderers enter every-eye work.')
+    parser.add_argument('--old-native-generation',action='store_true',help='Compiling negative control: native shader changes leave stale private UI program/properties.')
     args=parser.parse_args();root=HERE.parents[1]
     sys.path.insert(0,str(root/'scripts'));cleanup=importlib.import_module('town_run_retention').cleanup_completed_run
     args.output.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output.resolve()));(run/'.keep').touch()
@@ -46,6 +47,12 @@ def main():
         gate='if (known && _rendererSet.Add(renderer)) _renderers.Add(renderer);'
         assert material_source.count(gate)==1
         material_source=material_source.replace(gate,'if (_rendererSet.Add(renderer)) _renderers.Add(renderer);')
+    if args.old_native_generation:
+        gate='Shader shader = entry.Source.shader;\n            if (shader != entry.Original)'
+        assert material_source.count(gate)==1
+        material_source=material_source.replace(gate,'Shader shader = entry.Source.shader;\n            if (shader != entry.Original) { entry.Current = false; return; }\n            if (shader != entry.Original)')
+    (copies/'tested-material-source.cs').write_text(material_source)
+    (run/'material-source-transform.json').write_text(json.dumps({'old_pool_admission':args.old_pool_admission,'old_native_generation':args.old_native_generation,'tested_source_sha256':hashlib.sha256(material_source.encode()).hexdigest()},indent=2)+'\n')
     (assets/'Editor/SceneTransparentMaterials.cs').write_text(material_source)
     # Syntax-only bridge for Unity2021's C#9 compiler; the production observer
     # bodies, target signatures, catches and material calls stay unchanged.
@@ -97,6 +104,8 @@ def main():
         report=json.loads(output.read_text())
         if args.old_pool_admission:
             assert status!=0 and not report['passed'] and 'unknown pooled renderer never enters per-eye material loop' in report['failure'], 'Pool admission control did not reach its named semantic assertion: '+str(run)
+        elif args.old_native_generation:
+            assert status!=0 and not report['passed'] and 'first shader-generation head alpha without native rebuild' in report['failure'], 'Native generation control did not reach its named pixel assertion: '+str(run)
         else:
             assert status==0 and report['passed'],'Actual shipping-bank GPU fixture failed: '+str(run)
         code=0
@@ -104,7 +113,7 @@ def main():
         receipt=cleanup('steamlink-transparent-materials',code,log,root,process_reaped=True)
         if project.is_dir() and not project.is_symlink():shutil.rmtree(project)
         (run/'cleanup.json').write_text(json.dumps({'retention_api':receipt,'owned_project_removed':str(project)},indent=2)+'\n')
-        (run/'results.json').write_text(json.dumps({'exit_code':code,'old_pool_admission_control':args.old_pool_admission,'scope':'ACTUAL_SHIPPING_BANK_LIFECYCLE_ONLY' if args.lifecycle_only else 'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
+        (run/'results.json').write_text(json.dumps({'exit_code':code,'old_pool_admission_control':args.old_pool_admission,'old_native_generation_control':args.old_native_generation,'scope':'ACTUAL_SHIPPING_BANK_LIFECYCLE_ONLY' if args.lifecycle_only else 'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
         print('Evidence: '+str(run))
     return code
 
