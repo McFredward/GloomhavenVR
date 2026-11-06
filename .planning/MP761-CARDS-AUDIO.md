@@ -250,3 +250,40 @@ The previous normal35-assertion prefix and6 controls remain unchanged before thi
 new suffix. `run-3iavokf9` also completed37 assertions; the later4-assertion case
 strengthens its sink oracle with explicit throw counts instead of assuming the
 12-report budget had not already been used. No further headset claim is made.
+
+## Independent results stream codec checkpoint
+
+The integrator assigned the independent DTO/codec after this lane's audio review.
+`ScenarioResultsState.cs` defines the agreed complete public presentation and
+pose-only companion, including original content Author, Key/Revision, capture
+frame Origin/Rotation/Scale, original FrameSize, RigPose, Size/Reference and the
+ordered kind7 move. Root part1 has ParentId0/ParentBinding0; every child points to
+an existing parent part and an actual node binding. Codec transport authorization
+remains the integrator's responsibility: foreign poses do not grant content rights.
+
+Message29 / fragments30 carries additive125 chunks, each at most255 bytes. The
+complete packet remains at most60000 bytes, within the existing U16 fragment
+length grammar; legacy presence/NPC codecs and their bounds are unchanged. An
+independent raw/Deflate envelope permits at most1MiB decoded metadata. Pools share
+exact float bits, strings and typed values across the entire picture, including
+material descriptions, without an earlier baseline packet or any image payload.
+Decoder streaming bounds apply before expansion; a one-byte composed input also
+checks compressed exhaustion instead of silently swallowing trailing data through
+DeflateStream read-ahead. Scalar/unit-quaternion, UTF8, part/node/property/count,
+parent/binding/cycle and whole-body exhaustion checks are atomic. A picture too
+large after compression is refused, never partially published.
+
+`results761-codec/run-jduiv5s4` passes196 assertions with exact production source
+and original RigPose/move/node/value declarations. The independent119-byte golden
+and every truncation cover a hidden metadata picture; tests also cover full
+captured geometry, signed zero, native UTF8, equivalent cross-part materials,
+pose-only move identity, malformed identity/graphs/geometry, a complete64-part
+by256-node shared-material graph, compressed truncation/trailing/bombs, packed
+60000-byte refusal and logical1MiB refusal. Native UI capture, transport admission,
+FFS delivery and final remote pixels are not established by these wire tests.
+The integrator/windows lane owns those consumers and actual native sample sizing.
+A minimal runner first exposed only a fixture Random namespace ambiguity; the
+full plugin then exposed UnityEngine.CompressionLevel ambiguity. Explicitly
+qualifying the already selected System.IO.Compression symbol fixes the latter
+without changing the managed196-vector behavior. Full plugin source Compile0W0E,
+including the final audio/logger and codec, is retained in `run-am9b_2x8`.
