@@ -100,3 +100,57 @@ and guard-order comparison receipt are preserved separately in
 No additional runtime invocation or Unity process was started by this reviewer.
 The worker's final full runtime container, controls and actual counts remain its
 proof obligation. No remaining source blocker was found in the final candidate.
+
+## Session-lifetime follow-up: current final scope
+
+This section qualifies the later session-retirement repair; the earlier15-member
+byte-exact statement describes its earlier frozen checkpoint, not the current
+lifecycle entrypoints. The **eight original generic ledger methods** remain exact,
+as do the packet-only PoseOpening and native ResolveBox consumers. Other lifecycle
+entrypoints now explicitly retire the old session before reading its ledger.
+
+EnsureSession binds to VersionGuard.SessionEpoch. A change creates a fresh ledger
+and clears old peer/page/recipient/binding history, failure/retry memo and the old
+local player ID. Sample and Observe call it **before** assigning their fresh native
+local ID. Resolve and MatchesPose defer while that ID is unknown. A native opening
+that precedes its first packet reads the current native player ID only on this
+cold path; it never borrows the previous session's positive ID.
+
+Only provenance for the exact still-current CScenario in actual Scenario game
+state survives. All retained descriptors lose every ledger token. A completed
+immutable intro fact can later acquire a new recipient only through the existing
+strict native-host/current-entity/version/reciprocal-request gates. A live pending
+**weak original opening identity** also survives but is not completion proof:
+it retains no page, peer, binding, recipient or finished permission. Dead pending
+weak identities are removable. The exact original successful native finish
+postfix alone can promote such an identity; ordinary unfinished stories are
+never marked finished by session retirement.
+
+The reviewer found why completed facts alone were insufficient: a query can be
+the first epoch observer, retire an unfinished intro, and then the actual native
+finish succeeds before any new sample. More subtly, original ShowNext can open
+successor B before predecessor A's success postfix. Filtering to the current
+message would lose A's valid success. Keeping the bounded, non-authorizing weak
+opening identity solves both cases without reconstructing an unobserved opening
+at finish or interpreting an old network ledger as native success.
+
+NativeFinished records that generation-proven success **before** EnsureSession,
+then performs only current-ledger update/finish and captures its new token
+**afterwards**. Full module Reset still clears all completion/pending provenance,
+ledger state and local identity. Host peer retirement separately invokes the
+ledger's original ForgetPeer under its own TickGuard; one failed cleanup owner
+cannot skip this retirement or the later avatar owners.
+
+Query/pose consumer order was checked in the actual driver: record83 Observe
+precedes record19 pose admission, and lifecycle Resolve/Refresh precedes the
+scenario/map pose writers. OwnsCurrent is only a diagnostic in its ordinary
+consumer. Queries cannot short-circuit a later fresh Refresh or reuse old pose
+bindings. PoseOpening is packet-only and correctly has no live-ledger dependency.
+
+The reviewed worker source includes explicit offline/online query-before-finish,
+changed-positive-local-ID, genuine A-to-B native succession, unfinished-story,
+GC and same-ID reconnect schedules. Its runtime counts and compiling controls
+remain the Results worker's evidence; this reviewer ran only source comparisons
+and ordering assertions. New source pins and receipts are preserved separately
+in `mp764-start-review-session`, leaving both earlier snapshots intact. No
+remaining source blocker was found in the frozen session-aware candidate.
