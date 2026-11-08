@@ -136,6 +136,17 @@ internal static class MenuDepthCharacterRotation
     for original in ('ApplyCaptureClear', 'SyncProjection', 'SyncDisplayPose', 'SameComponents'):
         geometry760 = geometry760.replace(original, original+'760')
     sources['PopupGeometry760.cs']='using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class PanelSupersample {'+geometry760+'}}'
+    service = member(ownership, '    private static void ServiceEntry(')
+    start = service.index('        SyncGeometry(e);')
+    end = service.index('        SyncVisibility(e);', start) + len('        SyncVisibility(e);')
+    visibility = member(capture, '    private static void SyncVisibility(Entry e)')
+    interval = re.search(r'private const int CaptureIntervalFrames = [^;]+;', ownership)[0]
+    # Execute the actual LateTick caller's geometry -> retirement -> visibility
+    # order. Other allocation/diagnostic service is outside this already-engaged
+    # resource fixture, rather than a synthetic replacement for the handback.
+    sources['CreationLate764.cs'] = ('using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class PanelSupersample {'
+        + interval + visibility + 'internal static void CreationLate764(Entry e){' + service[start:end]
+        + '}private static void SyncGeometry(Entry e)=>ActualGeometry(e);}}')
     ray_source=source_root/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
     ray=ray_source.read_text()
     ray_kernels=[member(ray,signature) for signature in ('private static bool TryIntersect(', 'private static void HitCorners(', 'private static Vector2 ToScreen(')]
@@ -254,6 +265,13 @@ internal static class MenuDepthCharacterRotation
          '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax))',
          '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax) && false)',
          'the complete native creation frame remains beside the party rail'),
+        ('head-creation-layout-handback764', 'CreationLate764.cs',
+         'RetireEmptyMenuDepth(e);', '/* injected retirement is delayed until head pre-cull */',
+         'the last character source releases its pair before ordinary native canvas batching'),
+        ('head-creation-layout-late-loss764', 'PanelDepth.cs',
+         'if (!MenuDepthSources.HasContent(e.Panel.HostRect) && e.MenuDepthDisplay == null) continue;',
+         'if (!MenuDepthSources.HasContent(e.Panel.HostRect)) { ReleaseMenuDepth(e); RestoreMenuDepthMono(e); continue; }',
+         'a source closing after LateTick retains CURRENT native pixels in its first head frame'),
         ('head-window-native760', '', '', '', ''),
         ('head-window-native-old760', 'NativeUiViewport.cs',
          'return new Vector2Int(blocks * 16, blocks * 9);', 'return new Vector2Int(Mathf.Max(width,1280),Mathf.Max(height,720));',

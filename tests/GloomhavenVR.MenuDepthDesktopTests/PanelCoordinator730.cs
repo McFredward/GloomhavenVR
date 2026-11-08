@@ -8,6 +8,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed partial class ConvertedPanel
     {
         internal RectTransform HostRect = null!, Target = null!;
+        internal Canvas? HostCanvas;
         internal GameObject HostGo = null!;
         internal bool IsAlive = true, ModLayerEnabled = true;
         internal bool RenderHidden, OwnerRenderHidden;
@@ -31,6 +32,8 @@ namespace GloomhavenVR.WorldUI
             internal string Window = "actual test window"; internal Rect Frame;
             internal int Layer;
             internal bool ActualGeometry760;
+            internal int NextCaptureFrame, CameraOffWhileVisible, RawQuadFrames;
+            internal bool MipFallback;
             internal GameObject? DisplayGo;
         }
         private sealed class TransformIdentityComparer : IEqualityComparer<Transform>

@@ -86,6 +86,40 @@ public static partial class MenuDepthDesktopProgram
             &&frame.yMin>=host.rect.yMin-.5f&&frame.yMax<=host.rect.yMax+.5f,
             "the complete native creator and RT aperture fit the physical window");
     }
+    private static void Painted764(RenderTexture target,string path,string assertion,bool noCharacter=false)
+    {
+        var pixels=Read(target,path);int painted=0,cyan=0;
+        foreach(var pixel in pixels.GetPixels32())
+        {
+            if(pixel.r+pixel.g+pixel.b>100)painted++;
+            if(pixel.r<40&&pixel.g>200&&pixel.b>200)cyan++;
+        }
+        Object.DestroyImmediate(pixels);Check(painted>3000&&(!noCharacter||cyan==0),assertion);
+    }
+    private static int RegionInk764(Texture2D image,RectTransform rectangle,Camera head,bool rail)
+    {
+        var corners=new Vector3[4];rectangle.GetWorldCorners(corners);Vector2 min=Vector2.one*float.PositiveInfinity,max=-min;
+        foreach(Vector3 corner in corners){Vector2 pixel=head.WorldToScreenPoint(corner);min=Vector2.Min(min,pixel);max=Vector2.Max(max,pixel);}
+        int found=0;
+        for(int y=Mathf.Max(0,Mathf.CeilToInt(min.y));y<Mathf.Min(image.height,Mathf.FloorToInt(max.y));y++)
+            for(int x=Mathf.Max(0,Mathf.CeilToInt(min.x));x<Mathf.Min(image.width,Mathf.FloorToInt(max.x));x++)
+            {
+                Color c=image.GetPixel(x,y);
+                if(rail ? c.r>.15f&&c.r>c.b*1.1f&&c.g>.1f&&c.b<.6f
+                    : c.r>.2f&&c.r<.8f&&Mathf.Abs(c.r-c.g)<.03f&&Mathf.Abs(c.g-c.b)<.03f)found++;
+            }
+        return found;
+    }
+    private static void NativeRegions764(Scene scene,RectTransform rail,RectTransform roster,string output,string stem)
+    {
+        foreach(bool right in new[]{false,true})
+        {
+            scene.Render(right);var pixels=Read(scene.HeadTarget,Path.Combine(output,stem+(right?"-right.png":"-left.png")));
+            Check(RegionInk764(pixels,rail,scene.Head,true)>120,"both final head eyes contain the original party-rail art inside its physical rectangle");
+            Check(RegionInk764(pixels,roster,scene.Head,false)>500,"both final head eyes contain the original roster-grid art inside its physical rectangle");
+            Object.DestroyImmediate(pixels);
+        }
+    }
     public static IEnumerator HeadCreationLayout764(string output,Action<int> complete)
     {
         _count=0;DesktopEyeInput.Available=true;
@@ -127,11 +161,12 @@ public static partial class MenuDepthDesktopProgram
             var material=new Material(Shader.Find("Unlit/Color"));material.color=Color.cyan;body.GetComponent<Renderer>().sharedMaterial=material;
             scene.ModelCamera.GetComponent<Character3DDisplayManager>().BindOriginal(ground.transform);
             var display=ConfirmationCanvas745("complete original party photograph764",27,scene.Head,host.rect.size,host.position);display.localScale=host.localScale;
-            var photo=display.gameObject.AddComponent<RawImage>();photo.texture=scene.Ui;
             scene.Ui.Release();scene.Ui.width=4000;scene.Ui.height=1400;scene.Ui.Create();
+            var photo=display.gameObject.AddComponent<RawImage>();photo.texture=scene.Ui;
             scene.OriginalA.targetTexture=scene.Ui;
             scene.OriginalA.ResetProjectionMatrix();scene.OriginalA.ResetWorldToCameraMatrix();
             var entry=PanelSupersample.BindHead(host,scene.OriginalA,scene.Ui,photo);entry.Panel.Target=target;entry.Panel.NativeDesignFrame=new Vector2(1920,1080);
+            entry.Panel.HostCanvas=host.GetComponent<Canvas>();
             object fit=CanvasConversion.NewCreationFit764();Vector3 position=host.position;Quaternion rotation=host.rotation;
             Vector3 modelPosition=ground.transform.position;
             try
@@ -141,6 +176,12 @@ public static partial class MenuDepthDesktopProgram
                     creator.SetNativeState764(false,false);Open764(nativeCreator,false);Open764(nodes[8201],false);body.SetActive(false);
                     nodes[9518].sizeDelta=new Vector2(-300,0);nodes[11189].anchoredPosition=Vector2.zero;
                     for(int i=0;i<5;i++){Canvas.ForceUpdateCanvases();CanvasConversion.FitCreation764(entry.Panel,fit);yield return null;}
+                    entry.Frame=host.rect;PanelSupersample.CreationLate764(entry);display.sizeDelta=host.rect.size;
+                    Canvas.ForceUpdateCanvases();
+                    scene.OriginalA.Render();scene.Eyes(Vector3.zero);scene.Render(false);
+                    var initialPixels=Read(scene.HeadTarget,Path.Combine(output,"initial-"+episode+".png"));
+                    int initiallyPainted=0;foreach(var pixel in initialPixels.GetPixels32())if(pixel.r+pixel.g+pixel.b>100)initiallyPainted++;
+                    Check(initiallyPainted>3000,"the already-engaged ordinary native window is primed before character depth begins");Object.DestroyImmediate(initialPixels);
                     Rect initialRail=InHost764(rail,host);
                     creator.SetNativeState764(true,false);Open764(nativeCreator,true);Open764(nodes[8201],true);body.SetActive(true);
                     nodes[11189].anchoredPosition=new Vector2(600,0);
@@ -157,12 +198,14 @@ public static partial class MenuDepthDesktopProgram
                         Check(Mathf.Abs(frame.xMin-InHost764(rail,host).xMax)<30f,"native creation animation never changes the settled party-rail seam");
                         Fits764(nativeCreator,host);Fits764(raw.rectTransform,host);
                         raw.texture=scene.ModelTarget;
-                        entry.Frame=host.rect;PanelSupersample.ActualGeometry(entry);display.sizeDelta=host.rect.size;
-                        scene.ModelCamera.Render();scene.OriginalA.Render();MenuDepthCharacters.Tick();scene.Eyes(new Vector3(step%2==0?-.03f:.03f,0,0));scene.Render(false);
+                        entry.Frame=host.rect;display.sizeDelta=host.rect.size;
+                        scene.ModelCamera.Render();MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);Canvas.ForceUpdateCanvases();
+                        scene.OriginalA.Render();scene.Eyes(new Vector3(step%2==0?-.03f:.03f,0,0));scene.Render(false);
                         var head=Read(scene.HeadTarget,Path.Combine(output,"creation-"+episode+"-"+step+".png"));
                         Rect cyan=CyanBounds752(head);
                         Check(cyan.xMin>0&&cyan.xMax<scene.HeadTarget.width-1,"the full live creator silhouette reaches final head pixels without edge clipping");
                         Object.DestroyImmediate(head);
+                        if(step==5)NativeRegions764(scene,rail,nodes[10005],output,"class-regions-"+episode);
                         Check(host.position==position&&host.rotation==rotation&&ground.transform.position==modelPosition,"creation fitting preserves accepted world pose and gameplay model origin");
                         Check((InHost764(rail,host).position-initialRail.position).sqrMagnitude<.1f,"creation never translates the existing party rail");
                     }
@@ -180,8 +223,9 @@ public static partial class MenuDepthDesktopProgram
                             Fits764(nativeCreator,host);Fits764(raw.rectTransform,host);
                             Check(host.rect.size==creationSize,"native name/quest tweens retain one complete authored creation frame");
                         }
-                        entry.Frame=host.rect;PanelSupersample.ActualGeometry(entry);display.sizeDelta=host.rect.size;
-                        scene.ModelCamera.Render();scene.OriginalA.Render();MenuDepthCharacters.Tick();scene.Eyes(Vector3.zero);scene.Render(false);
+                        entry.Frame=host.rect;display.sizeDelta=host.rect.size;
+                        scene.ModelCamera.Render();MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);Canvas.ForceUpdateCanvases();
+                        scene.OriginalA.Render();scene.Eyes(Vector3.zero);scene.Render(false);
                         var image=Read(scene.HeadTarget,Path.Combine(output,"page-"+episode+"-"+page+".png"));CyanBounds752(image);Object.DestroyImmediate(image);
                         if(page==1){Fits764(nodes[9355],host);Fits764(nodes[11201],host);}
                     }
@@ -194,14 +238,21 @@ public static partial class MenuDepthDesktopProgram
                         nativeCreator.GetComponent<CanvasGroup>().alpha=1f-fade*.4f;
                         Canvas.ForceUpdateCanvases();CanvasConversion.FitCreation764(entry.Panel,fit);yield return null;
                         Check(host.rect.size==creationSize,"native closing fade retains the creator's presentation frame until OnHidden");
+                        entry.Frame=host.rect;display.sizeDelta=host.rect.size;
+                        MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);Canvas.ForceUpdateCanvases();
+                        scene.ModelCamera.Render();scene.OriginalA.Render();scene.Eyes(Vector3.zero);scene.Render(false);
+                        Painted764(scene.HeadTarget,Path.Combine(output,"fade-"+episode+"-"+fade+".png"),
+                            "native Hide keeps its original fading content and party rail in final head pixels");
                     }
                     creator.SetNativeState764(false,false);Open764(nativeCreator,false);Open764(nodes[8201],false);body.SetActive(false);
                     nodes[9518].sizeDelta=new Vector2(-300,0);nodes[11189].anchoredPosition=Vector2.zero;
                     for(int i=0;i<5;i++){Canvas.ForceUpdateCanvases();CanvasConversion.FitCreation764(entry.Panel,fit);yield return null;}
                     Vector4 cancelled=CanvasConversion.CreationSeat764(fit);
                     Check(cancelled.x<1.1f&&cancelled.y<1.1f,"cancel returns the native mercenary list to the unchanged party-rail seam without a gap");
-                    entry.Frame=host.rect;PanelSupersample.ActualGeometry(entry);display.sizeDelta=host.rect.size;
-                    scene.ModelCamera.Render();scene.OriginalA.Render();MenuDepthCharacters.Tick();scene.Eyes(Vector3.zero);scene.Render(false);
+                    entry.Frame=host.rect;display.sizeDelta=host.rect.size;MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);
+                    Check(entry.MenuDepthDisplay==null&&entry.MenuDepthBytes==0&&photo.GetComponent<Canvas>().enabled,
+                        "the last character source releases its pair before ordinary native canvas batching");
+                    Canvas.ForceUpdateCanvases();scene.ModelCamera.Render();scene.OriginalA.Render();scene.Eyes(Vector3.zero);scene.Render(false);
                     Object.DestroyImmediate(Read(scene.Ui,Path.Combine(output,"cancel-native-"+episode+".png")));
                     File.WriteAllText(Path.Combine(output,"cancel-state-"+episode+".txt"),
                         "camera="+scene.OriginalA.transform.localToWorldMatrix+"\nview="+scene.OriginalA.worldToCameraMatrix
@@ -209,9 +260,39 @@ public static partial class MenuDepthDesktopProgram
                         +"\nphoto="+photo.enabled+","+photo.GetComponent<Canvas>().enabled+","+photo.texture
                         +"\nrail="+rail.GetComponent<CanvasGroup>().alpha+","+rail.gameObject.activeInHierarchy
                         +"\nmessages="+string.Join("\n",GloomhavenVR.Core.VRLog.Messages));
-                    var cancelledPixels=Read(scene.HeadTarget,Path.Combine(output,"cancel-"+episode+".png"));
-                    int painted=0;foreach(var pixel in cancelledPixels.GetPixels32())if(pixel.r+pixel.g+pixel.b>100)painted++;
-                    Check(painted>3000,"cancel retains the native party rail and mercenary list in final head pixels");Object.DestroyImmediate(cancelledPixels);
+                    Painted764(scene.HeadTarget,Path.Combine(output,"cancel-"+episode+".png"),
+                        "cancel retains the native party rail and mercenary list in final head pixels",true);
+                    NativeRegions764(scene,rail,nodes[10005],output,"cancel-regions-"+episode);
+                    // A close can also occur after this frame's ordinary LateTick.
+                    // Reopen the real native source, run the actual LateTick seam,
+                    // then close without yielding; both automatic camera states
+                    // must retain current plain UI, never the prior character.
+                    creator.SetNativeState764(true,false);Open764(nativeCreator,true);Open764(nodes[8201],true);body.SetActive(true);
+                    nodes[9518].sizeDelta=new Vector2(-20,0);nodes[11189].anchoredPosition=new Vector2(600,0);
+                    for(int i=0;i<3;i++){Canvas.ForceUpdateCanvases();CanvasConversion.FitCreation764(entry.Panel,fit);yield return null;}
+                    entry.Frame=host.rect;display.sizeDelta=host.rect.size;MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);
+                    Canvas.ForceUpdateCanvases();scene.ModelCamera.Render();scene.OriginalA.Render();scene.Eyes(Vector3.zero);scene.Render(false);
+                    Check(entry.MenuDepthDisplay!=null,"the native creation source establishes the late-loss head route");
+                    yield return null;
+                    MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);
+                    creator.SetNativeState764(false,false);Open764(nativeCreator,false);Open764(nodes[8201],false);body.SetActive(false);
+                    nodes[9518].sizeDelta=new Vector2(-300,0);MenuDepthCharacters.Tick();
+                    scene.OriginalA.enabled=episode!=0;Canvas.ForceUpdateCanvases();scene.OriginalA.Render();scene.Render(false);
+                    Painted764(scene.HeadTarget,Path.Combine(output,"late-loss-"+episode+".png"),
+                        "a source closing after LateTick retains CURRENT native pixels in its first head frame",true);
+                    Check(entry.MenuDepthDisplay!=null,"late source loss keeps only its already-established carrier for the handoff frame");
+                    yield return null;
+                    CanvasConversion.FitCreation764(entry.Panel,fit);entry.Frame=host.rect;display.sizeDelta=host.rect.size;
+                    MenuDepthCharacters.Tick();PanelSupersample.CreationLate764(entry);Canvas.ForceUpdateCanvases();scene.OriginalA.Render();scene.Render(false);
+                    Painted764(scene.HeadTarget,Path.Combine(output,"retired-"+episode+".png"),
+                        "the next ordinary LateTick restores current native pixels without a retained stereo pair",true);
+                    Check(entry.MenuDepthDisplay==null&&entry.MenuDepthBytes==0&&photo.GetComponent<Canvas>().enabled,
+                        "ordinary native content releases all head resources after the late-loss handoff");
+                    Matrix4x4 foreignProjection=scene.OriginalB.projectionMatrix;RenderTexture foreignTarget=scene.OriginalB.targetTexture;
+                    scene.OriginalB.Render();
+                    Check(scene.OriginalB.targetTexture==foreignTarget&&Same(scene.OriginalB.projectionMatrix,foreignProjection)
+                        &&Shader.GetGlobalInt("_GvrMenuDepthEye")==0,
+                        "the following foreign camera retains its original target, projection and balanced eye state");
                     // User resize is a world-scale input, never owned by fitting.
                     host.localScale*=1.1f;display.localScale=host.localScale;Vector3 resized=host.localScale;
                     for(int i=0;i<3;i++)CanvasConversion.FitCreation764(entry.Panel,fit);
