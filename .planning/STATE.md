@@ -1,3 +1,22 @@
+**Shared Results input and continuation repair, Build765,2026-11-08.**
+
+Paired764 evidence reproduces inactive-picture canvas admission missing for guest
+scrolling and the native Participant-count visibility latch hiding Player-mode
+Continue after an unassigned guest ACK. Correct scoped visibility, admit the exact
+nested canvas, retain common ordered scroll/takeover and add metadata-only observer
+presses to the original permitted host callbacks. No synthetic vote/ACK/phase,
+serializer or gameplay-authority rewrite. Awaited hosts without characters retain
+their original manual Continue; rejected and stale requests cannot consume it.
+
+ClassB affected-only:775 assertions/38 compiling controls132.17s, strict Release
+0W0E17.05s, source16/16 36.879s. No full repetition; qualified764 and ten unchanged
+presentation controls have explicit input/projection reuse. Root verifies7232
+archived members/11518 frozen inputs; compiled18changed/2added/no removal and32
+exact resources. Config672/Harmony289 unchanged. All prior fixture failures,
+timings, declared ports and hardware limits are in MP765-INTEGRATION and its three
+owned reports. No new HMD/Photon acceptance; both players need765. Dev only,
+no ZIP/release/device write; own post-push cache/worktree cleanup preserves proof.
+
 **Late-join progression and native window repair, Build764,2026-11-08.**
 
 Paired763 logs expose a hidden native scenario intro on the guest: its original

@@ -1,5 +1,11 @@
 # Planning index
 
+Updated2026-11-08: Build765 repairs guest Results scroll admission/header-stick
+input, the exact native spectator-ACK visibility deadlock and shared continuation
+presses. MP765-INTEGRATION.md records bounded775-assertion/38-control coverage,
+input-bound764 inheritance, original failures, compiled review and hardware limits.
+No complete test repetition, release or device changes.
+
 Updated2026-11-08: Build764 fixes late-join native intro locks blocking selection
 and queued Win/Results, compact combat-log geometry/manual sizing and complete
 nested character creation/cancellation. MP764-INTEGRATION.md records the complete
@@ -55,6 +61,10 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP765-INTEGRATION.md](MP765-INTEGRATION.md) | Paired764 causes, bounded Results union, exact evidence reuse, final qualification and hardware handoff |
+| [MP765-RESULTS.md](MP765-RESULTS.md) | Native visibility reproduction, original pointer permission, inert observer inputs and pixel/fixture limits |
+| [MP765-SCROLL.md](MP765-SCROLL.md) | Inactive canvas admission, guest stick/bar delivery and simultaneous-input convergence |
+| [MP765-CONTROLS.md](MP765-CONTROLS.md) | Reliable native requests, exact player/opening identity, lifecycle guards and compiling controls |
 | [MP763-INTEGRATION.md](MP763-INTEGRATION.md) | Paired762 causes, bounded763 union qualification, source/compiled/archive bindings and hardware handoff |
 | [MP763-RESULTS.md](MP763-RESULTS.md) | Exact original material repair, inactive candidate transaction and full-stage fixture limits |
 | [MP763-VIDEO.md](MP763-VIDEO.md) | Real mirror/initializer ordering, physical move/resize and actual Unity frame/pixel proof |
