@@ -648,7 +648,13 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 763;
+    public const ushort ModBuild = 764;
+
+    // ModBuild764 — paired763 follow-up: recover live local card selection
+    // after joining an existing scenario, retain native shared end-of-scenario
+    // presentation, and repair combat-log and character-creation geometry.
+    // See MP764-INTEGRATION.md for actual causes, final scope, qualification,
+    // retained failures and hardware acceptance limits.
 
     // ModBuild763 — paired762 shared-window follow-up. Native Results stage
     // highlights retain the audited original 3DNoise texture identity; full
