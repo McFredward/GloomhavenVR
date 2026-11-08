@@ -14,23 +14,37 @@ namespace GloomhavenVR.Net;
 /// poll cannot see. Records 19/21 continue to carry the original window pose; record 83 owns
 /// pages and completion, addressed to the native message occurrence on each participant.
 /// </summary>
-internal static class MapStoryLifecycle
+internal static partial class MapStoryLifecycle
 {
     private static MapStoryOpeningLedger _ledger = new();
     private static readonly List<int> Peers = new();
     private static int _localPlayerId;
     private static WeakReference? _failedSubject;
     private static float _retryAfter;
+    private static int _sessionEpoch = -1;
     private static MapStoryController? Controller => Singleton<MapStoryController>.IsInitialized
         ? Singleton<MapStoryController>.Instance : null;
     private static StoryController? ScenarioController => Singleton<StoryController>.IsInitialized
         ? Singleton<StoryController>.Instance : null;
     private static bool Active => SharedWindows.ParticipatesHere(SharedWindowKind.ScenarioStory);
     private static bool MapActive => SharedWindows.ParticipatesHere(SharedWindowKind.MapStory);
-    internal static bool SendDue => Active && _ledger.Changed;
+    internal static bool SendDue { get { EnsureSession(); return Active && _ledger.Changed; } }
 
-    internal static bool OwnsCurrent => Controller?.m_CurrentMessage != null
-        && _ledger.Owns(Controller.m_CurrentMessage);
+    internal static bool OwnsCurrent
+    {
+        get { EnsureSession(); return Controller?.m_CurrentMessage != null && _ledger.Owns(Controller.m_CurrentMessage); }
+    }
+
+    private static void EnsureSession()
+    {
+        int epoch = VersionGuard.SessionEpoch;
+        if (_sessionEpoch == epoch) return;
+        _sessionEpoch = epoch;
+        _ledger = new MapStoryOpeningLedger();
+        _localPlayerId = 0;
+        Peers.Clear(); _failedSubject = null; _retryAfter = 0f;
+        RetainScenarioStartProvenance();
+    }
 
     internal static void PoseOpening(in PresenceState presence, uint contentKey, out uint epoch, out uint token)
     {
@@ -46,18 +60,24 @@ internal static class MapStoryLifecycle
 
     internal static bool MatchesPose(bool map, int sender, uint epoch, uint token)
     {
+        EnsureSession();
+        if (_localPlayerId <= 0) return false;
         StoryController.DialogInfo? message = map ? Controller?.m_CurrentMessage : ScenarioController?.m_CurrentMessage;
         return message != null && _ledger.MatchesPose(message, sender, _localPlayerId, epoch, token);
     }
 
     private static IReadOnlyList<int> Participants()
     {
-        VersionGuard.CollectContinuationPeers(Peers, _localPlayerId);
+        // A native opening may precede our first packet after a reconnect. Read
+        // that native identity only on this cold edge, never borrow the old ID.
+        int local = _localPlayerId > 0 ? _localPlayerId : NetPlayerActors.LocalPlayerId();
+        VersionGuard.CollectContinuationPeers(Peers, local);
         return Peers;
     }
 
     internal static void NativeOpened(MapStoryController controller, MapStoryController.MapDialogInfo message)
     {
+        EnsureSession();
         if (!MapActive || message == null || !ReferenceEquals(controller, Controller)) return;
         uint content = RemoteStorySync.HashDialog(message.DialogPages);
         int count = message.DialogPages?.Count ?? 0;
@@ -78,18 +98,26 @@ internal static class MapStoryLifecycle
 
     internal static void NativeOpened(StoryController controller, StoryController.DialogInfo message)
     {
-        if (!Active || message == null || !ReferenceEquals(controller, ScenarioController)) return;
+        EnsureSession();
+        if (message == null || !ReferenceEquals(controller, ScenarioController)) return;
         uint content = RemoteStorySync.HashDialog(message.DialogPages);
         int count = message.DialogPages?.Count ?? 0;
         if (content == 0 || count == 0 || count > byte.MaxValue) return;
         uint semantic = SharedMapRunIdentity.Add(SharedMapRunIdentity.Key, "scenario-story");
         semantic = SharedMapRunIdentity.Add(semantic, message.LevelMsg?.MessageName);
         semantic = SharedMapRunIdentity.Add(semantic, content.ToString("X8", CultureInfo.InvariantCulture));
+        RememberScenarioStart(message, semantic == 0 ? 1u : semantic, content, (byte)count);
+        if (!Active) return;
         _ledger.Open(message, semantic == 0 ? 1u : semantic, content, (byte)count, Participants());
     }
 
     internal static void NativeFinished(StoryController.DialogInfo? message)
     {
+        // The native success postfix can coincide with an online/offline edge.
+        // Retain its generation-proven start success before retiring session-only
+        // bindings; never read an old ledger to infer that success.
+        RememberScenarioStartFinished(message);
+        EnsureSession();
         // The success postfix retains the exact old object even when OnFinishShow has
         // already opened its successor. A thrown native callback is not a completion.
         if (message != null && _ledger.Owns(message))
@@ -99,10 +127,12 @@ internal static class MapStoryLifecycle
                 VRLog.Note("Net", $"STORY CONTINUATION COMPLETED: content=0x{RemoteStorySync.HashDialog(message.DialogPages):X8}, " +
                     $"pages={message.DialogPages?.Count ?? 0}; native finish callback returned successfully.");
         }
+        RememberScenarioStartToken(message);
     }
 
     private static void Refresh()
     {
+        EnsureSession();
         if (!Active) return;
         MapStoryController? controller = Controller;
         if (MapActive && controller?.m_CurrentMessage is MapStoryController.MapDialogInfo message)
@@ -120,6 +150,7 @@ internal static class MapStoryLifecycle
 
     internal static void Sample(ref PresenceState presence, int localPlayerId)
     {
+        EnsureSession();
         _localPlayerId = localPlayerId;
         if (!Active) return;
         Refresh();
@@ -132,14 +163,17 @@ internal static class MapStoryLifecycle
 
     internal static void Observe(int sender, in PresenceState presence, int localPlayerId)
     {
+        EnsureSession();
         _localPlayerId = localPlayerId;
         if (sender <= 0 || sender == localPlayerId || !presence.HasMapStoryLifecycle
             || presence.MapStoryLifecycleEntries == null) return;
         _ledger.Observe(sender, presence.MapStoryLifecycleEntries);
+        EnrollScenarioStartVisitor(sender, presence.MapStoryLifecycleEntries);
     }
 
     internal static void Resolve()
     {
+        EnsureSession();
         if (!Active || _localPlayerId <= 0) return;
         Refresh();
         MapStoryController? controller = Controller;
@@ -176,13 +210,16 @@ internal static class MapStoryLifecycle
     internal static void Reset()
     {
         _ledger = new MapStoryOpeningLedger();
+        _sessionEpoch = VersionGuard.SessionEpoch;
         _localPlayerId = 0;
         Peers.Clear();
         _failedSubject = null;
         _retryAfter = 0f;
+        ClearScenarioStarts();
     }
 
-    internal static void ForgetPeer(int playerId) => _ledger.ForgetPeer(playerId);
+    internal static void ForgetPeer(int playerId)
+    { EnsureSession(); _ledger.ForgetPeer(playerId); }
 }
 
 [HarmonyPatch(typeof(StoryController), "ShowImmediately")]
