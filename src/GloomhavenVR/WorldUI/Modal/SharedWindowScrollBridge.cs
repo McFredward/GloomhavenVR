@@ -13,6 +13,7 @@ internal enum SharedScrollInput : byte { Wheel = 2, Position = 3, PointerDown = 
 internal static class SharedWindowScrollBridge
 {
     internal static Func<Component, SharedScrollInput, Vector2, int, bool>? Submit;
+    internal static Func<Transform, SharedWindowScrollProxy?>? ResultsInput;
     internal static bool Wheel(Component target, Vector2 notches) => Submit?.Invoke(target, SharedScrollInput.Wheel, notches, 0) == true;
     internal static bool Position(Component target, Vector2 normalized) => Submit?.Invoke(target, SharedScrollInput.Position, normalized, 0) == true;
     internal static bool Pointer(Component target, SharedScrollInput input, PointerEventData data)

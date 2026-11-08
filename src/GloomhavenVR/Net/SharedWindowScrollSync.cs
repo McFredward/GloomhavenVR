@@ -97,6 +97,7 @@ internal sealed class SharedWindowScrollCoordinator
         if (!ReferenceEquals(_transport, transport)) Reset();
         _transport = transport; _send = sendReliable;
         SharedWindowScrollBridge.Submit = Input;
+        SharedWindowScrollBridge.ResultsInput = FindResultsInput;
     }
     internal void ObserveVisibility(UIWindow window, bool shown)
     {
@@ -121,6 +122,7 @@ internal sealed class SharedWindowScrollCoordinator
         foreach (SharedWindowScrollProxy proxy in Proxies.Values) if (proxy != null) proxy.gameObject.SetActive(false);
         Proxies.Clear(); _proxyRoot = null; _proxyVersion = _paintedProxyVersion = 0;
         SharedWindowScrollBridge.Submit = null;
+        SharedWindowScrollBridge.ResultsInput = null;
         // Bindings survive an offline/flat-net reset; the same transport can resume.
         // Request/opening nonces stay monotonic across local module recreation.
     }
@@ -142,6 +144,7 @@ internal sealed class SharedWindowScrollCoordinator
     {
         if (!Online) return;
         ObserveAuthor(); SharedWindowScrollBridge.Submit = Input; Flush();
+        SharedWindowScrollBridge.ResultsInput = FindResultsInput;
         ApplyObserved(now);
     }
     internal void LateTick(float now)
@@ -552,6 +555,21 @@ internal sealed class SharedWindowScrollCoordinator
         VRLog.Warn("Net", "Shared scroll transport unavailable; the pending public viewport input is retained.");
     }
 
+    private SharedWindowScrollProxy? FindResultsInput(Transform host)
+    {
+        if (!Online || IsAuthor((byte)SharedWindowKind.Results)) return null;
+        SharedWindowScrollProxy? bar = null;
+        foreach (var pair in Proxies)
+        {
+            SharedWindowScrollProxy proxy = pair.Value;
+            if (proxy == null || !proxy.isActiveAndEnabled || !proxy.transform.IsChildOf(host)
+                || !Observed.ContainsKey(pair.Key)) continue;
+            if (proxy.Control == 1) return proxy;
+            if (proxy.Control == 2) bar = proxy;
+        }
+        return bar;
+    }
+
     /// <summary>Called only after a complete inert Results picture is validated.
     /// Viewports/scrollbar frames come from that common picture, never private client rows.</summary>
     internal void AttachResultsInputs(Transform pictureRoot, Canvas? host = null)
@@ -586,7 +604,10 @@ internal sealed class SharedWindowScrollCoordinator
             {
                 SharedWindowScrollCanvasLease? lease = pictureRoot.GetComponent<SharedWindowScrollCanvasLease>();
                 if (lease == null) lease = pictureRoot.gameObject.AddComponent<SharedWindowScrollCanvasLease>();
-                lease.Admit(host, proxy.GetComponentInParent<Canvas>());
+                // The Results writer attaches input before revealing its inactive
+                // candidate. Skipping inactive parents selects the outer host,
+                // so the version cache would permanently miss the own canvas.
+                lease.Admit(host, proxy.GetComponentInParent<Canvas>(true));
             }
             proxy.Kind = SharedWindowKind.Results; proxy.Address = state.Path; proxy.Control = state.Control;
             proxy.CoordinateRoot = rect;

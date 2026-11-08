@@ -107,6 +107,126 @@ internal static class Program
     private static void Receive(Peer peer, int sender, SharedWindowScrollMessage message)
     { peer.Select(); byte[] bytes = SharedWindowScrollCodec.Write(message); Check(peer.Core.Receive(sender, bytes, bytes.Length), "valid control routes without native network dependency"); }
 
+    private static void PointerRequest(Peer peer, SharedScrollInput operation, float y)
+    {
+        peer.Select(); var rect = (RectTransform)peer.Bar.transform;
+        var data = new PointerEventData(EventSystem.current) { pointerId = -101,
+            button = PointerEventData.InputButton.Left,
+            pointerPressRaycast = new RaycastResult { module = peer.Raycaster, gameObject = peer.Bar.gameObject } };
+        data.position = peer.Camera.WorldToScreenPoint(rect.TransformPoint(new Vector3(0,
+            Mathf.LerpUnclamped(rect.rect.yMin, rect.rect.yMax, y), 0)));
+        Check(SharedWindowScrollBridge.Pointer(peer.Bar, operation, data), "each participant routes its scrollbar gesture through the common original");
+    }
+    private static float HandleCenter(Peer host) => host.Bar.size * .5f + host.Bar.value * (1f - host.Bar.size);
+
+    private static IEnumerator WholeWindowInputs(Peer host, Peer visitor, Transform picture, UguiPointer pointer,
+        RayUguiDriver stick, GloomhavenVR.Hands.VRHand hand)
+    {
+        var header = Rect("Visible Results header", visitor.Root, new Vector2(400, 40));
+        header.anchoredPosition = new Vector2(0, 160); header.gameObject.AddComponent<Image>();
+        var wp = new ModalFallback.WindowPanel { Panel = new ModalFallback.FixturePanel
+            { HostGo = visitor.Root.gameObject, HostTransform = visitor.Root, Target = null } };
+        ModalFallback.FixtureConfigure(wp); GloomhavenVR.Hands.VRHands.Left = hand;
+        host.Select(); host.Scroll.verticalNormalizedPosition = .5f; host.Publish(); host.Deliver(visitor);
+        visitor.Paint(); visitor.Core.AttachResultsInputs(picture, visitor.Canvas);
+        Canvas.ForceUpdateCanvases(); yield return null;
+        Check(pointer.FixturePick(visitor.Canvas, visitor.Camera.WorldToScreenPoint(header.position), out RaycastResult hit)
+            && hit.gameObject == header.gameObject, "the real laser picker resolves the visible Results header outside the common viewport");
+        pointer.SetFixtureHover(header.gameObject, hit);
+        visitor.Select(); int delivered = UiScrollFocus.Delivered; float before = host.Scroll.verticalNormalizedPosition;
+        stick.FixtureTick(); ModalFallback.FixtureTick();
+        float until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host);
+        Check(UiScrollFocus.Delivered == delivered + 1 && host.Scroll.verticalNormalizedPosition < before,
+            "Results header joystick uses the common viewport with no private native scroll target");
+
+        visitor.Select(); wp.ResultsScroll = visitor.Scroll; visitor.Scroll.enabled = false;
+        before = host.Scroll.verticalNormalizedPosition; ModalFallback.FixtureTick();
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host);
+        Check(host.Scroll.verticalNormalizedPosition < before,
+            "an inactive private Results list does not block common background joystick input");
+        visitor.Scroll.enabled = true;
+        visitor.Select(); var proxy = picture.GetComponentsInChildren<SharedWindowScrollProxy>().First(x => x.Control == 1);
+        pointer.SetFixtureHover(proxy.gameObject); delivered = UiScrollFocus.Delivered;
+        stick.FixtureTick(); ModalFallback.FixtureTick();
+        Check(UiScrollFocus.Delivered == delivered + 1,
+            "viewport joystick is owned by the generic pointer without a duplicate Results fallback delivery");
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host);
+
+        host.Select(); host.Scroll.content.sizeDelta = new Vector2(400, 200);
+        Canvas.ForceUpdateCanvases(); yield return null; host.Publish(); host.Deliver(visitor);
+        visitor.Paint(); visitor.Core.AttachResultsInputs(picture, visitor.Canvas);
+        Check(!proxy.CanScroll, "a complete common list without overflow advertises no joystick travel");
+        pointer.SetFixtureHover(header.gameObject); int hovers = UiScrollFocus.Hovers; delivered = UiScrollFocus.Delivered;
+        ModalFallback.FixtureTick();
+        Check(UiScrollFocus.Hovers == hovers && UiScrollFocus.Delivered == delivered,
+            "non-scrollable common Results never claim locomotion focus through private overflow");
+        host.Select(); host.Scroll.content.sizeDelta = new Vector2(400, 1200);
+        Canvas.ForceUpdateCanvases(); yield return null; host.Publish(); host.Deliver(visitor);
+        visitor.Paint(); visitor.Core.AttachResultsInputs(picture, visitor.Canvas);
+
+        // Other/private windows and points outside this exact host retain their
+        // original paths; no global modal or native input permission is added.
+        pointer.SetFixtureHover(host.Root.gameObject); visitor.Select(); delivered = UiScrollFocus.Delivered;
+        ModalFallback.FixtureTick(); Check(UiScrollFocus.Delivered == delivered,
+            "hover outside the exact Results host is not redirected into the common list");
+        pointer.SetFixtureHover(header.gameObject); wp.IsResults = false; ModalFallback.FixtureTick();
+        Check(UiScrollFocus.Delivered == delivered, "private non-Results hosts retain their original fallback boundary");
+        GloomhavenVR.Hands.VRHands.Left = null; Object.DestroyImmediate(header.gameObject);
+    }
+
+    private static IEnumerator ConcurrentInputs(Peer host, Peer visitor, Peer third)
+    {
+        host.Select(); host.Scroll.verticalNormalizedPosition = .5f;
+        host.Publish(); var baseline = host.Sent.ToArray(); host.Deliver(visitor);
+        host.Sent.AddRange(baseline); host.Deliver(third);
+        float until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); third.Paint();
+        // Neither request bypasses the existing author, even with opposite input
+        // in one visitor frame. Native ScrollRect bounds still decide the result.
+        visitor.Select(); Check(SharedWindowScrollBridge.Wheel(visitor.Scroll, new Vector2(0, -2)), "first simultaneous wheel is admitted");
+        third.Select(); Check(SharedWindowScrollBridge.Wheel(third.Scroll, new Vector2(0, 2)), "opposed simultaneous wheel is admitted");
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host); float first = host.Scroll.verticalNormalizedPosition;
+        third.Paint(); third.Deliver(host);
+        Check(first < .5f && Near(host.Scroll.verticalNormalizedPosition, .5f), "both opposed visitor wheels execute in author order on one bounded original");
+
+        visitor.Select(); Check(SharedWindowScrollBridge.Position(visitor.Scroll, new Vector2(0, .3f)), "first simultaneous absolute position is admitted");
+        third.Select(); Check(SharedWindowScrollBridge.Position(third.Scroll, new Vector2(0, .7f)), "second simultaneous absolute position is admitted");
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host); Check(Near(host.Scroll.verticalNormalizedPosition, .3f), "first absolute input acts at the common author");
+        third.Paint(); third.Deliver(host); Check(Near(host.Scroll.verticalNormalizedPosition, .7f), "latest ordered absolute input determines the common position");
+        host.Publish(); var common = host.Sent.ToArray(); host.Deliver(visitor);
+        host.Sent.AddRange(common); host.Deliver(third);
+        visitor.Select(); visitor.Core.Tick(Time.unscaledTime + .08f); third.Select(); third.Core.Tick(Time.unscaledTime + .08f);
+        Check(Near(visitor.Scroll.verticalNormalizedPosition, .7f) && Near(third.Scroll.verticalNormalizedPosition, .7f),
+            "simultaneous opposing requests converge on every participant");
+
+        Canvas.ForceUpdateCanvases();
+        PointerRequest(visitor, SharedScrollInput.PointerDown, HandleCenter(host)); visitor.Deliver(host);
+        // Both hands deliberately use the same pointer ID: only actual native
+        // requester identity can distinguish the two concurrent people.
+        PointerRequest(third, SharedScrollInput.PointerDown, HandleCenter(host)); third.Deliver(host);
+        float owned = host.Bar.value;
+        PointerRequest(visitor, SharedScrollInput.PointerDrag, .1f);
+        PointerRequest(visitor, SharedScrollInput.PointerUp, .1f); visitor.Deliver(host);
+        Check(Near(host.Bar.value, owned), "ended earlier player's drag cannot move a newer explicit scrollbar gesture");
+        PointerRequest(third, SharedScrollInput.PointerDrag, HandleCenter(host) - .15f);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        third.Paint(); third.Deliver(host);
+        Check(host.Bar.value < owned - .02f, "stale earlier release cannot end the newer explicit scrollbar gesture");
+        PointerRequest(third, SharedScrollInput.PointerUp, HandleCenter(host)); third.Deliver(host);
+        float released = host.Bar.value;
+        PointerRequest(visitor, SharedScrollInput.PointerDown, HandleCenter(host)); visitor.Deliver(host);
+        PointerRequest(visitor, SharedScrollInput.PointerDrag, HandleCenter(host) + .1f);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host);
+        Check(host.Bar.value > released + .02f, "an earlier visitor can immediately begin a fresh explicit scrollbar gesture");
+        PointerRequest(visitor, SharedScrollInput.PointerUp, HandleCenter(host)); visitor.Deliver(host);
+    }
+
     internal static IEnumerator Run(Action<int> report)
     {
         _checks = 0; _clock = 0; Peers.Clear(); Unmodded.Clear(); FFSNetwork.IsOnline = true;
@@ -161,6 +281,9 @@ internal static class Program
         foreach (Graphic graphic in picture.GetComponentsInChildren<Graphic>(true)) graphic.raycastTarget = false;
         var group = picture.AddComponent<CanvasGroup>(); group.blocksRaycasts = group.interactable = false;
         var mount = Rect("GloomhavenVR.Results.Observer", visitor.Root, new Vector2(600, 400));
+        // The actual Results writer attaches metadata input before its inactive
+        // candidate is revealed. The same descriptor is reused after activation.
+        mount.gameObject.SetActive(false);
         picture.transform.SetParent(mount, false); ((RectTransform)picture.transform).anchoredPosition3D = Vector3.zero;
         picture.GetComponent<Canvas>().worldCamera = visitor.Camera;
         visitor.Select(); visitor.Core.AttachResultsInputs(picture.transform, visitor.Canvas);
@@ -168,28 +291,48 @@ internal static class Program
         Check(picture.GetComponentsInChildren<ScrollRect>(true).Length == 0, "common picture never reinstates cloned native scroll controllers");
         Check(UguiPokeSurfaces.NestedOf(visitor.Canvas)?.Contains(picture.GetComponent<Canvas>()) == true,
             "only the exact common picture input canvas joins the existing nested-pointer census");
+        mount.gameObject.SetActive(true);
+        visitor.Core.AttachResultsInputs(picture.transform, visitor.Canvas);
+        Check(UguiPokeSurfaces.NestedOf(visitor.Canvas)?.Contains(picture.GetComponent<Canvas>()) == true,
+            "revealing the unchanged picture retains its pre-activation nested input admission");
         Canvas.ForceUpdateCanvases(); yield return null; visitor.Camera.Render();
-        var inputRaycaster = proxy.GetComponentInParent<GraphicRaycaster>();
-        var data = new PointerEventData(EventSystem.current) { position = visitor.Camera.WorldToScreenPoint(proxy.transform.position) };
-        var hits = new List<RaycastResult>(); inputRaycaster.Raycast(data, hits);
-        Check(hits.Any(x => x.gameObject == proxy.gameObject), "real original GraphicRaycaster reaches the common viewport through inert observer groups");
+        Check(pointer.FixturePick(visitor.Canvas, visitor.Camera.WorldToScreenPoint(proxy.transform.position), out RaycastResult viewportHit)
+            && viewportHit.gameObject == proxy.gameObject,
+            "real original GraphicRaycaster reaches the common viewport through inert observer groups");
         pointer.SetFixtureHover(proxy.gameObject); pointer.Scroll(new Vector2(0, -2));
         until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Select(); visitor.Core.Tick(Time.unscaledTime); Check(visitor.Sent.Count > 0, "visible common viewport wheel creates its exact original-address request");
         visitor.Deliver(host); Check(host.Scroll.verticalNormalizedPosition < after, "common source-sized viewport forwards native wheel despite private client row differences");
+        visitor.Select(); var hand = new GloomhavenVR.Hands.VRHand { Thumbstick = Vector2.down };
+        var stick = new RayUguiDriver(pointer, hand); float stickBefore = host.Scroll.verticalNormalizedPosition;
+        int delivered = UiScrollFocus.Delivered; stick.FixtureTick();
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host);
+        Check(UiScrollFocus.Delivered > delivered && host.Scroll.verticalNormalizedPosition < stickBefore,
+            "the actual pointing-hand joystick scrolls the visible common proxy through the original native author");
 
         host.Publish(); host.Deliver(visitor); until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Paint(); visitor.Core.AttachResultsInputs(picture.transform, visitor.Canvas);
         SharedWindowScrollProxy barProxy = picture.GetComponentsInChildren<SharedWindowScrollProxy>(true).First(x => x.Control == 2);
+        // Paired hardware has an original scrollbar 133 px outside the fitted
+        // host. The original/copied canvas remains unchanged and wider.
+        visitor.Root.sizeDelta = new Vector2(184, 400);
+        Canvas.ForceUpdateCanvases(); yield return null;
+        Vector3 barWorld = barProxy.CoordinateRoot!.TransformPoint(new Vector3(0, 50, 0));
+        float outside = visitor.Root.InverseTransformPoint(barWorld).x - visitor.Root.rect.xMax;
+        Check(Near(outside, 133f), "the observer scrollbar is exercised133pixels outside the fitted host frame");
+        Check(pointer.FixturePick(visitor.Canvas, visitor.Camera.WorldToScreenPoint(barWorld), out RaycastResult barHit)
+            && barHit.gameObject == barProxy.gameObject,
+            "registered nested ray dispatch reaches the exact outboard common scrollbar");
         var localOriginalBefore = visitor.Bar.value;
         var down = new PointerEventData(EventSystem.current) { pointerId = -101, button = PointerEventData.InputButton.Left };
-        var barCaster = barProxy.GetComponentInParent<GraphicRaycaster>();
-        down.pointerPressRaycast = new RaycastResult { module = barCaster, gameObject = barProxy.gameObject };
-        down.position = visitor.Camera.WorldToScreenPoint(barProxy.CoordinateRoot!.TransformPoint(new Vector3(0, 50, 0)));
+        down.pointerPressRaycast = barHit;
+        down.position = visitor.Camera.WorldToScreenPoint(barWorld);
         pointer.SetFixtureHover(barProxy.gameObject, down.pointerPressRaycast); pointer.Press(down.position);
         pointer.Drag(visitor.Camera.WorldToScreenPoint(barProxy.CoordinateRoot.TransformPoint(new Vector3(0, -65, 0))));
         // Release uses the real metadata input proxy rather than an inert clone callback.
         proxy = barProxy; proxy.OnPointerUp(down);
+        visitor.Root.sizeDelta = new Vector2(600, 400);
         Check(Near(visitor.Bar.value, localOriginalBefore), "common scrollbar press/drag never changes the hidden private native client control");
         until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Select(); visitor.Core.Tick(Time.unscaledTime); visitor.Deliver(host);
@@ -212,6 +355,12 @@ internal static class Program
         for (int i = 0; i < 32; i++) visitor.Core.AttachResultsInputs(picture.transform, visitor.Canvas);
         Check(picture.GetComponentsInChildren<SharedWindowScrollProxy>(true).Length == proxyCount,
             "unchanged frame input geometry is reused without rebuilding or duplicating observer controls");
+
+        IEnumerator wholeWindow = WholeWindowInputs(host, visitor, picture.transform, pointer, stick, hand);
+        while (wholeWindow.MoveNext()) yield return wholeWindow.Current;
+
+        IEnumerator concurrent = ConcurrentInputs(host, visitor, third);
+        while (concurrent.MoveNext()) yield return concurrent.Current;
 
         // Native show/hide in one frame starts a new input opening.
         SharedWindowSpawnAuthority.AuthorId = 1; host.Select(); host.Core.ObserveVisibility(host.Windows[7]!, false); host.Publish();

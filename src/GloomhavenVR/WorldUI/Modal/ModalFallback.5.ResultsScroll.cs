@@ -46,7 +46,8 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (!wp.IsResults || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
                 continue;
-            if (wp.ResultsScroll == null && wp.ResultsScrollbar == null
+            if (SharedWindowScrollBridge.ResultsInput?.Invoke(wp.Panel.HostTransform) == null
+                && wp.ResultsScroll == null && wp.ResultsScrollbar == null
                 && !TryFindResultsScrollTarget(wp))
                 continue;
             DriveResultsScroll(wp, VRHands.Left);
@@ -155,6 +156,22 @@ internal static partial class ModalFallback
             return;
         if (hovered.GetComponentInParent<ScrollRect>() != null || hovered.GetComponentInParent<SharedWindowScrollProxy>() != null)
             return; // generic RayUguiDriver stick-scroll owns this hover — never double-drive
+
+        // Observer Results are inert common pictures: the private native list
+        // may be absent or closed, and must not decide the common list's travel.
+        // Header/background hover uses the same metadata proxy as viewport hover.
+        SharedWindowScrollProxy? common = SharedWindowScrollBridge.ResultsInput?.Invoke(wp.Panel.HostTransform);
+        if (common != null)
+        {
+            if (common.CanScroll) UiScrollFocus.NoteScrollHover(hand, common, "ModalFallback.ResultsScroll");
+            float axis = hand.Thumbstick.y;
+            if (Mathf.Abs(axis) < ResultsScrollDeadzone) return;
+            float amount = (Mathf.Abs(axis) - ResultsScrollDeadzone) / (1f - ResultsScrollDeadzone);
+            SharedWindowScrollBridge.Wheel(common, new Vector2(0f,
+                Mathf.Sign(axis) * amount * ResultsScrollNotchesPerSecond * Time.unscaledDeltaTime));
+            if (common.CanScroll) UiScrollFocus.NoteScrollDelivered(hand, common, "ModalFallback.ResultsScroll");
+            return;
+        }
 
         // SCROLL BEATS FLIGHT (user 2026-08-03), reported from the same place the scroll is
         // decided so the two can never disagree — see UiScrollFocus. This branch

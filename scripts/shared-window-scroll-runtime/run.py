@@ -2,9 +2,10 @@
 """Run the exact shared-window scroll coordinator, codec, proxy and pointer delivery in Unity.
 
 Three independent coordinator instances represent separate processes. Native
-session/subject registries are explicit boundary ports; original Unity UI,
-scroll callbacks, camera projections, raycasts, masks, groups and nested-input
-registry execute. Tick's explicit clock samples an actual intermediate renderer
+session/subject registries, initiative depth picks and coordinate-transpiler scope
+are explicit boundary ports; original Unity UI, scroll callbacks, camera
+projections, registered nested ray dispatch, masks, groups and both generic and
+Results-only stick input execute. Tick's explicit clock samples an actual intermediate renderer
 frame without depending on a software renderer's wall-clock frame rate. The
 fixture does not claim Photon, a loaded Victory game controller or HMD evidence.
 """
@@ -13,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -65,20 +67,41 @@ def main():
         'private readonly List<Component> _scrollHandlers=new(4);'
         'private GameObject? _hovered,_pressed,_pressedClickHandler,_dragTarget;private Component? _sharedScrollDrag;'
         'private bool _sharedScrollbarPress,_dragging;private Vector2 _lastDragPos;private PointerEventData? _pointerData;'
+        'private readonly List<RaycastResult> _hits=new();private bool _farRay=true;private int _side;'
+        'private int _lastPokeHitCount,_lastPokePadRank;private GameObject? _lastPokeRunnerUp;'
+        'private bool TryAimRay(out Vector3 origin,out Vector3 direction){origin=direction=default;return false;}'
         'private readonly int _pointerId=-101;private string _sourceTag="fixture laser";'
         'private void FlushPendingHoverExit(){}'
         'private GameObject? Pressing{get=>_pressed;set=>_pressed=value;}'
+        'internal GameObject? Hovered=>_hovered;'
         'internal void SetFixtureHover(GameObject target,RaycastResult hit=default){_hovered=target;GetData().pointerCurrentRaycast=hit;}'
         + '\n'.join(block(pointer,sig) for sig in ['internal void Scroll(Vector2 scrollDelta)',
            'internal static GameObject? FindScrollTarget(GameObject start, List<Component> handlers)',
-           'internal void Press(Vector2 screenPos)','internal void Drag(Vector2 screenPos)','private PointerEventData GetData()']) + '}}')
+           'internal void Press(Vector2 screenPos)','internal void Drag(Vector2 screenPos)','private PointerEventData GetData()',
+           'private bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit, bool worldPlane)',
+           'private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top, Canvas? admittedHost = null)',
+           'private static bool Beats(in RaycastResult challenger, in RaycastResult incumbent)',
+           'private static int StableOrder(in RaycastResult hit)'])
+        + 'internal bool FixturePick(Canvas canvas,Vector2 position,out RaycastResult hit)=>TryRaycast(canvas,position,out hit,true);}}')
     actual += 'namespace GloomhavenVR.WorldUI {internal static class UiSoundEar{internal static void BeforeUiEvent(){}}}'
     actual += 'namespace GloomhavenVR {internal static class Plugin {internal sealed class Setting{internal bool Value=true;}internal static Setting ScrollWithStickOnly=new();}}'
+    stick_path = source_root / 'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
+    stick = stick_path.read_text()
+    stick_constants = '\n'.join(re.search(r'private const float ' + name + r' = [^;]+;', stick).group(0)
+                                for name in ['ScrollDeadzone', 'ScrollNotchesPerSecond'])
+    actual_stick = ('using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.Hands.Interact {'
+        'internal sealed class RayUguiDriver {private readonly UguiPointer _pointer;private readonly VRHand _hand;'
+        'internal RayUguiDriver(UguiPointer pointer,VRHand hand){_pointer=pointer;_hand=hand;hand.RayUgui=this;}'
+        'internal GameObject? Hovered=>_pointer.Hovered;'
+        'internal void FixtureTick()=>TickStickScroll();' + stick_constants + block(stick, 'private void TickStickScroll()') + '}}')
     tracked = [pointer_path, source_root/'src/GloomhavenVR/Net/NetProtocol.cs',
         source_root/'src/GloomhavenVR/Net/SharedWindowScrollCodec.cs',source_root/'src/GloomhavenVR/Net/SharedWindowScrollSync.cs',
         source_root/'src/GloomhavenVR/WorldUI/Modal/SharedWindowScrollBridge.cs',
+        source_root/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.5.ResultsScroll.cs',
         source_root/'src/GloomhavenVR/Hands/Interact/UguiPokeSurfaces.cs']
     sources = {path.name:path.read_text() for path in tracked[2:]};sources['ActualPointer.cs']=actual
+    sources['ActualStick.cs'] = actual_stick
+    tracked.append(stick_path)
     protocol=tracked[1].read_text()
     constants='\n'.join(line.strip() for line in protocol.splitlines() if any(term in line for term in ['public const uint Magic =','public const byte Version =','public const ushort ModBuild =']))
     sources['Protocol.cs']='namespace GloomhavenVR.Net {internal static class NetProtocol {'+constants+block(protocol,'public static uint HashMapKey(string? id)')+'}}'
@@ -108,6 +131,15 @@ def main():
          'real original GraphicRaycaster reaches the common viewport through inert observer groups'),
         ('missing-nested-input-canvas','SharedWindowScrollBridge.cs','Hands.Interact.UguiPokeSurfaces.RegisterNested(host, canvas);','',
          'only the exact common picture input canvas joins the existing nested-pointer census'),
+        ('inactive-first-picture','SharedWindowScrollSync.cs','proxy.GetComponentInParent<Canvas>(true)',
+         'proxy.GetComponentInParent<Canvas>()',
+         'only the exact common picture input canvas joins the existing nested-pointer census'),
+        ('former-drag-owner','SharedWindowScrollSync.cs','target.PointerOwner != request.Requester || ', '',
+         "ended earlier player's drag cannot move a newer explicit scrollbar gesture"),
+        ('common-header-fallback','ModalFallback.5.ResultsScroll.cs',
+         'SharedWindowScrollProxy? common = SharedWindowScrollBridge.ResultsInput?.Invoke(wp.Panel.HostTransform);',
+         'SharedWindowScrollProxy? common = null;',
+         'Results header joystick uses the common viewport with no private native scroll target'),
         ('native-permission-lost','SharedWindowScrollSync.cs','|| !InputAllowed(original)','|| false',
          'native canvas-group permission is retained at execution time'),
         ('map-off-host-retained','SharedWindowScrollSync.cs','if (common > 0 && Participant(common)) return common;','if (common > 0) return common;',

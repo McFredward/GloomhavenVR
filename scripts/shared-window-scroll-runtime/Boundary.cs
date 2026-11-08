@@ -16,10 +16,74 @@ public sealed class UIEventPanel { public EventData? eventData; public Screen? c
 public class UIQuestPopup : MonoBehaviour { public Quest? quest; public class Quest { public string LocalisedNameKey = "quest"; } }
 namespace FFSNet { internal static class PlayerRegistry { internal static int HostPlayerID = 1; } }
 namespace GloomhavenVR.Core { internal static class VRLog { internal static void Warn(string scope, string text) { } internal static void Info(string scope, string text) { } } }
+// Tracking and flight-focus notifications are explicit ports. The original
+// RayUguiDriver stick response and its complete UguiPointer delivery execute.
+namespace GloomhavenVR.Hands
+{
+    internal sealed class VRHand
+    {
+        internal Vector2 Thumbstick;
+        internal Interact.RayUguiDriver RayUgui = null!;
+        internal FixturePoke Poke = new();
+        internal Interact.RayInteractor? Ray;
+    }
+    internal sealed class FixturePoke { internal GameObject? HoveredUi; }
+    internal static class VRHands { internal static VRHand? Left, Right; internal static VRHand? Get(int side) => null; }
+}
+namespace GloomhavenVR.Hands.Interact
+{
+    // Non-Results initiative-depth selection and display-remapping patches are
+    // boundary ports. All fixture points use the original in-camera projection;
+    // actual nested census, GraphicRaycaster filters and winner selection run.
+    internal sealed class RayInteractor { internal void SetWorldUiHit(Vector3 point, string source) { } }
+    internal sealed class PokeOnlyTarget : MonoBehaviour { }
+    internal interface IDepthPortraitPicker
+    { bool TryPickPortrait(Vector3 origin, Vector3 direction, out GameObject portrait, out Vector3 hit); }
+    internal static class DepthPortraitPicks
+    { internal static bool TryGet(Canvas canvas, out IDepthPortraitPicker picker) { picker = null!; return false; } }
+    internal static class UguiRaycastCoordinates
+    {
+        internal readonly struct Scope : IDisposable { public void Dispose() { } }
+        internal static Scope Enter(GraphicRaycaster caster, UnityEngine.EventSystems.PointerEventData data, Canvas? host) => new();
+    }
+    internal static class UiScrollFocus
+    {
+        internal static int Hovers, Delivered;
+        internal static bool CanScroll(ScrollRect scroll) => scroll.content != null && scroll.viewport != null
+            && scroll.content.rect.height > scroll.viewport.rect.height;
+        internal static void NoteScrollHover(GloomhavenVR.Hands.VRHand hand, UnityEngine.Object? target, string source) => Hovers++;
+        internal static void NoteScrollDelivered(GloomhavenVR.Hands.VRHand hand, UnityEngine.Object? target, string source) => Delivered++;
+    }
+}
 namespace GloomhavenVR.WorldUI.MapRoom
 { internal static class MapCityEventReadyUp { internal static bool Active; internal static uint ContentKey; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class CanvasConversion
+    { internal static bool BaseSortingOrderOf(GameObject go, out int order) { order = 0; return false; } }
+    internal static partial class ModalFallback
+    {
+        internal sealed class FixturePanel
+        {
+            internal bool IsAlive = true;
+            internal GameObject? HostGo;
+            internal Transform HostTransform = null!;
+            internal Transform? Target;
+        }
+        internal sealed class WindowPanel
+        {
+            internal bool IsResults = true;
+            internal FixturePanel Panel = new();
+            internal UIWindow? Window;
+            internal ScrollRect? ResultsScroll;
+            internal Scrollbar? ResultsScrollbar;
+            internal bool ResultsScrollLogged, ResultsScrollSearchWarned;
+            internal float NextResultsScrollSearch;
+        }
+        private static readonly List<WindowPanel> Converted = new();
+        internal static void FixtureConfigure(WindowPanel panel) { Converted.Clear(); Converted.Add(panel); }
+        internal static void FixtureTick() => TickResultsStickScroll();
+    }
     internal enum SharedWindowKind : byte { None, ScenarioStory, MapStory, QuestConfirm, Encounter, Video, RewardShowcase, Results }
     internal static class SharedWindows
     {
