@@ -252,7 +252,16 @@ internal sealed class ScenarioResultsPresentation
         n[7] = s.x / ps.x; n[8] = s.y / ps.y; n[9] = s.z / ps.z;
         if (n.Length == 18 && parent is RectTransform pr)
         { n[10] = n[12] = pr.pivot.x; n[11] = n[13] = pr.pivot.y; }
-        copy.Values[TownServiceProperty.Transform] = new TownServiceValue { Numbers = n, Text = value.Text }; return copy;
+        copy.Values[TownServiceProperty.Transform] = new TownServiceValue { Numbers = n, Text = value.Text };
+        // The separate dock follows the complete native window on the capture
+        // canvas. Its child index0 is NOT a native-root sibling index: replaying
+        // that index placed Ready before Background and a later Results pose
+        // pushed Background in front of every row. Preserve the actual draw
+        // order when mapping this detached footer into the virtual native root.
+        if (node.Values.TryGetValue(TownServiceProperty.Sibling, out TownServiceValue? sibling))
+            copy.Values[TownServiceProperty.Sibling] = new TownServiceValue
+                { Numbers = new[] { (float)parent.childCount }, Text = sibling.Text };
+        return copy;
     }
 
     private string Address(Transform root)
@@ -325,6 +334,9 @@ internal sealed class ScenarioResultsPresentation
         _previous = same ? _displayed : null;
         _blendDuration = _previous == null ? 0f : Mathf.Clamp(state.SampleTime - _previous.SampleTime, 0f, .25f);
         _receivedAt = Time.unscaledTime; _displayed = state;
+        // Retire native footer geometry before recording the inert owner's
+        // restoration receipt; an observer must never inherit a stranded fit lease.
+        ScenarioResultsReadyPark.BeforeCommonPicture(panel);
         if (_panel == null)
         {
             _panel = panel; _previousFitEnabled = panel.FitEnabled; _previousFitRoot = panel.FitContentRoot;
@@ -360,6 +372,9 @@ internal sealed class ScenarioResultsPresentation
             {
                 Transform original = Original(part.Address)!;
                 GameObject clone = Object.Instantiate(original.gameObject, candidate.transform, false);
+                // Scroll/input paths use the exact original hierarchy identity.
+                // Unity adds (Clone) to every separately instantiated module root.
+                clone.name = original.name;
                 Prune(original, clone.transform, originals);
                 TownServiceNeutralize.Apply(clone);
                 var binding = new TownServiceBinding(clone.transform);

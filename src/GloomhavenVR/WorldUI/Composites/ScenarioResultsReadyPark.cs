@@ -26,6 +26,7 @@ internal static class ScenarioResultsReadyPark
     private static bool _addedLayout, _ignore;
     private static bool _restoring;
     private static readonly MovedSubtreeLayers Layers = new(32);
+    private static readonly FooterFrame Footer = new();
 
     internal static bool Claims(GameObject go) => _control != null && _ready != null && _host != null
         && _host.IsOpen && _ready.IsVisible && _ready.readyUpToggleState == EReadyUpToggleStates.NotSet
@@ -39,17 +40,17 @@ internal static class ScenarioResultsReadyPark
         if (_restoring) return;
         if (!FFSNetwork.IsOnline || !VRSession.IsRunning || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive
             || !VRModeStateMachine.TableInFrontOfPlayer || !ScenarioResultsNative.TryRead(out var p))
-        { Reset(); return; }
+        { Reset(); Footer.Reset(); return; }
         ScenarioResultsNative.RefreshReadyVisibility(p);
         if (!p.Window.IsOpen || !p.Window.gameObject.activeInHierarchy || p.Ready == null || !p.Ready.IsVisible
             || p.Window.transform is not RectTransform host || p.Ready.transform is not RectTransform control)
-        { Reset(); return; }
+        { Reset(); Footer.Tick(p, null); return; }
 
         // A map/loadout/story composite already holding this pooled singleton has
         // first refusal. A results opening never steals another native waiter.
         if (MapRoom.ReadyToggleParkClaim.Claimed
             && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, control.gameObject))
-        { Reset(); return; }
+        { Reset(); Footer.Reset(); return; }
         if (_control != control || _host != p.Window)
         {
             Reset();
@@ -86,8 +87,9 @@ internal static class ScenarioResultsReadyPark
         MatchOwner(host);
         control.anchorMin = control.anchorMax = new Vector2(.5f, 0f);
         control.pivot = new Vector2(.5f, .5f);
-        control.anchoredPosition3D = new Vector3(0f, control.rect.height * .5f + 20f, -20f);
+        control.anchoredPosition3D = new Vector3(0f, control.rect.height * .5f + 20f, 0f);
         control.localRotation = Quaternion.identity; control.localScale = Vector3.one;
+        Footer.Tick(p, control);
         if (Layers.Written != host.gameObject.layer) Layers.Begin(host.gameObject.layer);
         Layers.Walk(control);
         if (ScenarioResultsNative.TryGetConverted(out ConvertedPanel? panel) && panel != null)
@@ -141,6 +143,8 @@ internal static class ScenarioResultsReadyPark
         _seatGroup.alpha = 0f; _seatGroup.blocksRaycasts = false; _seatGroup.interactable = false;
     }
 
+    internal static void BeforeCommonPicture(ConvertedPanel panel) => Footer.Release(panel);
+
     internal static void BeforeExternalOwner(UIWindow window)
     {
         if (_control != null && ReferenceEquals(window.transform, _control)) Reset();
@@ -185,6 +189,126 @@ internal static class ScenarioResultsReadyPark
             if (_seat != null) Object.Destroy(_seat.gameObject);
             _seat = null; _seatGroup = null; _capture = null;
             _home = null; _layout = null; _addedLayout = false; _restoring = false;
+        }
+    }
+
+    /// <summary>Results-only geometry lease. The original viewport and native footer,
+    /// rather than the changing visible-ink fit, define one stable capture frame.</summary>
+    private sealed class FooterFrame
+    {
+        private ConvertedPanel? _panel;
+        private UIWindow? _window;
+        private Vector2 _frame;
+        private Vector3 _position;
+        private bool _fit;
+        private RectTransform? _fitRoot;
+        private Vector2 _writtenFrame;
+        private Vector3 _writtenPosition;
+        private readonly Vector3[] _corners = new Vector3[4];
+
+        internal void Tick(ScenarioResultsParts parts, RectTransform? ready)
+        {
+            if (_window != null && (_window != parts.Window || !_window.IsOpen)) Reset();
+            if (!parts.Window.IsOpen || !parts.Window.gameObject.activeInHierarchy)
+            { Reset(); return; }
+            if (!ScenarioResultsNative.TryGetConverted(out ConvertedPanel? panel) || panel == null
+                || parts.Window.transform is not RectTransform root) return;
+            foreach (Transform extra in panel.ExtraRenderRoots)
+                if (extra != null && extra.name == "GloomhavenVR.Results.Observer") { Release(panel); return; }
+            ScrollRect? scroll = root.GetComponentInChildren<ScrollRect>(true);
+            if (scroll == null || !scroll.gameObject.activeInHierarchy || scroll.viewport == null
+                || ready == null && (parts.Buttons == null || !parts.Buttons.activeInHierarchy))
+            { Reset(); return; }
+            if (_panel != panel)
+            {
+                Reset(); _panel = panel; _window = parts.Window;
+                _frame = panel.HostRect.rect.size; _position = root.anchoredPosition3D; _fit = panel.FitEnabled; _fitRoot = panel.FitContentRoot;
+                _window.onHidden.AddListener(Reset);
+            }
+
+            // Build766: the measured765 viewport occupied y=-427..225 while the
+            // fitted host ended at -439. Parking Ready at that host's bottom put
+            // its entire60px face INSIDE the mask. Scrolling changed the ink fit
+            // and alternately covered the control or the rows. Use the original
+            // native viewport/header/button coordinates, which do not depend on
+            // scroll position, private row counts, local zoom or the prior fit.
+            Rect bounds = Bounds(root, scroll.viewport);
+            if (scroll.verticalScrollbar != null) bounds = Union(bounds, Bounds(root, scroll.verticalScrollbar.transform as RectTransform));
+            if (parts.Header != null) bounds = Union(bounds, Bounds(root, parts.Header.transform as RectTransform));
+            Rect? buttons = parts.Buttons != null && parts.Buttons.transform is RectTransform nativeButtons
+                ? Bounds(root, nativeButtons) : null;
+            bool options = false;
+            for (int i = 0; i < 2; i++)
+            {
+                UIResultsOption? option = i == 0 ? parts.Manager.returnToMapOption : parts.Manager.retryOption;
+                if (option == null || !option.gameObject.activeInHierarchy || option.transform is not RectTransform rect) continue;
+                options = true; bounds = Union(bounds, Bounds(root, rect));
+            }
+            Vector3 seat = Vector3.zero;
+            if (ready != null)
+            {
+                Rect face = Bounds(root, ready);
+                float height = face.height;
+                float y = Mathf.Min(buttons?.center.y ?? bounds.yMin - 20f - height * .5f,
+                    Bounds(root, scroll.viewport).yMin - 20f - height * .5f);
+                if (options && buttons.HasValue) y = Mathf.Min(y, buttons.Value.yMin - 20f - height * .5f);
+                seat = new Vector3(buttons?.center.x ?? 0f, y, 0f);
+                ready.position = root.TransformPoint(seat);
+                bounds = Union(bounds, Bounds(root, ready));
+            }
+            else if (buttons.HasValue)
+            {
+                // The row's native width stretches across the full desktop; only
+                // its vertical reserve belongs to the footer. Actual original
+                // option faces above supply their own horizontal extent.
+                Rect row = buttons.Value;
+                bounds = Union(bounds, new Rect(bounds.xMin, row.yMin, bounds.width, row.height));
+            }
+            bounds = Rect.MinMaxRect(bounds.xMin - 20f, bounds.yMin - 20f, bounds.xMax + 20f, bounds.yMax + 20f);
+            Vector3 low = panel.HostRect.InverseTransformPoint(root.TransformPoint(bounds.min));
+            Vector3 high = panel.HostRect.InverseTransformPoint(root.TransformPoint(bounds.max));
+            panel.FitEnabled = false;
+            panel.HostRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, Mathf.Abs(high.x - low.x));
+            panel.HostRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Mathf.Abs(high.y - low.y));
+            root.position += panel.HostRect.TransformPoint(panel.HostRect.rect.center) - root.TransformPoint(bounds.center);
+            if (ready != null) ready.position = root.TransformPoint(seat);
+            _writtenFrame = panel.HostRect.rect.size; _writtenPosition = root.anchoredPosition3D;
+        }
+
+        private Rect Bounds(RectTransform root, RectTransform? rect)
+        {
+            if (rect == null) return Rect.zero;
+            rect.GetWorldCorners(_corners);
+            Vector2 min = root.InverseTransformPoint(_corners[0]), max = min;
+            for (int i = 1; i < 4; i++)
+            { Vector2 p = root.InverseTransformPoint(_corners[i]); min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
+            return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+        }
+        private static Rect Union(Rect a, Rect b) => Rect.MinMaxRect(Mathf.Min(a.xMin, b.xMin), Mathf.Min(a.yMin, b.yMin),
+            Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax));
+        internal void Release(ConvertedPanel panel)
+        { if (_panel == panel) Reset(); }
+
+        internal void Reset()
+        {
+            if (_window != null) _window.onHidden.RemoveListener(Reset);
+            if (_panel != null && _panel.IsAlive)
+            {
+                // Restore only our exact writes. A successor capture/fit owner
+                // may already have adopted this pooled panel; its frame wins.
+                // Manual shared world movement/scale is never part of this lease.
+                bool ownsFrame = ReferenceEquals(_panel.FitContentRoot, _fitRoot)
+                    && !_panel.FitEnabled && _panel.HostRect.rect.size == _writtenFrame;
+                bool ownsPosition = _panel.Target.anchoredPosition3D == _writtenPosition;
+                if (ownsFrame)
+                {
+                    _panel.FitEnabled = _fit;
+                    _panel.HostRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, _frame.x);
+                    _panel.HostRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, _frame.y);
+                }
+                if (ownsPosition) _panel.Target.anchoredPosition3D = _position;
+            }
+            _panel = null; _window = null; _fitRoot = null;
         }
     }
 
