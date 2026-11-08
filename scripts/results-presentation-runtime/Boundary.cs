@@ -29,3 +29,5 @@ namespace GloomhavenVR.Net.TownServices {
 }
 
 internal static class ResultsClock {internal static float Now=10;internal static int Frame=1;}
+
+namespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {internal static bool ReleaseForComposite(UnityEngine.UI.UIWindow window){ScenarioResultsReadyPark.BeforeExternalOwner(window);return true;}} }

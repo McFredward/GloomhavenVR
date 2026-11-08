@@ -20,12 +20,13 @@ def command(cmd,log,timeout=240):
    except ProcessLookupError:pass
    p.wait()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ if args.footer_only:os.environ['RESULTS_FOOTER_ONLY']='1'
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
  fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=ROOT/'src/GloomhavenVR';pins=[]
  try:
   inputs=folder/'inputs';inputs.mkdir();assert command([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(ROOT),str(inputs)],folder/'export.log')==0,'Original export failed'
-  paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
+  paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs',base/'WorldUI/Composites/ScenarioResultsReadyPark.cs',base/'WorldUI/Composites/MovedSubtreeLayers.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
   sources={p.name:p.read_text() for p in paths};pins+=paths
   sources['TownServiceBinding.cs']=sources['TownServiceBinding.cs'].replace('    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {','    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {\n        ResultsApplyFault.BeforeApply(Root);')
   sources['ScenarioResultsPresentation.cs']=sources['ScenarioResultsPresentation.cs'].replace('Time.unscaledTime','ResultsClock.Now').replace('Time.frameCount','ResultsClock.Frame')
@@ -59,6 +60,12 @@ def main():
    ('no-smooth-output','ScenarioResultsPresentation.cs','float amount = _blendDuration <= 0f ? 1f : Mathf.Clamp01((ResultsClock.Now - _receivedAt) / _blendDuration);','float amount = 1f;','native transform animation advances smoothly between complete network samples'),
    ('no-atomic-retention','ScenarioResultsPresentation.cs','                    // A late original/asset never replaces a valid picture with a partial one.','                    RetirePicture();','a failed complete candidate retains the entire previously valid public picture')]
   cases.append(('missing-public-continue-surface','ScenarioResultsPresentation.cs','        AttachContinuationInputs(state);','','the visible common original Continue carries its own metadata-only input surface'))
+  cases.append(('old-fitted-footer','ScenarioResultsReadyPark.cs','        Footer.Tick(p, control);','','the original Results footer is outside the live scroll mask at every scroll position'))
+  cases.append(('footer-mount-lost','ScenarioResultsPresentation.cs','if (!source.Binding.Root.IsChildOf(parent)) nodes[0] = RelativeRoot(nodes[0], source.Binding.Root, parent);','','author and observer retain the same actual footer world rectangle'))
+  cases.append(('footer-sibling-lost','ScenarioResultsPresentation.cs','copy.Values[TownServiceProperty.Sibling] = new TownServiceValue\n                { Numbers = new[] { (float)parent.childCount }, Text = sibling.Text };','copy.Values[TownServiceProperty.Sibling] = sibling;','complete native footer and scrolled content have matching author/observer final pixels despite private rows and zoom'))
+  cases.append(('footer-takeover-receipt','ScenarioResultsPresentation.cs','        ScenarioResultsReadyPark.BeforeCommonPicture(panel);','','common picture takeover restores the pre-footer fit receipt'))
+  cases.append(('footer-overwrites-successor','ScenarioResultsReadyPark.cs','bool ownsFrame = ReferenceEquals(_panel.FitContentRoot, _fitRoot)','bool ownsFrame = bool.Parse("true") || ReferenceEquals(_panel.FitContentRoot, _fitRoot)','footer retirement cannot overwrite a successor frame fit root or target pose'))
+  if args.footer_only:cases=[x for x in cases if x[0] in {'production','old-fitted-footer','footer-mount-lost','footer-sibling-lost','footer-takeover-receipt','footer-overwrites-successor'}]
   if args.case:assert set(args.case)<={x[0] for x in cases};cases=[x for x in cases if x[0] in args.case]
   project=folder/'unity'
   for d in ['Assets/Editor','Assets/Plugins','Assets/Resources/OriginalShaders','Packages','ProjectSettings']:(project/d).mkdir(parents=True,exist_ok=True)
@@ -90,5 +97,5 @@ def main():
   assert code==0 and result.exists(),'Unity failed: '+str(folder)
   status=0
  finally:
-  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case)},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
+  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
 if __name__=='__main__':main()
