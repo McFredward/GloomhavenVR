@@ -1,3 +1,21 @@
+**Modular Results laser input and stable footer, Build766,2026-11-08.**
+
+Paired765/1c61941fd logs distinguish working guest Continue from missing scroll
+inputs. Exact modular Build reproduces Unity Clone suffixes breaking native paths;
+inert header groups also blocked real surface hover. Preserve original module
+names and add bounded visible-header hover inputs through the existing common
+scroll path. Original native source geometry reserves an unclipped Ready/Return/
+Retry footer and a stable frame; detached Ready draw order is preserved. Frame
+ownership/takeover restores only exact own writes, preserving shared manual moves.
+
+ClassB affected-only aggregate734 assertions/23 compiling controls with explicit
+consumer reuse; fresh strict Release0W0E17.07s and source16/16. No full local gate
+or golden repetition. Source11518/archive11485 members verified; compiled16changed/
+1added/no removal,32resources exact. Source/header/pointer/producer ports, all
+failures, measured times and hardware limits are in MP766-INTEGRATION/INPUT/FOOTER.
+No new HMD/Photon acceptance; both players need766. Dev only, no ZIP/release/device
+change; own completed caches/worktrees retire after verified preservation/push.
+
 **Shared Results input and continuation repair, Build765,2026-11-08.**
 
 Paired764 evidence reproduces inactive-picture canvas admission missing for guest

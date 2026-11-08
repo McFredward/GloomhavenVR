@@ -1,5 +1,10 @@
 # Planning index
 
+Updated2026-11-08: Build766 repairs original modular Results paths, real header
+laser hover and a stable native footer outside scrolling rows. MP766-INTEGRATION
+records exact765 causes, targeted734/23 aggregate, unchanged proof, all failures,
+compiled/source/archive bindings and hardware limits. No full local test repeat.
+
 Updated2026-11-08: Build765 repairs guest Results scroll admission/header-stick
 input, the exact native spectator-ACK visibility deadlock and shared continuation
 presses. MP765-INTEGRATION.md records bounded775-assertion/38-control coverage,
@@ -61,6 +66,9 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP766-INTEGRATION.md](MP766-INTEGRATION.md) | Paired765 input/footer causes, bounded final union, proof reuse and hardware handoff |
+| [MP766-INPUT.md](MP766-INPUT.md) | Actual modular producer and physical laser entry, header scope and source/proxy diagnostics |
+| [MP766-FOOTER.md](MP766-FOOTER.md) | Native footer layout, detached draw order, nine state views and exact ownership restoration |
 | [MP765-INTEGRATION.md](MP765-INTEGRATION.md) | Paired764 causes, bounded Results union, exact evidence reuse, final qualification and hardware handoff |
 | [MP765-RESULTS.md](MP765-RESULTS.md) | Native visibility reproduction, original pointer permission, inert observer inputs and pixel/fixture limits |
 | [MP765-SCROLL.md](MP765-SCROLL.md) | Inactive canvas admission, guest stick/bar delivery and simultaneous-input convergence |
