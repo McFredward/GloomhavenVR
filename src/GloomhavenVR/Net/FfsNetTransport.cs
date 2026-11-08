@@ -49,6 +49,7 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _installed;
     private bool _resolved;
     private bool _degraded;
+    internal bool ReceiveHookInstalled => _installed && !_degraded;
     private readonly ExtrasFragments _fragments = new();
     private readonly TownServices.TownServiceFragments _townFragments = new();
     private readonly ExtrasFragments _resultsFragments = new(ScenarioResultsCodec.MessageType,
@@ -500,6 +501,11 @@ internal sealed class FfsNetTransport : INetTransport
             // lines is not load-bearing; each recognises only its own tag and returns false for
             // everything else, this transport's own rig/extras packets included.
             if (AssignmentChoice.TryHandleSideAction(action))
+                return false;
+
+            // Results observer controls share this reliable native host-request
+            // seam. Owned stale/refused presses are consumed before payload decode.
+            if (ScenarioResultsControlRequests.TryHandleSideAction(action))
                 return false;
 
             // Ours: pull the payload out of the CustomDataToken and hand it up. Consume it.
