@@ -9,7 +9,7 @@ internal static class CleanupPorts
 {
     internal static readonly List<string> Calls = new();
     internal static readonly HashSet<string> Fail = new();
-    internal static readonly HashSet<int> Figures = new(), Props = new();
+    internal static readonly HashSet<int> Figures = new(), Props = new(), Stories = new();
     internal static Action<string>? After;
     internal static void Step(string name, Action? operation = null)
     {
@@ -20,7 +20,7 @@ internal static class CleanupPorts
     }
     internal static void Reset()
     {
-        Calls.Clear(); Fail.Clear(); Figures.Clear(); Props.Clear(); After = null;
+        Calls.Clear(); Fail.Clear(); Figures.Clear(); Props.Clear(); Stories.Clear(); After = null;
         GloomhavenVR.Core.VRLog.Lines.Clear();
         GloomhavenVR.Core.Events.VREvents.ResetForFixture();
         GloomhavenVR.Net.ScenarioResultsPose.ResetForFixture();
@@ -87,7 +87,7 @@ namespace GloomhavenVR.Net
         {
             _avatars.Add(id, new RemoteAvatar(id));
             _pending[id] = _pendingExtras[id] = _pendingAnimations[id] = _createRetryAt[id] = _peerEnv[id] = id;
-            CleanupPorts.Figures.Add(id); CleanupPorts.Props.Add(id);
+            CleanupPorts.Figures.Add(id); CleanupPorts.Props.Add(id); CleanupPorts.Stories.Add(id);
         }
         internal void Retire(int id) => ForgetPeer(id);
         internal void RetireAll() => DestroyAllAvatars();
@@ -148,7 +148,14 @@ namespace GloomhavenVR.Net
     internal static class RemoteStorySync { internal static void Reset() => CleanupPorts.Step("story-reset"); }
     internal static class RemoteMapRoom { internal static void Reset() => CleanupPorts.Step("maproom-reset"); }
     internal static class RemoteMapStory { internal static void Reset() => CleanupPorts.Step("mapstory-reset"); }
-    internal static class MapStoryLifecycle { internal static void Reset() => CleanupPorts.Step("lifecycle-reset"); }
+    internal static class MapStoryLifecycle
+    {
+        // The full story container owns the actual epoch/occurrence algorithm.
+        // This port proves the real driver's dispatch and independent retirement.
+        internal static void Reset() => CleanupPorts.Step("lifecycle-reset", CleanupPorts.Stories.Clear);
+        internal static void ForgetPeer(int id) => CleanupPorts.Step("story-lifecycle:" + id,
+            () => CleanupPorts.Stories.Remove(id));
+    }
     internal static class RemoteVideoPlayback { internal static void Reset() => CleanupPorts.Step("video-reset"); }
     internal static class VersionGuard { internal static void Reset() => CleanupPorts.Step("version-reset"); }
     internal static class PlayerBadges { internal static void RestoreAll() => CleanupPorts.Step("badges-reset"); }

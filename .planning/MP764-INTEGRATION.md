@@ -43,3 +43,25 @@ Screenshots show native party/creator seams moving within the same physical
 frame, and the cancelled mercenary list separated from the party rail. Detailed
 source/reproduction evidence will determine each repair. Automated proof and
 headset acceptance remain separate; no ZIP/release or device modifications.
+
+## Reconnect identity review
+
+The guest's supplied log advertises native player ID2 on three connections
+(lines1565,10220,24145). Story occurrence bindings therefore cannot be treated
+as process lifetime state keyed only by that number. The existing driver peer
+retirement now calls the story owner's existing ForgetPeer through its own
+isolated TickGuard before cosmetic destructor callbacks. Failed story cleanup
+cannot skip the other owners or destroy a replacement entity created later.
+
+The complete affected peer-retirement container passes **314 assertions and
+14 compiling controls**,15 cases,47.48s. New controls omit the story dispatch
+or remove its exception boundary. The fixture executes original driver
+enable/retire/disable/forwarding bodies and TickGuard; native owner internals
+remain explicit fault-injectable ports. The scenario-start container separately
+owns actual ledger epoch/reconnect algorithms. All current executed assemblies,
+source bindings, logs and canonical cache-cleanup receipts are retained.
+
+The Results worker additionally qualifies a session-epoch ledger boundary while
+retaining only current-native-episode completed intro proof, invalidating its
+old ledger token. Full module teardown retains its original full reset. Detailed
+final evidence and native authority limits remain the worker review's obligation.

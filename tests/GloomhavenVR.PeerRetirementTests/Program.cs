@@ -145,6 +145,22 @@ internal static class Program
         Invoke(driver.Disable);
         Check(GloomhavenVR.Core.Events.VREvents.HandlerCount == 0,
             "repeated disable never reinstates a retired Results callback");
+
+        driver = Start(); Invoke(() => driver.Retire(1));
+        Check(!CleanupPorts.Stories.Contains(1) && CleanupPorts.Stories.Contains(2),
+            "departed peer story bindings retire independently before numeric-ID reuse");
+        Check(CleanupPorts.Calls.IndexOf("story-lifecycle:1") < CleanupPorts.Calls.IndexOf("avatar:1"),
+            "story occurrence identity retires before replacement-avatar callbacks");
+        driver = Start(); CleanupPorts.Fail.Add("story-lifecycle:1");
+        Invoke(() => driver.Retire(1)); Retired(driver, 1);
+        Check(CleanupPorts.Calls.Contains("avatar:1") && CleanupPorts.Stories.Contains(2)
+            && driver._avatars.ContainsKey(2),
+            "a failed story owner cannot skip later cosmetic cleanup or retire another peer");
+        driver = Start();
+        CleanupPorts.After = name => { if (name == "avatar:1") driver.Add(1); };
+        Invoke(() => driver.Retire(1));
+        Check(CleanupPorts.Stories.Contains(1) && driver._avatars.ContainsKey(1),
+            "a replacement native identity keeps its fresh story state after final destructor reentry");
         Console.WriteLine($"Peer retirement: {_checks} assertions passed.");
     }
 }

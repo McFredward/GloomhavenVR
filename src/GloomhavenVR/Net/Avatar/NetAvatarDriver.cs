@@ -4715,6 +4715,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         TickGuard.Run("Net.ForgetPeer.Figures", () => NetFigures.ReleaseRemote(playerId), "Net");
         TickGuard.Run("Net.ForgetPeer.Props", () => NetProps.ReleaseRemote(playerId), "Net");
         TickGuard.Run("Net.ForgetPeer.NativePresentation", () => ForgetNativePresentation(playerId), "Net");
+        // Build764: a returning native player may reuse this numeric ID. Retire
+        // its story epoch/bindings too, before any replacement avatar can appear.
+        TickGuard.Run("Net.ForgetPeer.StoryLifecycle", () => MapStoryLifecycle.ForgetPeer(playerId), "Net");
         TickGuard.Run("Net.ForgetPeer.AvatarFetch", () => NetPlayerActors.ForgetAvatarFetch(playerId), "Net");
         TickGuard.Run("Net.ForgetPeer.CharacterFocus", () => Board.CharacterFocus.ForgetPeer(playerId), "Net");
         TickGuard.Run("Net.ForgetPeer.TestTriggers", () => RemoteTestTriggers.ForgetPeer(playerId), "Net");

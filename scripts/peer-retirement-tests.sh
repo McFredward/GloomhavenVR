@@ -55,6 +55,8 @@ for label, before, after, expected in [
     ('unprotected-disable-video', 'TickGuard.Run("Net.Disable.Video", RemoteVideoPlayback.Reset, "Net");', 'RemoteVideoPlayback.Reset();', 'teardown must isolate a failed owner'),
     ('retained-results-callback', 'VREvents.WindowVisibility -= OnResultsWindowVisibility;', '/* Results unsubscribe omitted by causal control */', 'disable retires the exact Results visibility subscription'),
     ('lost-scroll-visibility-forwarding', 'SharedWindowScrollSync.ObserveWindowVisibility(change.Window, change.Shown);', '', 'shared scroll observes the original exact window visibility transition'),
+    ('lost-story-peer-retirement', 'TickGuard.Run("Net.ForgetPeer.StoryLifecycle", () => MapStoryLifecycle.ForgetPeer(playerId), "Net");', '', 'departed peer story bindings retire independently'),
+    ('unprotected-story-peer-retirement', 'TickGuard.Run("Net.ForgetPeer.StoryLifecycle", () => MapStoryLifecycle.ForgetPeer(playerId), "Net");', 'MapStoryLifecycle.ForgetPeer(playerId);', 'teardown must isolate a failed owner'),
 ]:
     if label == 'blanket-clear-new-peers':
         text = production.replace(methods[1], methods[1][:-1] + '_avatars.Clear();\n    }')
