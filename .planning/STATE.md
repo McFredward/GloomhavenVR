@@ -1,3 +1,26 @@
+**Late-join progression and native window repair, Build764,2026-11-08.**
+
+Paired763 logs expose a hidden native scenario intro on the guest: its original
+story locks block both card placement and queued scenario-win/result production.
+Retain only exact successful current-episode start provenance across hosting,
+enroll a reciprocal live visitor through existing native continuation, and retire
+session/player-ID bindings correctly. Original authority, hand admission and
+native Win/Results producers remain intact. Compact combat-log frame/range and
+nested creator envelope/cancel seating are repaired; early source-empty stereo
+retirement preserves the first ordinary UI head frame.
+
+ClassC complete unique296-ID aggregate:288 unchanged central passes, two fresh
+complete repaired containing scopes, six independently input-bound owned scopes.
+Original290-ID run remains FAILED(two fixture-port issues),117.85min; bounded
+capture454+42 passes94.20s, desktop5327+84 passes907.99s in parallel. No full repeat.
+Source16/16; strict Release/Debug0W0E10.47/11.24s; metadata0W0E15.08s;307211 actual
+wire assertions. Compiled23 changed/one added/no removal,32resources exact;
+config672/Harmony289 unchanged.11512 frozen inputs exact; only two test adapters
+change after runtime freeze. See MP764-INTEGRATION and owned reports for causes,
+all original failures, source/native/pixel bindings, timings and hardware limits.
+No new HMD/Photon/Windows-D3D11 acceptance. Dev only; no ZIP/release/device writes.
+Verified archives preserve owned evidence before post-push worker/cache cleanup.
+
 **Paired Results/video presentation repair, Build763,2026-11-06.**
 
 The paired762 logs identify an exact original3DNoise material dependency that

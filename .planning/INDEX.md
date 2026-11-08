@@ -1,5 +1,12 @@
 # Planning index
 
+Updated2026-11-08: Build764 fixes late-join native intro locks blocking selection
+and queued Win/Results, compact combat-log geometry/manual sizing and complete
+nested character creation/cancellation. MP764-INTEGRATION.md records the complete
+unique296-ID classC qualification, two bounded fixture repairs without a full
+repeat, verified inputs/archives, actual native/pixel proof and hardware limits.
+Owned COMBATLOG/CREATION/RESULTS/SELECTION/START-REVIEW reports retain the detail.
+
 Updated2026-11-06: Build763 repairs complete observer Results after Victory and
 physical shared-video move/resize. Exact native-material/coordinator causes,
 bounded final qualification, prior fixture gaps, failed-run accounting and
