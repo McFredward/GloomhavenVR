@@ -3595,6 +3595,17 @@
       "weight": 10
     },
     {
+      "id": "scenario-results-control-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-results-control-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
       "id": "shared-window-scroll-runtime",
       "command": [
         "python3",
