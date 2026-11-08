@@ -3627,6 +3627,40 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "combatlog-runtime",
+      "command": [
+        "python3",
+        "scripts/check-combatlog-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "scenario-start-visitor-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-start-visitor-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "selection-story-native-runtime",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.SelectionLateJoinTests/run.py",
+        "--native-story"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
     }
   ]
 }

@@ -650,9 +650,12 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 764;
 
-    // ModBuild764 — paired763 follow-up: recover live local card selection
-    // after joining an existing scenario, retain native shared end-of-scenario
-    // presentation, and repair combat-log and character-creation geometry.
+    // ModBuild764 — paired763 follow-up. Enroll a late visitor only into an
+    // exact, successfully completed native intro of the current scenario. The
+    // original finish releases card setup and queued victory; session/peer
+    // story identities retire independently. Combat-log native size and user
+    // resize persist. Nested creator frames remain complete; source-empty
+    // stereo-to-mono handback preserves the first plain-window head frame.
     // See MP764-INTEGRATION.md for actual causes, final scope, qualification,
     // retained failures and hardware acceptance limits.
 

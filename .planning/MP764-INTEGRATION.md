@@ -62,6 +62,29 @@ owns actual ledger epoch/reconnect algorithms. All current executed assemblies,
 source bindings, logs and canonical cache-cleanup receipts are retained.
 
 The Results worker additionally qualifies a session-epoch ledger boundary while
-retaining only current-native-episode completed intro proof, invalidating its
-old ledger token. Full module teardown retains its original full reset. Detailed
-final evidence and native authority limits remain the worker review's obligation.
+retaining current-native-episode completed intro proof and non-authorizing weak
+opening provenance for a still-pending start. All old ledger tokens are invalid.
+An exact successful native finish remains required before pending provenance
+can authorize anything; this handles query-before-finish and synchronous successor
+ordering. Full module teardown retains its original full reset. Detailed final
+evidence and native authority limits remain in MP764-RESULTS/START-REVIEW.md.
+
+## Final union checkpoint selection
+
+The final local inventory has296 IDs (121 CI and16 source gates). New permanent
+local obligations cover original compact combat-log geometry/config/pixels,
+native scenario-start visitor continuation, and the native story-to-card consumer.
+The existing complete desktop/capture containers additionally include the nested
+creator and source-empty first-head-frame cases. Their fixture imports now bind
+the actual geometry -> early retirement -> visibility caller order.
+
+The final classC union runs every remaining local obligation once, all source
+gates, actual complete wire goldens, strict Release/Debug and metadata-reference
+compilation, bundle/content/surface and compiled comparison. Six complete owned
+obligations can retain their verified final input-bound coverage: combatlog-runtime,
+scenario-start-visitor-runtime, map-story-lifecycle, selection-latejoin,
+selection-story-native-runtime and peer-retirement. The native visitor additionally
+executes final764 production once for its metadata constant; its negative controls
+retain the qualified build-relative predicates. No focused invocation is labeled
+a fresh complete296-ID run. Worker/central union counts, any failures and bounded
+repairs will be recorded below before push.
