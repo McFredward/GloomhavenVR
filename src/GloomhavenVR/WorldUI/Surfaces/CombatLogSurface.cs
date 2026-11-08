@@ -29,7 +29,7 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// SHARED WINDOW ROD (<see cref="GrabBarVisual"/>, sized by
 /// <see cref="GrabBarLayout"/> and presented by <see cref="GrabBarTween"/>) under
 /// the panel's bottom edge drives the tray's shared <see cref="PanelGrabHandle"/>
-/// core — one hand moves, two hands resize (0.5×–2×), and the final release
+/// core — one hand moves, two hands resize (0.15×–2×), and the final release
 /// persists the layout as [WorldUI] CombatLog* (table-anchor offsets in real
 /// meters + the size factor), so it survives sessions and diorama scale. Yaw
 /// carry is ON like the tray (no billboard is fighting the carry anymore);
@@ -83,10 +83,10 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///
 /// TRANSFORM LAYOUT: anchor (the rig root while FOLGEN, the world-static pin
 /// holder at its frozen rig scale while FIXIERT — <see cref="FollowPinAnchor"/>)
-/// → frame (grab root at the BAR CENTER; localScale = user size factor 0.5–2)
+/// → frame (grab root at the BAR CENTER; localScale = user size factor 0.15–2)
 /// → bar/pin visuals. The frame's lossyScale is therefore the anchor's scale ×
 /// factor — exactly the scale the converted host is placed with, so bar and panel
-/// resize together, and the grab core's 0.5–2 localScale clamp keeps its meaning
+/// resize together, and the grab core's 0.15–2 localScale clamp keeps its meaning
 /// (the tray's _pinRoot trick, now literally the tray's code). Until 2026-09-05
 /// this was a private identity-pose holder re-reading the live diorama scale every
 /// tick, which is why a FIXIERT panel used to zoom with the world. The game-owned
@@ -377,11 +377,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// </summary>
     private readonly FollowPinAnchor _anchor = new("GloomhavenVR.CombatLogPin", dontDestroyOnLoad: false);
 
-    /// <summary>The mod-owned frame: the grab root AT THE BAR CENTRE, localScale = the user's 0.5x-2x
+    /// <summary>The mod-owned frame: the grab root AT THE BAR CENTRE, localScale = the user's 0.15x-2x
     /// size factor, PARENTED by <see cref="_anchor"/> — under the rig root while FOLGEN, under the
     /// world-static pin holder while FIXIERT. Its parent therefore carries the diorama scale in both
     /// modes, exactly as the separate identity-pose holder it replaced did, which is what keeps the
-    /// grab core's 0.5x-2x localScale clamp and <see cref="SyncBar"/>'s frame-local metres meaning
+    /// grab core's 0.15x-2x localScale clamp and <see cref="SyncBar"/>'s frame-local metres meaning
     /// what they meant.</summary>
     private Transform? _frame;
 
@@ -794,10 +794,14 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // (until today only the per-tick FOLLOW branch wrote it, so the options slider was dead on
         // a PINNED panel), change-gated so a frozen panel takes no write on a tick that changes
         // nothing. It is a LOCAL scale under a parent that carries the diorama scale, so it keeps
-        // meaning 0.5x-2x of the panel's own size in either frame — the pin holder's whole job.
+        // meaning 0.15x-2x of the panel's own size in either frame — the pin holder's whole job.
+        // Build764 paired763: use the SAME bounds as the grab owner and config binding.
+        // The old0.5 floor rewrote a legitimate0.15..0.5 two-hand resize immediately
+        // after release (hardware repeatedly persisted0.50), producing a visible snap.
         if (!grabbed)
         {
-            float factor = Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
+            float factor = Mathf.Clamp(WorldUIConfig.CombatLogScale.Value,
+                PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
             if (!Mathf.Approximately(_frame.localScale.x, factor))
                 _frame.localScale = Vector3.one * factor;
         }
@@ -1046,7 +1050,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         PanelPlacement.Spawn(head, worldScale, out Vector3 pos, out Quaternion rot);
         _frame.position = pos;
         _frame.rotation = rot;
-        _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
+        _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value,
+            PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         _healLogged = false;
         // Re-author the pin against THIS pose and the CURRENT tracking origin. Without both halves
         // the next origin change would carry the panel by an offset measured before this deliberate
@@ -1608,7 +1613,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             float dist = head != null ? Vector3.Distance(p, head.transform.position) : -1f;
             where = $"({p.x:F2},{p.y:F2},{p.z:F2}) {(dist >= 0f ? $"{dist:F2} m from the head" : "head unknown")}"
                     + $", {(WorldUIConfig.CombatLogFollow.Value ? "FOLLOW" : "PINNED")}"
-                    + $", size {Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f):F2}x";
+            + $", size {Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale):F2}x";
         }
 
         // HW-VERIFY: was the combat log surface BUILT, was it SHOWN, by WHAT, WHERE, and did it
@@ -1726,7 +1731,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         WorldUIConfig.CombatLogRight.Value = local.x;
         WorldUIConfig.CombatLogUp.Value = local.y;
         WorldUIConfig.CombatLogForward.Value = local.z;
-        WorldUIConfig.CombatLogScale.Value = Mathf.Clamp(_frame.localScale.x, 0.5f, 2f);
+        WorldUIConfig.CombatLogScale.Value = Mathf.Clamp(_frame.localScale.x,
+            PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         VRLog.Info("WorldUI", $"Combat log layout persisted: right {local.x:F2} m, " +
                               $"up {local.y:F2} m, fwd {local.z:F2} m, " +
                               $"scale {WorldUIConfig.CombatLogScale.Value:F2}x.");

@@ -105,6 +105,8 @@ internal sealed class UIPerksInventory:MonoBehaviour { private void OnSelectedPe
 internal sealed class UIPartyItemInventoryDisplay:MonoBehaviour { private void OnItemSelected() { } }
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour { private void OnSelectedCharacter() { } }
 internal sealed class UIOptionsWindow:MonoBehaviour { private void AskLogOut() { } }
+// NativeWindowFrame reads the presence of this original controller only; no native lifecycle runs.
+internal sealed class CombatLogHandler:MonoBehaviour { }
 internal sealed class ESCMenu:MonoBehaviour
 {
     internal UIConfirmationBoxManager? Manager=null;

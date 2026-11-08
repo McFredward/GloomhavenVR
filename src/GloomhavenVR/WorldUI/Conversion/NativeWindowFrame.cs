@@ -16,6 +16,13 @@ internal static class NativeWindowFrame
         // desktop/window mode; fixed-size cards and nested members keep their
         // own authored rectangles. Read before reparenting hides the native root.
         if (target == null || target.GetComponent<UIWindow>() == null) return Vector2.zero;
+        // Build764 paired763: CombatLog stretches inside its FIXED native
+        // CombatLogPanel (level6/3193,569.4x291.1), not inside the desktop.
+        // Treating that local 0..1 stretch as a full-screen menu replaced its
+        // compact native frame with1920x1080 and made its unchanged text tiny.
+        // This surface must keep its own rectangle; full-screen menus retain
+        // the authored reference-resolution rule below.
+        if (target.GetComponent<CombatLogHandler>() != null) return Vector2.zero;
         Canvas? canvas = target.GetComponentInParent<Canvas>();
         Canvas? root = canvas != null ? canvas.rootCanvas : null;
         CanvasScaler? scaler = root != null ? root.GetComponent<CanvasScaler>() : null;

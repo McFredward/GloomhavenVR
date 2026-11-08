@@ -2798,7 +2798,7 @@ internal static partial class Loc
                 "Höhe der Kampflog-Tafel über der Tischebene, echte Meter (wird beim Loslassen des Griffs "
                 + "gespeichert).",
             ["WorldUI/CombatLogScale"] =
-                "Größenfaktor der Kampflog-Tafel (Skalieren mit zwei Händen; begrenzt auf 0.5-2).",
+                "Größenfaktor der Kampflog-Tafel (Skalieren mit zwei Händen; begrenzt auf 0.15-2).",
             ["WorldUI/PanelsFollowView"] =
                 "VERALTETES Verhalten (vor Test #8): die Welt-Tafeln (Initiativleiste, Elementtafel, "
                 + "Kampflog, Aufgaben, Zugleiste) leiten ihre Platzierung in jedem Frame neu aus der aktuellen "

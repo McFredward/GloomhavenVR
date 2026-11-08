@@ -160,6 +160,8 @@ namespace GloomhavenVR.WorldUI
 }
 
 namespace UnityEngine.UI { public sealed class UIWindow : UnityEngine.MonoBehaviour { public bool IsOpen; } }
+// NativeWindowFrame reads the presence of this original controller only; no native lifecycle runs.
+internal sealed class CombatLogHandler : UnityEngine.MonoBehaviour { }
 
 
 // Native creator ancestry, private serialized links and current page state are

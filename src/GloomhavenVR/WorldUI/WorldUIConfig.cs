@@ -1027,14 +1027,13 @@ internal static class WorldUIConfig
             "Combat log panel offset to the seat right, real meters (grab-persisted).");
         CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", Defaults.CombatLogUp,
             "Combat log panel height above the table plane, real meters (grab-persisted).");
-        // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES (2026-08-22 settings audit). The
-        // description already said "clamped 0.5-2" and nothing enforced it: CombatLogSurface
-        // clamps on read AND on the gesture write, so past either end the arrows moved the number
-        // and not the panel.
+        // Build764: the binding and surface must retain the shared handle's full range.
+        // A stale0.5 minimum clamped a valid smaller two-hand gesture on persistence,
+        // then the next free placement tick visibly restored that larger value.
         CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", Defaults.CombatLogScale,
             new ConfigDescription(
-                "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).",
-                new AcceptableValueRange<float>(0.5f, 2f)));
+                "Combat log panel size multiplier (two-hand grab resize; clamped 0.15-2).",
+                new AcceptableValueRange<float>(PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale)));
         PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", Defaults.PanelsFollowView,
             "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
             "board, combat log, objectives, button cluster) re-derive their placement from " +
