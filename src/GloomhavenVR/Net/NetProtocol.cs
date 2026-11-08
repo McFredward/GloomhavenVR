@@ -296,6 +296,13 @@ internal static class NetProtocol
     /// </summary>
     public const int SideRequestAssignmentPress = 2;
 
+    // Results-only presses reuse the existing reliable native side-action
+    // request fields. DataInt2 identifies the exact shared Results opening;
+    // native host callbacks retain readiness/animation/actor authority.
+    public const int SideRequestResultsContinue = 3;
+    public const int SideRequestResultsReturn = 4;
+    public const int SideRequestResultsRetry = 5;
+
     /// <summary>Local sampling / send rate (Hz). ~15 Hz unreliable, interpolated on the receiver.</summary>
     public const float SendRateHz = 15f;
 
@@ -648,7 +655,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 764;
+    public const ushort ModBuild = 765;
+
+    // ModBuild765 — paired764 shared Results input/continuation follow-up.
+    // Inactive observer pictures register their own nested input canvas before
+    // reveal. Every visitor scrolls one author-ordered viewport. Original
+    // Results readiness controls retain correct Player-mode visibility and
+    // explicit visitor presses request the host's original live callback.
+    // No automatic votes, synthetic completion or GVR codec/layout changes.
+    // See MP765-INTEGRATION.md for bounded qualification and native/HMD limits.
 
     // ModBuild764 — paired763 follow-up. Enroll a late visitor only into an
     // exact, successfully completed native intro of the current scenario. The
