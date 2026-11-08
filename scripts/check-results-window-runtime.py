@@ -32,11 +32,19 @@ def main():
  sources['Transfer.cs']='using UnityEngine.UI; namespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {\n'+method(transfer.read_text(),'internal static bool ReleaseForComposite(')+'\n}}'
  sources['Shared.cs']='using UnityEngine.UI;using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI {\n'+method(shared.read_text(),'internal enum SharedWindowKind')+'\ninternal static partial class SharedWindows {\n'+'\n'.join(method(shared.read_text(),s) for s in ['internal static SharedWindowKind KindOf(','internal static bool ParticipatesHere(','internal static UIWindow? WindowOf('])+'\n}}'
  sources['NativeReady.cs']='using System;using FFSNet;using GLOOM;using UnityEngine;using UnityEngine.Events; public partial class UINewAdventureResultsManager {\n'+method(native.read_text(),'private void ShowReadyUpToggles(string buttonText, Action callback, bool autoReadyUp')+'\n}'
+ toggle=ROOT/'decompiled/GH.Runtime/UIReadyToggle.cs'
+ sources['NativeReady.cs']+='\npublic partial class UIReadyToggle {\n'+'\n'.join(method(toggle.read_text(),k) for k in ['public bool ShouldBeVisible','private void OnReadiedPlayersChanged(','private void UpdateVisiblity('])+'\n}'
+ options=native.parent
+ sources['NativeControls.cs']='using System;using UnityEngine;using UnityEngine.EventSystems;public abstract partial class UIResultsOption {\n'+'\n'.join(method((options/'UIResultsOption.cs').read_text(),k) for k in ['public virtual void Register(','protected void InvokeAction('])+'\n}public partial class UIResultsButtonOption {\n'+method((options/'UIResultsButtonOption.cs').read_text(),'public override void Register(')+'\n}'
+ for component in ['ExtendedButton','ExtendedToggle']:
+  sources['NativeControls.cs']+='\npublic partial class '+component+'{\n'+method((options/(component+'.cs')).read_text(),'public override void OnPointerClick(')+'\n}'
  cases=[('production',None,None,None,None),
  ('missing-native-home-retirement','Transfer.cs','        ScenarioResultsReadyPark.BeforeExternalOwner(window);','','external owner receives the actual native ready home before recording its receipt'),
  ('steal-map-owner','ScenarioResultsReadyPark.cs','if (MapRoom.ReadyToggleParkClaim.Claimed','if (bool.Parse("false") && MapRoom.ReadyToggleParkClaim.Claimed','an existing map/loadout owner retains the pooled ready control'),
  ('blank-native-after-mirror','ScenarioResultsVisualLease.cs','foreach (var pair in _colours)\n            if (pair.Key != null && pair.Key.GetColor().a == 0f) pair.Key.SetColor(pair.Value);','foreach (var pair in _colours)\n            if (bool.Parse("false")) pair.Key.SetColor(pair.Value);','native draw tween changes survive visual-lease retirement'),
  ('suppress-unrelated-help','ScenarioResultsNative.cs','return help.m_HelpInfo.keybaordLines == LocalizationManager.GetTranslation("Consoles/GUI_WAIT_FOR_HOST_TIP")','return bool.Parse("true") || help.m_HelpInfo.keybaordLines == LocalizationManager.GetTranslation("Consoles/GUI_WAIT_FOR_HOST_TIP")','an unrelated replacement HelpBox is restored immediately')]
+ cases.append(('spectator-hides-host-continue','ScenarioResultsNative.cs','        if (repaired) ready._allPlayersReady = false;','','spectator acknowledgement cannot hide the outstanding host Continue control'))
+ cases.append(('missing-public-continue-input','ScenarioResultsNative.cs','ScenarioResultsNative.SubmitContinuation?.Invoke(Operation, Opening);','ScenarioResultsNative.SubmitContinuation?.Invoke(0, 0);','public Continue input carries only its exact operation/opening metadata'))
  if args.case:assert set(args.case)<={x[0] for x in cases};cases=[x for x in cases if x[0] in args.case]
  try:
   assert run([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(managed.parent),str(folder/'original-results-audit.json')],folder/'native-export.log')==0,'Original results audit failed'
@@ -57,7 +65,7 @@ def main():
   runner=ROOT/'scripts/multiplayer-progression-runtime/Editor/ProgressionRunner.cs';shutil.copy2(runner,project/'Assets/Editor/ProgressionRunner.cs')
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{k:'1.0.0' for k in ['com.unity.modules.ui','com.unity.modules.imgui','com.unity.modules.imageconversion','com.unity.modules.physics','com.unity.modules.jsonserialize']}}))
   (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');mf=folder/'manifest.json';mf.write_text(json.dumps(manifest,indent=2))
-  pins=[folder/'original-results-audit.json',fixture/'export-native.py',*paths,transfer,shared,native,ROOT/'decompiled/GH.Runtime/UIReadyToggle.cs',ROOT/'decompiled/GH.Runtime/Singleton.cs',Path(__file__),*fixture.glob('*'),runner,managed/'UnityEngine.UI.dll']
+  pins=[folder/'original-results-audit.json',fixture/'export-native.py',*paths,transfer,shared,native,ROOT/'decompiled/GH.Runtime/UIReadyToggle.cs',*[options/(n+'.cs') for n in ['UIResultsOption','UIResultsButtonOption','ExtendedButton','ExtendedToggle']],ROOT/'decompiled/GH.Runtime/Singleton.cs',Path(__file__),*fixture.glob('*'),runner,managed/'UnityEngine.UI.dll']
   (folder/'source-pins.json').write_text(json.dumps({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()},indent=2))
   command=[str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','ProgressionRunner.Start','-progressionManifest',str(mf),'-logFile',str(folder/'unity.log')]
   if not os.environ.get('DISPLAY'):command=['xvfb-run','-a']+command

@@ -7,7 +7,7 @@ using System;using System.Collections.Generic;using UnityEngine;using TMPro;
 public class UIScenarioBattleGoalResult:MonoBehaviour { }
 public class UIScenarioAchievement:MonoBehaviour { }
 public partial class UINewAdventureResultsManager { public UIScenarioBattleGoalResult battleGoalResultSlot=null!;public UIScenarioAchievement partyAchievementPrefab=null!; }
-namespace GloomhavenVR.Hands.Interact { internal sealed class PokeOnlyTarget:MonoBehaviour { } }
+namespace GloomhavenVR.Hands.Interact { internal sealed class PokeOnlyTarget:MonoBehaviour { }internal static class UguiPokeSurfaces {internal static readonly HashSet<Canvas> Admitted=new();internal static void RegisterNested(Canvas host,Canvas nested)=>Admitted.Add(nested);internal static void UnregisterNested(Canvas? host,Canvas nested)=>Admitted.Remove(nested);} }
 namespace GloomhavenVR.Cards { internal static class CardFaceMipBake {internal static Sprite OriginalFor(Sprite s)=>s;internal static Sprite? PresentationFor(Sprite? s)=>s;} }
 namespace GloomhavenVR.WorldUI { internal static class PanelMipBake {internal static Texture OriginalFor(Texture t)=>t;} }
 namespace GloomhavenVR.Core {internal static class BundleShaders {internal static Shader? Resolve(string n,string s,string a,string b)=>Shader.Find(n);} }

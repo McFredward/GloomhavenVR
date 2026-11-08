@@ -43,6 +43,8 @@ internal sealed class ScenarioResultsPresentation
     private Transform? _sourceWindow;
     private int _roleIdentity;
     private GameObject? _quarantine, _picture;
+    private GameObject? _continuationPicture;
+    private readonly List<ScenarioResultsContinuationProxy> _continuations = new(3);
     private GameObject? _closedAnchor;
     private UIWindow? _closedWindow;
     private int _closedAuthor;
@@ -423,8 +425,51 @@ internal sealed class ScenarioResultsPresentation
             var frame = new TownServiceFrame { Structure = part.Structure, Nodes = nodes };
             copy.Binding.Apply(frame, _assets); RootPose(copy.Binding.Root, nodes[0]);
         }
+        AttachContinuationInputs(state);
         if (_copies.TryGetValue(1, out Copy? rootCopy)) SharedWindowScrollSync.AttachResultsInputs(rootCopy.Binding.Root, _panel?.HostCanvas);
         if (_picture != null) _picture.SetActive(true);
+    }
+    private void AttachContinuationInputs(ScenarioResultsState state)
+    {
+        if (_picture == null) return;
+        if (_continuationPicture == _picture)
+        { foreach (ScenarioResultsContinuationProxy current in _continuations) current.Refresh(state.Key); return; }
+        _continuations.Clear(); _continuationPicture = _picture;
+        for (byte operation = ScenarioResultsNative.ContinueReady; operation <= ScenarioResultsNative.RetryScenario; operation++)
+        {
+            Selectable? original = ScenarioResultsNative.ContinuationTarget(operation);
+            if (original == null) continue;
+            foreach (Copy copy in _copies.Values)
+            {
+                Transform? basis = Original(copy.Part.Address);
+                if (basis == null || original.transform != basis && !original.transform.IsChildOf(basis)) continue;
+                Transform? target = Find(copy.Binding.Root, Path(basis, original.transform));
+                if (!(target is RectTransform frame)) continue;
+                ScenarioResultsContinuationProxy? proxy = frame.GetComponentInChildren<ScenarioResultsContinuationProxy>(true);
+                if (proxy == null)
+                {
+                    var go = new GameObject("GloomhavenVR.ResultsContinuationInput", typeof(RectTransform), typeof(CanvasRenderer),
+                        typeof(CanvasGroup), typeof(Image), typeof(ScenarioResultsContinuationProxy));
+                    var rect = (RectTransform)go.transform; rect.SetParent(frame, false);
+                    rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = rect.offsetMax = Vector2.zero;
+                    go.layer = frame.gameObject.layer;
+                    Image ink = go.GetComponent<Image>(); ink.color = Color.clear; ink.raycastTarget = true;
+                    CanvasGroup group = go.GetComponent<CanvasGroup>(); group.ignoreParentGroups = true;
+                    group.interactable = group.blocksRaycasts = true;
+                    proxy = go.GetComponent<ScenarioResultsContinuationProxy>();
+                }
+                proxy.Operation = operation;
+                proxy.NativeGroups = frame.GetComponentsInParent<CanvasGroup>(true);
+                proxy.Refresh(state.Key); _continuations.Add(proxy);
+                if (_panel != null)
+                {
+                    SharedWindowScrollCanvasLease? lease = _picture.GetComponent<SharedWindowScrollCanvasLease>();
+                    if (lease == null) lease = _picture.AddComponent<SharedWindowScrollCanvasLease>();
+                    lease.Admit(_panel.HostCanvas, proxy.GetComponentInParent<Canvas>(true));
+                }
+                break;
+            }
+        }
     }
     private static void RootPose(Transform root, TownServiceNode node)
     {
@@ -522,6 +567,7 @@ internal sealed class ScenarioResultsPresentation
     private void RetireCopies()
     {
         _lease.Dispose();
+        _continuations.Clear(); _continuationPicture = null;
         if (_panel != null && _picture != null) _panel.ExtraRenderRoots.Remove(_picture.transform);
         foreach (Copy copy in _copies.Values) copy.Binding.Dispose(); _copies.Clear();
         if (_picture != null) { _picture.SetActive(false); Object.Destroy(_picture); } _picture = null;

@@ -1,6 +1,10 @@
+using System;
 using System.Collections.Generic;
+using FFSNet;
+using GloomhavenVR.Core;
 using GLOOM;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -8,9 +12,80 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Original results presentation subjects; never a second results/ready controller.</summary>
 internal static class ScenarioResultsNative
 {
+    private static UIReadyToggle? _reportedReady;
+    private static UIWindow? _reportedWindow;
+    internal const byte ContinueReady = 1, ReturnToMap = 2, RetryScenario = 3;
+    internal static Func<byte, uint, bool>? SubmitContinuation;
     internal static UIResultsManager? Manager => Singleton<UIResultsManager>.IsInitialized
         ? Singleton<UIResultsManager>.Instance : null;
     internal static UIWindow? Window => Manager != null ? Manager.myWindow : null;
+
+    /// <summary>The final waiter uses all players, including spectators. The
+    /// game's visibility bookkeeping nevertheless counts only participants in
+    /// OnReadiedPlayersChanged. A spectator's automatic acknowledgement can
+    /// therefore hide the still-unvoted host's only Continue control. Correct
+    /// that presentation flag without inventing any vote, ACK or completion.</summary>
+    internal static void RefreshReadyVisibility(ScenarioResultsParts parts)
+    {
+        UIReadyToggle? ready = parts.Ready;
+        if (!FFSNetwork.IsOnline || ready == null || !parts.Window.IsOpen
+            || !parts.Window.gameObject.activeInHierarchy
+            || ready.ReadyUpType != UIReadyToggle.EReadyUpType.Player
+            || ready.readyUpToggleState != EReadyUpToggleStates.NotSet
+            || ActionProcessor.CurrentPhase != ActionPhaseType.ScenarioEnded)
+            return;
+        bool repaired = ready._allPlayersReady && ready.PlayersReady.Count < PlayerRegistry.AllPlayers.Count;
+        if (repaired) ready._allPlayersReady = false;
+        // Player-mode readiness also awaits a host without a character. Offer
+        // its original manual control after the original reveal permission;
+        // the participant-only Show condition otherwise leaves no way to vote.
+        bool offer = !FFSNetwork.IsClient && !PlayerRegistry.MyPlayer.IsParticipant
+            && ready.IsInteractable && !ready.ToggledOn && !ready._requestVisible
+            && ready.PlayersReady.Count < PlayerRegistry.AllPlayers.Count;
+        if (!repaired && !offer) return;
+        // ToggleVisibility only re-evaluates the existing native visibility
+        // request, interactability and blockers. It never readies a player.
+        ready.ToggleVisibility(offer || ready._requestVisible);
+        if (_reportedReady == ready && _reportedWindow == parts.Window) return;
+        _reportedReady = ready; _reportedWindow = parts.Window;
+        VRLog.Alert("WorldUI", $"Results Continue visibility repaired: {ready.PlayersReady.Count}/{PlayerRegistry.AllPlayers.Count} players ready; participant-only visibility had omitted an outstanding player decision. Native votes and completion remain unchanged.");
+    }
+
+    /// <summary>Geometry identity only. Observers use their matching native
+    /// template to place metadata input; local hidden/client permission is not
+    /// substituted for the common author's actual original-control permission.</summary>
+    internal static Selectable? ContinuationTarget(byte operation)
+    {
+        if (!TryRead(out ScenarioResultsParts parts)) return null;
+        if (operation == ContinueReady) return Singleton<UIReadyToggle>.IsInitialized
+            ? Singleton<UIReadyToggle>.Instance.GetComponent<Toggle>() : null;
+        UIResultsOption? option = operation == ReturnToMap ? parts.Manager.returnToMapOption
+            : operation == RetryScenario ? parts.Manager.retryOption : null;
+        return option is UIResultsButtonOption button ? button._button : null;
+    }
+
+    /// <summary>Only a validated explicit public request reaches this method.
+    /// Execute the original pointer handler, retaining native click interception,
+    /// reveal/readiness, progress confirmation, callbacks and ACK authority.</summary>
+    internal static bool TryInvokeContinuation(byte operation)
+    {
+        if (!FFSNetwork.IsOnline || FFSNetwork.IsClient || EventSystem.current == null
+            || ActionProcessor.CurrentPhase != ActionPhaseType.ScenarioEnded
+            || !TryRead(out ScenarioResultsParts parts) || !parts.Window.IsOpen
+            || !parts.Window.gameObject.activeInHierarchy) return false;
+        if (operation == ContinueReady && (parts.Ready == null || !parts.Ready.IsVisible
+            || !parts.Ready.IsInteractable || parts.Ready.ToggledOn
+            || parts.Ready.ReadyUpType != UIReadyToggle.EReadyUpType.Player
+            || parts.Ready.readyUpToggleState != EReadyUpToggleStates.NotSet)) return false;
+        Selectable? target = ContinuationTarget(operation);
+        if (target == null || !target.IsActive() || !target.IsInteractable()) return false;
+        if (target is ExtendedButton button && !InteractabilityManager.ShouldAllowClickForExtendedButton(button)
+            || target is ExtendedToggle toggle && !InteractabilityManager.ShouldAllowClickForExtendedToggle(toggle)) return false;
+        bool clicked = ExecuteEvents.Execute(target.gameObject,
+            new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left },
+            ExecuteEvents.pointerClickHandler);
+        return clicked && (operation != ContinueReady || parts.Ready!.ToggledOn);
+    }
 
     internal static bool TryRead(out ScenarioResultsParts parts)
     {
@@ -80,6 +155,32 @@ internal static class ScenarioResultsNative
             if (candidate.IsAlive && candidate.Target == window.transform)
             { panel = candidate; return true; }
         return false;
+    }
+}
+
+/// <summary>Own transparent hit surface on an inert common picture. This
+/// component contains operation/opening metadata, never a copied game callback.</summary>
+internal sealed class ScenarioResultsContinuationProxy : MonoBehaviour, IPointerClickHandler
+{
+    internal byte Operation;
+    internal uint Opening;
+    internal CanvasGroup[] NativeGroups = Array.Empty<CanvasGroup>();
+    internal void Refresh(uint opening)
+    {
+        Opening = opening;
+        float alpha = 1f;
+        foreach (CanvasGroup group in NativeGroups)
+        {
+            if (group == null || !group.enabled) continue;
+            alpha *= group.alpha;
+            if (group.ignoreParentGroups) break;
+        }
+        gameObject.SetActive(alpha > .001f);
+    }
+    public void OnPointerClick(PointerEventData data)
+    {
+        if (data.button == PointerEventData.InputButton.Left && isActiveAndEnabled && Opening != 0)
+            ScenarioResultsNative.SubmitContinuation?.Invoke(Operation, Opening);
     }
 }
 

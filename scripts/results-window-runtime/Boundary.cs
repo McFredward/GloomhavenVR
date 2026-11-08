@@ -16,13 +16,21 @@ public class NetworkControllable { }
 public class NetworkPlayer { public bool IsParticipant=true; }
 public delegate void ControllerChangedEvent(NetworkControllable c,NetworkPlayer o,NetworkPlayer n);
 public static class ControllableRegistry { public static ControllerChangedEvent? OnControllerChanged; }
-public static class FFSNetwork { public static bool IsOnline=true,IsClient; }
+public static class FFSNetwork { public static bool IsOnline=true,IsClient;public static bool IsHost=>IsOnline&&!IsClient; }
 public static class InputManager { public static bool GamePadInUse; }
-public static class ActionProcessor { public static int Writes;public static void SetState(ActionProcessorStateType s,ActionPhaseType p=default){Writes++;} }
+public static class ActionProcessor { public static int Writes;public static ActionPhaseType CurrentPhase;public static void SetState(ActionProcessorStateType s,ActionPhaseType p=default){Writes++;CurrentPhase=p;} }
 namespace GLOOM { public static class LocalizationManager { public static string GetTranslation(string key)=>key; } }
-namespace FFSNet { public static class PlayerRegistry { public static NetworkPlayer MyPlayer=new(); } }
+namespace FFSNet { public static class PlayerRegistry { public static NetworkPlayer MyPlayer=new();public static readonly List<NetworkPlayer> AllPlayers=new(),Participants=new(); }public static class Console {public static void LogInfo(string text){}} }
 namespace UnityEngine.UI { public class UIWindow:MonoBehaviour { public bool IsOpen=true,ClosingTail;public bool IsVisible=>IsOpen||ClosingTail;public readonly UnityEvent onHidden=new();internal int Shows,Hides;public void Show(){Shows++;IsOpen=true;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=1;}public void Hide(){Hides++;onHidden.Invoke();IsOpen=false;var c=GetComponent<CanvasGroup>();if(c!=null)c.alpha=0;} } }
-public class UIResultsManager:MonoBehaviour { public UIWindow myWindow=null!; }
+public class UIResultsManager:MonoBehaviour { public UIWindow myWindow=null!;public UIResultsOption returnToMapOption=null!,retryOption=null!; }
+public abstract partial class UIResultsOption:MonoBehaviour {private Action? _action;}
+public partial class UIResultsButtonOption:UIResultsOption {public ExtendedButton _button=null!;}
+public partial class ExtendedButton:Button {public string mouseClickAudioItem="";public AudioProfile? audioProfile;private void PlaySound(AudioClip? clip,string? sound){} }
+public partial class ExtendedToggle:Toggle { }
+public class AudioProfile {public string mouseClickAudioItem="";}
+public static class FixtureStrings {public static bool IsNullOrEmpty(this string value)=>string.IsNullOrEmpty(value);}
+public static class InteractabilityManager {public static bool AllowButton=true,AllowToggle=true;public static bool ShouldAllowClickForExtendedButton(ExtendedButton button)=>AllowButton;public static bool ShouldAllowClickForExtendedToggle(ExtendedToggle toggle)=>AllowToggle;}
+public class AutoTestController {public static bool s_ShouldRecordUIActionsForAutoTest;public static AutoTestController s_Instance=new();public void LogButtonClick(GameObject gameObject){} }
 public class GUIAnimator:MonoBehaviour { public bool IsPlaying; }
 public class HeaderHighlightText:MonoBehaviour { public GUIAnimator highlightAnimator=null!; }
 public class ControllerArea { public string Id="native-results"; }
@@ -31,7 +39,7 @@ public partial class UINewAdventureResultsManager:UIResultsManager {
  public void BeginNativeReady(Action callback)=>ShowReadyUpToggles("GUI_RESULT_WIN_EXIT",callback,false);
  private void OnControllerChanged(NetworkControllable c,NetworkPlayer o,NetworkPlayer n){}
  private void ShowClientWaitForHostMessage(){Singleton<HelpBox>.Instance.ShowTranslated(LocalizationManager.GetTranslation("Consoles/GUI_WAIT_FOR_HOST_TIP"),LocalizationManager.GetTranslation("Consoles/GUI_MULTIPLAYER_TIP_TITLE"));}
- private void HideResultOptions(){}
+ private void HideResultOptions(){if(returnToMapOption!=null)returnToMapOption.gameObject.SetActive(false);if(retryOption!=null)retryOption.gameObject.SetActive(false);}
 }
 public class HelpBox:MonoBehaviour {
  public sealed class HelpInfo { public string keybaordLines="",keyboardTitle=""; }
@@ -39,18 +47,29 @@ public class HelpBox:MonoBehaviour {
  public void ShowTranslated(string text,string title){m_HelpInfo=new HelpInfo{keybaordLines=text,keyboardTitle=title};myWindow.Show();}
  public void Hide()=>myWindow.Hide();
 }
-public class UIReadyToggle:MonoBehaviour {
+public partial class UIReadyToggle:MonoBehaviour {
  public enum EReadyUpType { Participant,Player }
  public EReadyUpToggleStates readyUpToggleState;public EReadyUpType ReadyUpType;
  public UIWindow Window=null!;public Toggle Toggle=null!;public bool IsVisible=>Window.IsOpen;
+ public bool ToggledOn=>Toggle.isOn;
  public int ReadyCalls,InteractableWrites;public UnityAction? AllReady;
+ public bool _requestVisible,_allPlayersReady,_interactable;public bool IsInteractable=>_interactable;
+ public readonly List<NetworkPlayer> PlayersReady=new();private readonly HashSet<object> _visibilityRequests=new();
+ private UnityAction<NetworkPlayer,bool>? onReadiedPlayersChanged;
+ private UIWindow window=>Window;
  private UnityAction? _ready,_unready;
  public void Initialize(bool show,UnityAction onReady,UnityAction onUnready,UnityAction onAllPlayersReady,UnityAction<NetworkPlayer,bool> onReadiedPlayersChanged,Action? onShortPressed,Func<bool>? canReadyUp,string readyTextLoc,string unreadyTextLoc,string readyAudioItem,bool bringToFront,UnityAction<bool>? onStartProgress,UnityAction<bool>? onEndProgress,bool validateReadyUpOnPlayerLeft,EReadyUpType readyUpType,EReadyUpToggleStates readyUpToggleState,string controllerAreaAllowed){
-  _ready=onReady;_unready=onUnready;AllReady=onAllPlayersReady;ReadyUpType=readyUpType;this.readyUpToggleState=readyUpToggleState;
-  if(show)Window.Show();Toggle.onValueChanged.RemoveAllListeners();Toggle.onValueChanged.AddListener(ReadyUp);
+  _ready=onReady;_unready=onUnready;AllReady=onAllPlayersReady;ReadyUpType=readyUpType;this.readyUpToggleState=readyUpToggleState;this.onReadiedPlayersChanged=onReadiedPlayersChanged;
+  _allPlayersReady=false;SetInteractable(false);Toggle.SetIsOnWithoutNotify(false);if(show)ToggleVisibility(true);Toggle.onValueChanged.RemoveAllListeners();Toggle.onValueChanged.AddListener(ReadyUp);
  }
  public void ReadyUp(bool toggledOn){ReadyCalls++;if(toggledOn)_ready?.Invoke();else _unready?.Invoke();}
- public void SetInteractable(bool interactable){InteractableWrites++;Toggle.interactable=interactable;}
+ public void SetInteractable(bool interactable){InteractableWrites++;_interactable=interactable;Toggle.interactable=interactable;UpdateVisiblity();}
+ public void ToggleVisibility(bool visible,bool bringToFront=false){_requestVisible=visible;UpdateVisiblity();}
+ public void CancelProgress(){}
+ public void Acknowledge(NetworkPlayer player){PlayersReady.Add(player);OnReadiedPlayersChanged(player,true);}
+ public void Block(object blocker){_visibilityRequests.Add(blocker);UpdateVisiblity();}
+ public void Unblock(object blocker){_visibilityRequests.Remove(blocker);UpdateVisiblity();}
+ public void Reset(){_requestVisible=_allPlayersReady=_interactable=false;Toggle.SetIsOnWithoutNotify(false);PlayersReady.Clear();_visibilityRequests.Clear();Window.Hide();}
  public void SetLabelTextGamepad(string text){}
 }
 public class UIScenarioMultiplayerController { public int Writes;public void UpdateReadyPlayer(NetworkPlayer p,bool ready){Writes++;}public void HideReadyTracker(){}public void ShowReadyTracker(bool bringToFront,bool showExhausted){} }

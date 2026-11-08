@@ -38,8 +38,10 @@ internal static class ScenarioResultsReadyPark
     {
         if (_restoring) return;
         if (!FFSNetwork.IsOnline || !VRSession.IsRunning || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive
-            || !VRModeStateMachine.TableInFrontOfPlayer || !ScenarioResultsNative.TryRead(out var p)
-            || !p.Window.IsOpen || !p.Window.gameObject.activeInHierarchy || p.Ready == null || !p.Ready.IsVisible
+            || !VRModeStateMachine.TableInFrontOfPlayer || !ScenarioResultsNative.TryRead(out var p))
+        { Reset(); return; }
+        ScenarioResultsNative.RefreshReadyVisibility(p);
+        if (!p.Window.IsOpen || !p.Window.gameObject.activeInHierarchy || p.Ready == null || !p.Ready.IsVisible
             || p.Window.transform is not RectTransform host || p.Ready.transform is not RectTransform control)
         { Reset(); return; }
 
