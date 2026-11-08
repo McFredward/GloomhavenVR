@@ -299,7 +299,7 @@ internal static class ScenarioResultsReadyPark
                 // Manual shared world movement/scale is never part of this lease.
                 bool ownsFrame = ReferenceEquals(_panel.FitContentRoot, _fitRoot)
                     && !_panel.FitEnabled && _panel.HostRect.rect.size == _writtenFrame;
-                bool ownsPosition = _panel.Target.anchoredPosition3D == _writtenPosition;
+                bool ownsPosition = ownsFrame && _panel.Target.anchoredPosition3D == _writtenPosition;
                 if (ownsFrame)
                 {
                     _panel.FitEnabled = _fit;
