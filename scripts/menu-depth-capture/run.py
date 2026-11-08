@@ -119,6 +119,14 @@ def main():
             start = legacy.index(signature); copied += legacy[start:legacy.index(';', start) + 1] + '\n'
         copied += member(legacy, '    private static void ResolveRate(')
         core = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
+        service = member(core, '    private static void ServiceEntry(')
+        first = service.index('        SyncGeometry(e);')
+        last = service.index('        SyncVisibility(e);', first) + len('        SyncVisibility(e);')
+        # Keep the actual caller order, not just its old visibility tail. The
+        # already-engaged fixture supplies fixed geometry/allocation inputs;
+        # source-empty retirement must run before native canvas batching.
+        originals['NativeService764.cs'] = ('namespace GloomhavenVR.WorldUI;internal static partial class PanelSupersample {'
+            'private static void ServiceEntry764(Entry e){' + service[first:last] + '}}')
         for name in ('MaxRtDimension', 'MinStepDownFactor', 'RateQuantum', 'MinContentScaleFloor'):
             declarations = re.findall(r'    private const (?:int|float) ' + name + r' = [^;]+;', core)
             assert len(declarations) == 1, name
@@ -193,8 +201,12 @@ def main():
              'visible && due', 'a successful spatial window has exactly two UI camera draws per tick and no automatic third draw'),
             ('hidden-stereo-725', 'PanelDepth.cs', '                || !e.DisplayImage.isActiveAndEnabled)',
              '                || !e.DisplayImage.enabled)', 'a hidden physical display performs no UI or native-content capture'),
-            ('no-empty-mono-725', 'PanelDepth.cs', 'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;',
-             'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = false;', 'leaving spatial content refills a suppressed automatic mono capture immediately'),
+            ('no-empty-mono-725', 'NativeService764.cs', 'RetireEmptyMenuDepth(e);',
+             '/* injected missing pre-batch source-empty handback */', 'leaving spatial content refills a suppressed automatic mono capture immediately'),
+            ('late-source-retirement-764', 'PanelDepth.cs',
+             'if (!MenuDepthSources.HasContent(e.Panel.HostRect) && e.MenuDepthDisplay == null) continue;',
+             'if (!MenuDepthSources.HasContent(e.Panel.HostRect)) { ReleaseMenuDepth(e); RestoreMenuDepthMono(e); continue; }',
+             'post-LateTick source loss captures current native UI in both head targets before retiring its pair'),
             ('sample-ceiling-725', 'MenuDepthProjection.cs', 'Mathf.Min(final.x, intermediate.x), Mathf.Min(final.y, intermediate.y)',
              'final.x, final.y', 'legacy photographed sampling demand stops at the actual intermediate UI raster'),
             ('near-native-fallback-725', 'MenuDepthProjection.cs', 'if (front < 4) return new Vector2(width, height);',
@@ -334,7 +346,7 @@ def main():
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
         hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()}
         (run / 'source-hashes.json').write_text(json.dumps({'sha256': hashes,
-            'boundaries': 'XR eye observations/matrices, original panel entry/legacy allocation and an explicitly empty owned-member group with observed sync dispatch are ports. Actual coordinator, projections, UI geometry, source leases, camera rendering, mips and shipping shaders execute. Real owned-member grouping/layers/lifetime are covered by the head and native producer containers.',
+            'boundaries': 'XR eye observations/matrices, original panel entry/legacy allocation and an explicitly empty owned-member group with observed sync dispatch are ports. Each ordinary capture runs the actual ServiceEntry geometry/retirement/visibility caller slice before batching and its automatic mono draw. A separate post-LateTick source-loss case deliberately skips only that already-passed service. Actual coordinator, projections, UI geometry, source leases, camera rendering, mips and shipping shaders execute. Real owned-member grouping/layers/lifetime are covered by the head and native producer containers.',
             'limits': 'No physical XR, D3D11, native model/asset loading, gameplay, multiplayer or comfort claim.'}, indent=2) + '\n')
         argv = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthRunner.Start',
