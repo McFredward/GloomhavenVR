@@ -655,7 +655,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 765;
+    public const ushort ModBuild = 766;
+
+    // ModBuild766 — paired765 Results input and footer follow-up.
+    // Qualify visitor scrolling through the actual converted laser/scroll
+    // consumer and keep native continuation controls in a reserved footer,
+    // outside the list's clipping and scrolling area. Original native votes,
+    // callback permissions, common scroll ordering and wire layouts remain.
+    // See MP766-INTEGRATION.md for causal evidence and bounded qualification.
 
     // ModBuild765 — paired764 shared Results input/continuation follow-up.
     // Inactive observer pictures register their own nested input canvas before
