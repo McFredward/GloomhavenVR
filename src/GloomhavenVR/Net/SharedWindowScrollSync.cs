@@ -70,6 +70,12 @@ internal sealed class SharedWindowScrollCoordinator
     private readonly Dictionary<string, SharedWindowScrollProxy> Proxies = new();
     private Transform? _proxyRoot;
     private uint _proxyVersion, _paintedProxyVersion;
+    private uint _resultsSourceOpening;
+    private bool _resultsSourceEligible;
+    private readonly Dictionary<string, byte> _resultsDescriptors = new();
+    private Transform? _reportedResultsPicture;
+    private uint _reportedResultsOpening;
+    private int _reportedResultsDescriptors = -1, _reportedResultsProxies = -1;
     private static Window[] CreateWindows()
     { var values = new Window[8]; for (int i = 0; i < values.Length; i++) values[i] = new Window(); return values; }
     private static uint NewEpoch() { uint x = unchecked((uint)(DateTime.UtcNow.Ticks ^ Environment.TickCount)); return x == 0 ? 1u : x; }
@@ -120,7 +126,10 @@ internal sealed class SharedWindowScrollCoordinator
         Array.Clear(Authors, 0, Authors.Length); _epoch = NewEpoch(); _nextCapture = _nextWarning = _nextRequestSend = 0;
         _tail = null; Array.Clear(Closed, 0, Closed.Length);
         foreach (SharedWindowScrollProxy proxy in Proxies.Values) if (proxy != null) proxy.gameObject.SetActive(false);
+        _proxyRoot?.GetComponent<SharedWindowScrollCanvasLease>()?.SetHeaderEnabled(false);
         Proxies.Clear(); _proxyRoot = null; _proxyVersion = _paintedProxyVersion = 0;
+        _resultsDescriptors.Clear(); _resultsSourceOpening = _reportedResultsOpening = 0;
+        _reportedResultsPicture = null; _reportedResultsDescriptors = _reportedResultsProxies = -1;
         SharedWindowScrollBridge.Submit = null;
         SharedWindowScrollBridge.ResultsInput = null;
         // Bindings survive an offline/flat-net reset; the same transport can resume.
@@ -132,6 +141,7 @@ internal sealed class SharedWindowScrollCoordinator
         {
             int next = AuthorFor(kind); if (Authors[kind] == next) continue;
             Authors[kind] = next;
+            if (kind == (byte)SharedWindowKind.Results) _resultsDescriptors.Clear();
             Retired.Clear(); foreach (var pair in Sources) if (pair.Value.State.Kind == kind) Retired.Add(pair.Key);
             foreach (string key in Retired) { EndGesture(Sources[key]); Sources.Remove(key); }
             Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == kind) Retired.Add(pair.Key);
@@ -191,6 +201,19 @@ internal sealed class SharedWindowScrollCoordinator
             // native tabs can retain a scroll position, but cannot receive input.
             for (int i = 0; i < Scrolls.Count && i < 32; i++) CaptureTarget(value, window, Scrolls[i], 1, now);
             for (int i = 0; i < Bars.Count && i < 32; i++) CaptureTarget(value, window, Bars[i], 2, now);
+            if (kind == SharedWindowKind.Results)
+            {
+                int controls = 0, eligible = 0;
+                foreach (var pair in Sources)
+                    if (pair.Value.State.Kind == value && Present.Contains(pair.Key))
+                    { controls++; if ((pair.Value.State.Flags & 1) != 0) eligible++; }
+                if (_resultsSourceOpening != window.Opening || _resultsSourceEligible != (eligible > 0))
+                {
+                    _resultsSourceOpening = window.Opening; _resultsSourceEligible = eligible > 0;
+                    VRLog.Note("Net", $"RESULTS SCROLL SOURCE: opening={window.Opening}, author={Local}, " +
+                        $"controls={controls}, eligible={eligible}; original activity, raycaster and canvas-group permissions apply.");
+                }
+            }
         }
         Retired.Clear();
         foreach (var pair in Sources) if (!Present.Contains(pair.Key)) Retired.Add(pair.Key);
@@ -407,6 +430,7 @@ internal sealed class SharedWindowScrollCoordinator
             // arrive from the currently elected compatible author, never a requester.
             if (window.Epoch != message.Epoch)
             {
+                if (message.Kind == (byte)SharedWindowKind.Results) _resultsDescriptors.Clear();
                 Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == message.Kind) Retired.Add(pair.Key);
                 foreach (string retired in Retired) Observed.Remove(retired);
                 window.Opening = window.Revision = 0; window.Epoch = message.Epoch; ++_proxyVersion;
@@ -417,6 +441,7 @@ internal sealed class SharedWindowScrollCoordinator
                 && !SharedWindowScrollCodec.Newer(message.Opening, window.Opening)) return true;
             if (message.Opening != window.Opening || message.Operation == SharedScrollOperation.Closed)
             {
+                if (message.Kind == (byte)SharedWindowKind.Results) _resultsDescriptors.Clear();
                 Retired.Clear(); foreach (var pair in Observed) if (pair.Value.State.Kind == message.Kind) Retired.Add(pair.Key);
                 foreach (string retired in Retired) Observed.Remove(retired);
                 window.Opening = message.Opening;
@@ -424,6 +449,8 @@ internal sealed class SharedWindowScrollCoordinator
             window.Visible = message.Operation != SharedScrollOperation.Closed;
             if (!window.Visible) { ++_proxyVersion; return true; }
             string key = Key(message.Kind, message.Control, message.Path);
+            if (message.Kind == (byte)SharedWindowKind.Results && _resultsDescriptors.Count < 128)
+                _resultsDescriptors[key] = message.Flags;
             if ((message.Flags & 1) == 0) { if (Observed.Remove(key)) ++_proxyVersion; return true; }
             if (Observed.TryGetValue(key, out Target? target)
                 && !SharedWindowScrollCodec.Newer(message.Revision, target.State.Revision)) return true;
@@ -614,6 +641,23 @@ internal sealed class SharedWindowScrollCoordinator
             proxy.CanScroll = (state.Flags & 1) != 0 && (state.Control == 2 ? state.HandleSize < .999f
                 : ((state.Flags & 2) != 0 && state.RangeX > .01f || (state.Flags & 4) != 0 && state.RangeY > .01f));
             proxy.gameObject.SetActive((state.Flags & 1) != 0);
+        }
+        int resolved = 0;
+        foreach (SharedWindowScrollProxy proxy in Proxies.Values)
+            if (proxy != null && proxy.gameObject.activeSelf) resolved++;
+        if (host != null && pictureRoot.GetComponent<SharedWindowScrollCanvasLease>() is SharedWindowScrollCanvasLease headerLease)
+            SharedWindowScrollBridge.AttachResultsHeader(pictureRoot, host, headerLease, resolved > 0);
+        uint opening = Windows[(byte)SharedWindowKind.Results].Opening;
+        if (_reportedResultsPicture != pictureRoot || _reportedResultsOpening != opening
+            || _reportedResultsDescriptors != _resultsDescriptors.Count || _reportedResultsProxies != resolved)
+        {
+            _reportedResultsPicture = pictureRoot; _reportedResultsOpening = opening;
+            _reportedResultsDescriptors = _resultsDescriptors.Count; _reportedResultsProxies = resolved;
+            int eligible = 0; foreach (byte flags in _resultsDescriptors.Values) if ((flags & 1) != 0) eligible++;
+            string report = $"RESULTS SCROLL INPUT: opening={opening}, author={Authors[(byte)SharedWindowKind.Results]}, " +
+                $"descriptors={_resultsDescriptors.Count}, eligible={eligible}, resolved={resolved}.";
+            if (eligible > resolved) VRLog.Warn("Net", report + " Original common-picture input paths are missing; no private list is substituted.");
+            else VRLog.Note("Net", report);
         }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -14,6 +15,13 @@ internal static class SharedWindowScrollBridge
 {
     internal static Func<Component, SharedScrollInput, Vector2, int, bool>? Submit;
     internal static Func<Transform, SharedWindowScrollProxy?>? ResultsInput;
+    internal static void AttachResultsHeader(Transform picture, Canvas host, SharedWindowScrollCanvasLease lease, bool enabled)
+    {
+        if (!ScenarioResultsNative.TryRead(out var native) || native.Header == null
+            || !native.Header.transform.IsChildOf(native.Window.transform)) return;
+        Transform? header = Find(picture, Path(native.Window.transform, native.Header.transform));
+        if (header != null) lease.AdmitHeader(host, header, enabled);
+    }
     internal static bool Wheel(Component target, Vector2 notches) => Submit?.Invoke(target, SharedScrollInput.Wheel, notches, 0) == true;
     internal static bool Position(Component target, Vector2 normalized) => Submit?.Invoke(target, SharedScrollInput.Position, normalized, 0) == true;
     internal static bool Pointer(Component target, SharedScrollInput input, PointerEventData data)
@@ -97,6 +105,8 @@ internal sealed class SharedWindowScrollCanvasLease : MonoBehaviour
 {
     private Canvas? _host;
     private readonly List<Canvas> _nested = new();
+    private Transform? _header;
+    private readonly List<SharedResultsHeaderGraphic> _headerInputs = new();
     internal void Admit(Canvas host, Canvas? canvas)
     {
         if (canvas == null || canvas == host || _nested.Contains(canvas)) return;
@@ -105,10 +115,56 @@ internal sealed class SharedWindowScrollCanvasLease : MonoBehaviour
         if (canvas.GetComponent<GraphicRaycaster>() == null) canvas.gameObject.AddComponent<GraphicRaycaster>();
         Hands.Interact.UguiPokeSurfaces.RegisterNested(host, canvas); _nested.Add(canvas);
     }
+    internal void AdmitHeader(Canvas host, Transform header, bool enabled)
+    {
+        if (_header != header)
+        {
+            foreach (SharedResultsHeaderGraphic input in _headerInputs)
+                if (input != null) UnityEngine.Object.Destroy(input.gameObject);
+            _headerInputs.Clear(); _header = header;
+            foreach (Graphic original in header.GetComponentsInChildren<Graphic>(true))
+            {
+                if (original is SharedResultsHeaderGraphic) continue;
+                var go = new GameObject("GloomhavenVR.ResultsHeaderInput", typeof(RectTransform),
+                    typeof(CanvasRenderer), typeof(CanvasGroup), typeof(SharedResultsHeaderGraphic));
+                var rect = (RectTransform)go.transform; rect.SetParent(original.transform, false);
+                rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
+                rect.offsetMin = rect.offsetMax = Vector2.zero; go.layer = original.gameObject.layer;
+                CanvasGroup group = go.GetComponent<CanvasGroup>();
+                group.ignoreParentGroups = true; group.blocksRaycasts = group.interactable = true;
+                SharedResultsHeaderGraphic input = go.GetComponent<SharedResultsHeaderGraphic>();
+                input.color = Color.clear; input.raycastTarget = true; input.Original = original;
+                _headerInputs.Add(input); Admit(host, input.GetComponentInParent<Canvas>(true));
+            }
+        }
+        SetHeaderEnabled(enabled);
+    }
+    internal void SetHeaderEnabled(bool enabled)
+    { foreach (SharedResultsHeaderGraphic input in _headerInputs) if (input != null) input.gameObject.SetActive(enabled); }
     private void Retire()
     {
         foreach (Canvas canvas in _nested) Hands.Interact.UguiPokeSurfaces.UnregisterNested(_host, canvas);
         _nested.Clear(); _host = null;
     }
     private void OnDestroy() => Retire();
+}
+
+/// <summary>The inert picture cannot expose its native header's callbacks or raycast
+/// groups. Own hover-only ink follows each exact original graphic rectangle and its
+/// masks/visibility. ModalFallback retains header stick delivery; this is never a
+/// ScrollRect/proxy drag target or a transparent plate across empty window space.</summary>
+internal sealed class SharedResultsHeaderGraphic : Image, IPointerDownHandler
+{
+    internal Graphic? Original;
+    public override bool Raycast(Vector2 screen, Camera eventCamera)
+    {
+        Graphic? original = Original;
+        if (original == null || !original.isActiveAndEnabled || original.canvasRenderer.cull
+            || original.color.a * original.canvasRenderer.GetAlpha()
+                * original.canvasRenderer.GetInheritedAlpha() < .01f) return false;
+        if (original is TMP_Text text && string.IsNullOrWhiteSpace(text.text)
+            || original is Text legacy && string.IsNullOrWhiteSpace(legacy.text)) return false;
+        return base.Raycast(screen, eventCamera);
+    }
+    public void OnPointerDown(PointerEventData data) { }
 }
