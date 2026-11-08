@@ -205,7 +205,7 @@ def main():
              '/* injected missing pre-batch source-empty handback */', 'leaving spatial content refills a suppressed automatic mono capture immediately'),
             ('late-source-retirement-764', 'PanelDepth.cs',
              'if (!MenuDepthSources.HasContent(e.Panel.HostRect) && e.MenuDepthDisplay == null) continue;',
-             'if (!MenuDepthSources.HasContent(e.Panel.HostRect)) { ReleaseMenuDepth(e); RestoreMenuDepthMono(e); continue; }',
+             'if (!MenuDepthSources.HasContent(e.Panel.HostRect)) { if (e.MenuDepthDisplay != null) { ReleaseMenuDepth(e); RestoreMenuDepthMono(e); } continue; }',
              'post-LateTick source loss captures current native UI in both head targets before retiring its pair'),
             ('sample-ceiling-725', 'MenuDepthProjection.cs', 'Mathf.Min(final.x, intermediate.x), Mathf.Min(final.y, intermediate.y)',
              'final.x, final.y', 'legacy photographed sampling demand stops at the actual intermediate UI raster'),
