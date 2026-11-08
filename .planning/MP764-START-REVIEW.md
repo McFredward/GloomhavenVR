@@ -75,3 +75,28 @@ Cheats-off, offline-finish-to-online-join, same-text successors, GC and replay;
 the complete integration gate and hardware behavior remain the integrator's
 responsibility. This source audit alone cannot establish Photon timing, native
 scenario bootstrap or a correct headset picture.
+
+## Final guard-order refinement
+
+The final review re-pins the worker after its current-live-request prevalidation
+and ordinary-traffic performance refinement. Semantic/content/pages, direction
+and the stored current-epoch reciprocal opening are rejected cheaply before
+native roster/player reflection. Every native authority gate still precedes
+creating an offline marker or extending a completed entry's recipients.
+
+The reviewer found one additional admission-order edge: a codec-valid
+bidirectional request could create a recipient-free offline completion before
+the ledger rejected its direction. This could not grant a recipient or execute
+native gameplay, but still materialized unnecessary83 history. The revised
+caller rejects bidirectional scenario-start requests before materialization;
+the worker added a refusal requiring the ledger to remain empty.
+
+Exact base-to-candidate member comparison verifies **15 unchanged original
+members**, including generic ledger Open/Update/Finish/Sample/Observe/ForgetPeer/
+Resolve/Bind and native lifecycle Participants/pose/Refresh/Sample/ResolveBox.
+The existing83codec file also retains its original behavior. Current source pins
+and guard-order comparison receipt are preserved separately in
+`mp764-start-review-final`; the earlier reviewed snapshot remains intact.
+No additional runtime invocation or Unity process was started by this reviewer.
+The worker's final full runtime container, controls and actual counts remain its
+proof obligation. No remaining source blocker was found in the final candidate.
