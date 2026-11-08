@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
 import native_tmp
+import creation_fit
 _cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
 _cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
 _cleanup_spec.loader.exec_module(_cleanup_module)
@@ -190,6 +191,13 @@ internal static class MenuDepthCharacterRotation
     sources['ReadyBadge746.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs').read_text()
     frame_file = source_root / 'src/GloomhavenVR/WorldUI/Conversion/NativeWindowFrame.cs'
     sources['NativeWindowFrame.cs'] = frame_file.read_text()
+    sources['CharacterCreationFrame.cs'] = (frame_file.parent / 'CharacterCreationFrame.cs').read_text()
+    sources['CharacterFixedFit764.cs'] = creation_fit.bind(source_root, member)
+    native_creator_file = source_root / 'decompiled/GH.Runtime/UICharacterCreatorWindow.cs'
+    sources['NativeCreationLiveness764.cs'] = ('using UnityEngine.UI;public sealed partial class UICharacterCreatorWindow {'
+        'private UIWindow window=null!;private bool isHidding;'
+        'public void SetNativeState764(bool open,bool closing){window=GetComponent<UIWindow>();window.IsOpen=open;isHidding=closing;}'
+        + member(native_creator_file.read_text(), 'public bool IsShown') + '}')
     sources['NativeUiViewport.cs'] = (frame_file.parent/'NativeUiViewport.cs').read_text()
     frame_core = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
     frame_fit = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
@@ -215,7 +223,7 @@ internal static class MenuDepthCharacterRotation
     inputs += [popup_source,blackout_source,ray_source,visible_source,frame_file,frame_file.parent/'NativeUiViewport.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs',ROOT/'scripts/mp760-display/export_creation.py']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
-    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation','head-popup','head-window-viewport','head-window-native')) for name in args.case)
+    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation','head-popup','head-window-viewport','head-window-native','head-creation-layout')) for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
     wants_popup760 = not args.case or any(name.startswith('head-popup760') for name in args.case)
@@ -224,11 +232,28 @@ internal static class MenuDepthCharacterRotation
         inputs += [popup_exporter, ROOT/'scripts/menu726-native-profile.py']
         inputs += [ROOT/'ressources/GH_Data'/name for name in ('level1','level6','level9','resources.assets','resources.assets.resS')]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs']
+    inputs += [frame_file.parent / 'CharacterCreationFrame.cs', ROOT / 'scripts/menu-depth-desktop/creation_fit.py',
+               ROOT / 'scripts/menu-depth-desktop/export_creation764.py',
+               source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.9c.SubViewBurst.cs', native_creator_file]
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
     wants_viewport760 = not args.case or any(name.startswith(('head-window-viewport','head-window-native')) for name in args.case)
-    if wants_viewport760:
+    wants_creation764 = not args.case or any(name.startswith('head-creation-layout') for name in args.case)
+    if wants_viewport760 or wants_creation764:
         pins.append({'path':str(ROOT/'ressources/GH_Data/level9'),'sha256':hashlib.sha256((ROOT/'ressources/GH_Data/level9').read_bytes()).hexdigest()})
     variants = [
+        ('head-creation-layout764', '', '', '', ''),
+        ('head-creation-layout-old764', 'CharacterFixedFit764.cs',
+         'if (fx.Creation.Update(panel, display)) fx.ReleaseSolution();',
+         '/* injected original collector misses the nested creation opening */',
+         'the complete native creation frame remains beside the party rail'),
+        ('head-creation-layout-crop764', 'CharacterCreationFrame.cs',
+         '=> Active ? 2f * Mathf.Max(0f, seam + _frame.width + padding) : 0f;',
+         '=> 0f;',
+         'the complete native creator and RT aperture fit the physical window'),
+        ('head-creation-layout-ink764', 'CharacterFixedFit764.cs',
+         '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax))',
+         '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax) && false)',
+         'the complete native creation frame remains beside the party rail'),
         ('head-window-native760', '', '', '', ''),
         ('head-window-native-old760', 'NativeUiViewport.cs',
          'return new Vector2Int(blocks * 16, blocks * 9);', 'return new Vector2Int(Mathf.Max(width,1280),Mathf.Max(height,720));',
@@ -549,6 +574,13 @@ internal static class MenuDepthCharacterRotation
             exported=subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),str(ROOT/'scripts/mp760-display/export_creation.py'),str(ROOT),str(run/'native-creation-inputs')],capture_output=True,text=True,timeout=180)
             (run/'native-creation-export.log').write_text(exported.stdout+exported.stderr)
             if exported.returncode: raise RuntimeError('Native creation export failed: '+str(run/'native-creation-export.log'))
+        if wants_creation764:
+            exported = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'),
+                str(ROOT / 'scripts/menu-depth-desktop/export_creation764.py'), str(ROOT), str(run / 'native-creation764-inputs')],
+                capture_output=True, text=True, timeout=180)
+            (run / 'native-creation764-export.log').write_text(exported.stdout + exported.stderr)
+            if exported.returncode:
+                raise RuntimeError('Native creation764 export failed: ' + str(run / 'native-creation764-export.log'))
         if wants_popup760:
             # Execute the existing read-only exporter through the confirmation
             # and ESC declarations; unrelated narrative/card-list exports stop here.
@@ -602,7 +634,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadNativeViewport760' if name.startswith('head-window-native') else 'HeadWindowViewport760' if name.startswith(('head-window-viewport','head-window-native')) else 'HeadPopup760' if name.startswith('head-popup760') else 'HeadPopupLow759' if name == 'head-popup-low759' else 'HeadPopup759' if name.startswith('head-popup') else 'HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadCreationLayout764' if name.startswith('head-creation-layout') else 'HeadNativeViewport760' if name.startswith('head-window-native') else 'HeadWindowViewport760' if name.startswith(('head-window-viewport','head-window-native')) else 'HeadPopup760' if name.startswith('head-popup760') else 'HeadPopupLow759' if name == 'head-popup-low759' else 'HeadPopup759' if name.startswith('head-popup') else 'HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

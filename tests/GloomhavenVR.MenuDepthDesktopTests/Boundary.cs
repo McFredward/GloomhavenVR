@@ -91,6 +91,7 @@ namespace GloomhavenVR.Core
         internal static void Info(string scope, string text) => Messages.Add(text);
         internal static void Note(string scope, string text) => Messages.Add(text);
         internal static void Warn(string scope, string text) => Messages.Add(text);
+        internal static void Alert(string scope, string text) => Messages.Add(text);
     }
     internal static class VRLayers { internal const int ModLayerMask = 1 << 27, GameUiLayerMask = 1 << 5; }
     internal static class VRCameraPolicy
@@ -159,14 +160,14 @@ namespace GloomhavenVR.WorldUI
     }
 }
 
-namespace UnityEngine.UI { public sealed class UIWindow : UnityEngine.MonoBehaviour { public bool IsOpen; } }
+namespace UnityEngine.UI { public sealed class UIWindow : UnityEngine.MonoBehaviour { public bool IsOpen; public bool IsVisible=>IsOpen||(GetComponent<CanvasGroup>()?.alpha??0)>0; } }
 // NativeWindowFrame reads the presence of this original controller only; no native lifecycle runs.
 internal sealed class CombatLogHandler : UnityEngine.MonoBehaviour { }
 
 
 // Native creator ancestry, private serialized links and current page state are
 // fixture inputs. Projection/layout and the final rendering execute production.
-public sealed class UICharacterCreatorWindow : UnityEngine.MonoBehaviour
+public sealed partial class UICharacterCreatorWindow : UnityEngine.MonoBehaviour
 {
     private UnityEngine.Component? nameStep, personalQuestStep, classStep;
     public void BindCreationPages(UnityEngine.Component name, UnityEngine.Component quest)

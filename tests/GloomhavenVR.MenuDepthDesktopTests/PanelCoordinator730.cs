@@ -5,14 +5,14 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI
 {
-    internal sealed class ConvertedPanel
+    internal sealed partial class ConvertedPanel
     {
         internal RectTransform HostRect = null!, Target = null!;
         internal GameObject HostGo = null!;
         internal bool IsAlive = true, ModLayerEnabled = true;
         internal bool RenderHidden, OwnerRenderHidden;
     }
-    internal static class CanvasConversion
+    internal static partial class CanvasConversion
     {
         internal static readonly List<ConvertedPanel> ActivePanels = new();
         // A newly revealed native popup has not committed a narrowed hit frame.
