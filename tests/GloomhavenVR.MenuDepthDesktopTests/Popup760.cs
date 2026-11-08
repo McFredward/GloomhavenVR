@@ -157,7 +157,7 @@ public static partial class MenuDepthDesktopProgram
             var display=ConfirmationCanvas745("private ESC photograph760",27,scene.Head,host.rect.size,host.position);
             display.rotation=facing;display.localScale=host.localScale;var photo=display.gameObject.AddComponent<RawImage>();photo.texture=scene.Ui;
             scene.OriginalA.cullingMask=1<<24;scene.OriginalA.targetTexture=scene.Ui;scene.OriginalA.enabled=false;
-            var entry=PanelSupersample.BindHead(host,scene.OriginalA,scene.Ui,photo);PanelSupersample.ActualGeometry(entry);
+            var entry=PanelSupersample.BindHead(host,scene.OriginalA,scene.Ui,photo);entry.Panel.HostCanvas=host.GetComponent<Canvas>();PanelSupersample.ActualGeometry(entry);
             var target=new GameObject("native full1920 ESC root760",typeof(RectTransform));target.layer=24;target.transform.SetParent(host,false);
             var targetRect=(RectTransform)target.transform;targetRect.sizeDelta=new Vector2(1920,1080);targetRect.anchoredPosition=new Vector2(769,0);entry.Panel.Target=targetRect;
             var column=Plate760(targetRect,"native left368 ESC column760",new Vector2(368,1080),new Vector2(-769,0),new Color(.16f,.1f,.045f));
@@ -193,25 +193,16 @@ public static partial class MenuDepthDesktopProgram
                     {PanelSupersample.ForgetMember(owned);owned=null;ConfirmationOnOwner.Owned=null;member.gameObject.SetActive(false);}
                     if(stage==2){host.localScale=Vector3.one*(pixelScale*1.1f);host.position+=facing*Vector3.right*(.015f*rig);}
                     if(owned!=null)PopupPlacement759.Place(entry.Panel,owned,targetRect);
-                    // The ordinary .2 capture clock is an explicit scheduling
-                    // input here: its camera is disabled for deterministic eye
-                    // renders. Pump its real mono refill/geometry kernel when
-                    // the owner no longer has a spatial member.
-                    if(!shown)PanelSupersample.OriginalMono(entry);
                     Canvas.ForceUpdateCanvases();LayoutRebuilder.ForceRebuildLayoutImmediate(imported);Canvas.ForceUpdateCanvases();
                     int wait=Time.frameCount;while(Time.frameCount==wait)yield return null;
-                    if(stage==3)
-                    {
-                        // This editor port drives the ordinary capture clock
-                        // explicitly. Retain the first pre-cull hand-back draw,
-                        // then let Unity rebuild the re-enabled photograph for
-                        // the settled after-close oracle. This does NOT certify
-                        // first-frame closure parity of the full game player loop.
-                        scene.Render(false);var transition=Read(scene.HeadTarget,Path.Combine(output,pixelScale.ToString(CultureInfo.InvariantCulture)+"-close-first-transition.png"));
-                        File.AppendAllText(Path.Combine(output,"close-scheduling-limit760.csv"),pixelScale.ToString(CultureInfo.InvariantCulture)+","+GlyphPixels760(transition,scene.Head,title.rectTransform)+"\n");Object.DestroyImmediate(transition);
-                        wait=Time.frameCount;while(Time.frameCount==wait)yield return null;
-                        Canvas.ForceUpdateCanvases();PanelSupersample.OriginalMono(entry);
-                    }
+                    // Ordinary native service precedes batching and the head
+                    // draw. Reuse the exact production ServiceEntry caller slice
+                    // already bound for creation: geometry -> early retirement
+                    // -> visibility, then the eligible automatic mono capture.
+                    // Closing is tested in that very first head frame, without
+                    // an extra transition render/yield concealing a missing tick.
+                    PanelSupersample.CreationLate764(entry);Canvas.ForceUpdateCanvases();
+                    if(scene.OriginalA.enabled)scene.OriginalA.Render();
                     for(int eye=0;eye<2;eye++)
                     {
                         foreach(Camera.StereoscopicEye side in new[]{Camera.StereoscopicEye.Left,Camera.StereoscopicEye.Right})
