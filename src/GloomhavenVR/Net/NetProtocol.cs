@@ -655,7 +655,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 767;
+    public const ushort ModBuild = 768;
+
+    // ModBuild768 — paired767 observer Results still froze on another native
+    // runtime GUI material texture. Replace per-report admission with a Results-
+    // scoped catalogue of audited unambiguous original texture descriptors.
+    // A conflicting background sprite uses its exact immutable native root
+    // widget reference rather than choosing either same-name texture.
+    // The default registry, original widget/material contracts, native actions
+    // and wire layouts remain unchanged. Reproduce heading-to-statistics and
+    // late discovery across the complete native material dependency census.
+    // See MP768-INTEGRATION.md and its owned asset/consumer reviews.
 
     // ModBuild767 — paired766 Results picture follow-up. A late duplicate of
     // the audited original DXT5 flow map blocked every subsequent observer

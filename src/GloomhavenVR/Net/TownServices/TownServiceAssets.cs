@@ -18,8 +18,16 @@ internal sealed partial class TownServiceAssets
     private readonly Dictionary<int, string> _keys = new();
     private readonly Dictionary<int, string> _originalKeys = new();
     private readonly HashSet<string> _discoveryFailures = new(StringComparer.Ordinal);
+    private readonly Func<string, bool>? _verifiedTextureIdentity;
     private float _nextScan;
     internal uint Generation { get; private set; }
+
+    // Results traverses native runtime GUI materials beyond its serialized
+    // prefab dependencies. Its original-data catalogue is an explicit opt-in;
+    // other registries retain their existing collision/refusal contract.
+    public TownServiceAssets() { }
+    internal TownServiceAssets(Func<string, bool> verifiedTextureIdentity)
+    { _verifiedTextureIdentity = verifiedTextureIdentity ?? throw new ArgumentNullException(nameof(verifiedTextureIdentity)); }
 
     internal void Clear()
     { ClearPackedSprites(); _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _discoveryFailures.Clear(); _nextScan = 0; Generation++; }
@@ -94,7 +102,8 @@ internal sealed partial class TownServiceAssets
                 throw new InvalidDataException("Unsupported town-service asset: " + asset.GetType().Name + " " + asset.name);
         }
         if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset)
-            && asset is Texture2D && !SameKnownNativeIdentity((Texture2D)asset))
+            && asset is Texture2D && !SameKnownNativeIdentity((Texture2D)asset)
+            && !(_verifiedTextureIdentity?.Invoke(key) ?? false))
         { _ambiguous.Add(key); throw new InvalidDataException("Ambiguous native town-service texture requires an explicit binding: " + asset.name); }
         Register(key, asset); return key;
     }

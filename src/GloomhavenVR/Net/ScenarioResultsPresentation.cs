@@ -37,7 +37,9 @@ internal sealed class ScenarioResultsPresentation
     private readonly List<Transform> _partition = new();
     private readonly Dictionary<Transform, Source> _sourceOwners = new();
     private readonly Dictionary<ushort, Copy> _copies = new();
-    private readonly TownServiceAssets _assets = new();
+    private readonly TownServiceAssets _assets = new(ScenarioResultsOriginalTextures.Contains);
+    private const string RootImageSpriteKey = "results|native-root-image|sprite";
+    private Sprite? _rootImageSprite;
     private readonly ScenarioResultsVisualLease _lease = new();
     private readonly ScenarioResultsVisualLease _closedLease = new();
     private Transform? _sourceWindow;
@@ -158,6 +160,7 @@ internal sealed class ScenarioResultsPresentation
     {
         ScenarioResultsNative.CollectRoots(_roles);
         if (_roles.Count == 0) throw new InvalidDataException("Original results widgets are not initialized.");
+        RegisterRootImageSprite(_roles[0].Root);
         int identity = 17;
         foreach (ScenarioResultsRoot role in _roles) identity = unchecked(identity * 31 + role.Root.GetInstanceID());
         if (_sourceWindow == _roles[0].Root && identity == _roleIdentity && _sources.Count != 0) return;
@@ -185,6 +188,26 @@ internal sealed class ScenarioResultsPresentation
             { source.Parent = owner.Id; source.ParentBinding = owner.Binding.Bindings[Array.IndexOf(owner.Binding.Nodes, parent)]; }
             else { source.Parent = 1; source.ParentBinding = _sources[0].Binding.Bindings[0]; }
         }
+    }
+
+    private void RegisterRootImageSprite(Transform root)
+    {
+        // The audited native Results root in both game scenes references the
+        // same immutable sprite904. Its texture's descriptor is shared by a
+        // different original background, so descriptor discovery cannot choose
+        // it. Bind this exact native widget dependency, including its packed or
+        // mip-baked presentation, without admitting either ambiguous texture.
+        Image? image = root.GetComponent<Image>();
+        if (image == null || image.sprite == null) return;
+        Sprite original = GloomhavenVR.Cards.CardFaceMipBake.OriginalFor(image.sprite);
+        if (original == null) return;
+        if (_rootImageSprite == null)
+        { _assets.RegisterOriginal(RootImageSpriteKey, original); _rootImageSprite = original; }
+        else if (!ReferenceEquals(_rootImageSprite, original))
+            // Another instance of this same immutable native slot may appear
+            // after a scene reload. Preserve the live canonical original and
+            // map the verified slot's new wrapper to it; no instance ID is sent.
+            _assets.Register(RootImageSpriteKey, original);
     }
 
     private void Partition(Transform root)
@@ -605,7 +628,7 @@ internal sealed class ScenarioResultsPresentation
     }
     internal void Reset()
     {
-        RetirePicture(); ReleaseClosedLease(); ClearSources(); _assets.Clear(); _roles.Clear(); _pending = null;
+        RetirePicture(); ReleaseClosedLease(); ClearSources(); _assets.Clear(); _rootImageSprite = null; _roles.Clear(); _pending = null;
         _lastFrame = -1; _retryAt = 0; _lastFailure = string.Empty;
         if (_quarantine != null) Object.Destroy(_quarantine); _quarantine = null;
     }
