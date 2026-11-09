@@ -1,3 +1,20 @@
+**Persistent Results observer updates and common handle, Build767,2026-11-09.**
+
+Paired766/ad6031530 logs show guest input reaches the author but a duplicate
+original DXT5 flow-map identity blocks every subsequent observer picture. Admit
+only the audited resources.assets/265 descriptor. Preserve its actual compressed
+mips in the fixture and reproduce late discovery after the first valid picture.
+Shared Results handles use their existing common native frame rather than local
+hover/ink classification; other windows retain the original rule.
+
+ClassB affected consumer588 assertions/20 compiling controls with bounded
+three-marker repair and input-bound reuse; independent1396-texture census gives
+1404 assertions plus2 controls. Strict Release0W/0E16.77s, source16/16 37.461s;
+compiled13 changed(two behavior), no types added/removed,32 exact resources.
+No full/golden repetition. Exact scopes, failures, times, visual/port limitations,
+receipts and storage cleanup are in MP767-INTEGRATION/RESULTS. No new HMD/Photon
+acceptance; both players need767. Dev only, no ZIP/release/device change.
+
 **Modular Results laser input and stable footer, Build766,2026-11-08.**
 
 Paired765/1c61941fd logs distinguish working guest Continue from missing scroll

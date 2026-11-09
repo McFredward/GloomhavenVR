@@ -1,5 +1,11 @@
 # Planning index
 
+Updated2026-11-09: Build767 repairs a late audited native flow-map duplicate
+freezing the observer Results picture despite working shared scroll inputs.
+Common Results handle geometry is independent of viewer-local ink. The two
+MP767 reports record fresh original-material/scroll/pixel proof, bounded20-control
+qualification, independent exact-source census, reused evidence and limitations.
+
 Updated2026-11-08: Build766 repairs original modular Results paths, real header
 laser hover and a stable native footer outside scrolling rows. MP766-INTEGRATION
 records exact765 causes, targeted734/23 aggregate, unchanged proof, all failures,
@@ -66,6 +72,8 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP767-INTEGRATION.md](MP767-INTEGRATION.md) | Paired766 frozen observer cause, common handle, exact scope and bounded qualification |
+| [MP767-RESULTS.md](MP767-RESULTS.md) | Original DXT5 census, late duplicate reproduction, persistent scroll/bar pixels and fixture limits |
 | [MP766-INTEGRATION.md](MP766-INTEGRATION.md) | Paired765 input/footer causes, bounded final union, proof reuse and hardware handoff |
 | [MP766-INPUT.md](MP766-INPUT.md) | Actual modular producer and physical laser entry, header scope and source/proxy diagnostics |
 | [MP766-FOOTER.md](MP766-FOOTER.md) | Native footer layout, detached draw order, nine state views and exact ownership restoration |
