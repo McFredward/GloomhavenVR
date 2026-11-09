@@ -14,7 +14,9 @@ It executes `CanvasConversion.Convert`, the real reveal decision/completion,
 `PanelSupersample.Tick`/`LateTick`, the allocator, private layer sweeps, camera
 callbacks, capture/resolve/mip resources and final head-camera raster. An iterator
 advances across actual Unity play frames, so cadence is not a supplied frame count.
-The source and observer retain independent windows and capture allocations.
+The source and observer retain independent windows and capture allocations. The accepted integration keeps its supplied conversion frame. An unmerged
+1474x157-to-1474x1024 growth experiment has passing and unexplained failing
+sampler evidence; it is not qualified main coverage.
 
 The original Results hierarchy, artwork, fonts, materials, masks and standard
 uGUI layout components are imported from the game. Additional instances of the
@@ -27,6 +29,12 @@ the observer's first picture and must expose the retained heading at the final h
 Nonplaying AudioSource/Animator sentinels retain their source identities and enabled
 state, while inert copies contain neither component. They do not certify audible
 playback or the timing/curve of the native animation authoring.
+
+The visible test output is deliberately a supplied prefab/widget state: repeated
+Enemies Killed template labels, unpopulated right columns, a white viewport backing
+and a Victory band whose final native GUIAnimator transform is not executed. Equal
+pixels prove capture/presentation parity for that state; they do not prove that
+this is the correct final native Results layout or appearance.
 
 Explicit boundaries remain the native gameplay/bootstrap controllers, scenario
 values, animation clock, readiness and network transport. The imported standard
