@@ -1,5 +1,11 @@
 # Planning index
 
+Updated2026-11-09: Build768 replaces per-report Results texture admission with
+the complete audited native catalogue, scoped only to Results, and exact native
+root-sprite provenance. The paired767 error is reproduced by its exact warning.
+MP768 reports record comprehensive runtime-material census, bounded2407/22
+consumer qualification,4183catalogue decisions, failures, proof reuse and limits.
+
 Updated2026-11-09: Build767 repairs a late audited native flow-map duplicate
 freezing the observer Results picture despite working shared scroll inputs.
 Common Results handle geometry is independent of viewer-local ink. The two
@@ -72,6 +78,9 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP768-INTEGRATION.md](MP768-INTEGRATION.md) | Paired767 repeated failure, complete scoped remedy, bounded final union and reuse |
+| [MP768-ASSETS.md](MP768-ASSETS.md) | Full original texture/material/image census, strict catalogue and immutable root-sprite provenance |
+| [MP768-RESULTS.md](MP768-RESULTS.md) | Runtime noise/cold-background/late-alias consumer, final pixels, controls, failures and ports |
 | [MP767-INTEGRATION.md](MP767-INTEGRATION.md) | Paired766 frozen observer cause, common handle, exact scope and bounded qualification |
 | [MP767-RESULTS.md](MP767-RESULTS.md) | Original DXT5 census, late duplicate reproduction, persistent scroll/bar pixels and fixture limits |
 | [MP766-INTEGRATION.md](MP766-INTEGRATION.md) | Paired765 input/footer causes, bounded final union, proof reuse and hardware handoff |

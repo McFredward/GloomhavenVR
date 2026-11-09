@@ -1,3 +1,20 @@
+**Complete Results native asset identity, Build768,2026-11-09.**
+
+Paired767/5dff1344c proves working scroll input but another blocked runtime GUI
+texture(noise_01). Prior four-prefab fixtures omitted runtime material assignment.
+Results alone now uses the full audited1375-key native catalogue; five conflicting
+or mutable groups stay strict. Exact native root sprite904 bypasses ambiguous
+same-name background textures via immutable widget provenance, including late
+same-shape binding. Default registries, callbacks and wire layouts are unchanged.
+
+ClassB affected consumer2407 assertions/22 compiling controls(204.555s), exact
+hardware-warning counterfactual and actual195texture uploads. Independent4183
+catalogue assertions/2 controls; final Release0W/0E10.19s/source16/16 35.956s.
+Compiled13 changed(two behavior), one addeddata-onlytype,32 exact resources.
+No full/golden repeat; proof reuse, all failures, original-data scope, render/input
+ports, archives and cleanup are in MP768-INTEGRATION/ASSETS/RESULTS. No new HMD/
+Photon acceptance; both peers need768. Dev only, no ZIP/release/device changes.
+
 **Persistent Results observer updates and common handle, Build767,2026-11-09.**
 
 Paired766/ad6031530 logs show guest input reaches the author but a duplicate
