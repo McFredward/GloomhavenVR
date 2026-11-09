@@ -1,3 +1,12 @@
+**Build768 independent post-review,2026-11-09.**
+
+The next supplied run is still767/5dff1344c on both peers, with seven repeated
+noise_01 warnings. Matching768logs were requested; no new768hardware cause is
+established. Independent asset/picture reviews identify latent canonical-retirement,
+material-context and conditional font-atlas gaps plus the prior same-shape rollback
+boundary. See MP768-POSTREVIEW/REVIEW-ASSETS/REVIEW-PICTURE for concrete proofs and
+reachability limits. Review-only classA; no new runtime/fixture input or ModBuild.
+
 **Complete Results native asset identity, Build768,2026-11-09.**
 
 Paired767/5dff1344c proves working scroll input but another blocked runtime GUI

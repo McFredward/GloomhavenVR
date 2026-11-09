@@ -1,5 +1,11 @@
 # Planning index
 
+Updated2026-11-09: independent Build768 post-review distinguishes a fresh run
+still stamped767 from unprovided768hardware evidence. MP768-POSTREVIEW and its
+two independent reports record default/asset lifetime and rendering boundaries,
+exact negative contract repros and the matching-log requirement. Review only:
+no runtime/fixture change or new ModBuild.
+
 Updated2026-11-09: Build768 replaces per-report Results texture admission with
 the complete audited native catalogue, scoped only to Results, and exact native
 root-sprite provenance. The paired767 error is reproduced by its exact warning.
@@ -78,6 +84,9 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP768-POSTREVIEW.md](MP768-POSTREVIEW.md) | Fresh767 retest provenance, independent review findings and current evidence boundary |
+| [MP768-REVIEW-ASSETS.md](MP768-REVIEW-ASSETS.md) | Independent original-asset policy, canonical lifetime, material context and font alias review |
+| [MP768-REVIEW-PICTURE.md](MP768-REVIEW-PICTURE.md) | End-to-end Results picture/visibility/retirement review and split-client proof limits |
 | [MP768-INTEGRATION.md](MP768-INTEGRATION.md) | Paired767 repeated failure, complete scoped remedy, bounded final union and reuse |
 | [MP768-ASSETS.md](MP768-ASSETS.md) | Full original texture/material/image census, strict catalogue and immutable root-sprite provenance |
 | [MP768-RESULTS.md](MP768-RESULTS.md) | Runtime noise/cold-background/late-alias consumer, final pixels, controls, failures and ports |
