@@ -117,10 +117,16 @@ internal sealed class ExtrasSendQueue
                 if (pending.Identity is ScenarioResultsState queued && queued.HasPresentation
                     && queued.BaseRevision == 0 && queued.Key == state.Key && queued.Author == state.Author
                     && queued.Revision == state.Revision) return;
-            // This complete picture has no dependency on an unfinished older
-            // picture. Do not spend the new opening's finite reserve finishing it.
+            // Actual Results sampling can change property membership while the
+            // window remains open: Graphic.enabled toggles its Material entry.
+            // Repeated full originals then cancelled every unfinished Stats
+            // picture, leaving the last small heading forever. Finish an active
+            // visible full original of THIS opening while retaining only the
+            // newest waiting full and its delta below. New openings, closes and
+            // superseded sparse/pose output still cancel immediately.
             if (_activeIdentity is ScenarioResultsState older && (older.Author != state.Author
-                || older.Key != state.Key || state.Revision > older.Revision))
+                || older.Key != state.Key || (state.Revision > older.Revision
+                && (!older.HasPresentation || older.BaseRevision != 0 || !older.Visible || !state.Visible))))
             { _pages = null; _page = 0; _activeIdentity = null; }
             _pending.Clear();
         }
