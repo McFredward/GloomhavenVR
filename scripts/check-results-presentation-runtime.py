@@ -3,7 +3,7 @@
 Native controllers/bootstrap and animation clocks are explicit ports. Original static
 rects, sprites/fonts and actual Unity final pixels are compared independently.
 """
-import argparse,hashlib,importlib.util,json,os,re,shutil,signal,subprocess,tempfile
+import argparse,hashlib,importlib.util,json,os,re,shutil,signal,subprocess,tempfile,time
 from pathlib import Path
 from town_run_retention import cleanup_completed_run
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,7 +20,8 @@ def command(cmd,log,timeout=240):
    except ProcessLookupError:pass
    p.wait()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--bar-source-root',type=Path,default=ROOT);parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ started=time.monotonic()
  if args.footer_only:os.environ['RESULTS_FOOTER_ONLY']='1'
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
  fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=ROOT/'src/GloomhavenVR';pins=[]
@@ -38,7 +39,11 @@ def main():
   toggle=native.parent/'UIReadyToggle.cs';sources['NativeReady.cs']+='\npublic partial class UIReadyToggle {\n'+'\n'.join(method(toggle.read_text(),k) for k in ['public bool ShouldBeVisible','private void OnReadiedPlayersChanged(','private void UpdateVisiblity('])+'\n}'
   options=native.parent;sources['NativeControls.cs']='using System;using UnityEngine;using UnityEngine.EventSystems;public abstract partial class UIResultsOption {\n'+'\n'.join(method((options/'UIResultsOption.cs').read_text(),k) for k in ['public virtual void Register(','protected void InvokeAction('])+'\n}public partial class UIResultsButtonOption {\n'+method((options/'UIResultsButtonOption.cs').read_text(),'public override void Register(')+'\n}'
   for component in ['ExtendedButton','ExtendedToggle']:sources['NativeControls.cs']+='\npublic partial class '+component+'{\n'+method((options/(component+'.cs')).read_text(),'public override void OnPointerClick(')+'\n}'
-  bridge=base/'WorldUI/Modal/SharedWindowScrollBridge.cs';sources['ResultsNestedLease.cs']='using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.WorldUI {'+method(bridge.read_text(),'internal sealed class SharedWindowScrollCanvasLease')+'}';pins+=[toggle,bridge,*[options/(n+'.cs') for n in ['UIResultsOption','UIResultsButtonOption','ExtendedButton','ExtendedToggle']]]
+  bridge=base/'WorldUI/Modal/SharedWindowScrollBridge.cs';sources['ResultsNestedLease.cs']='using System;using System.Collections.Generic;using TMPro;using UnityEngine;using UnityEngine.UI;using UnityEngine.EventSystems;namespace GloomhavenVR.WorldUI {'+method(bridge.read_text(),'internal sealed class SharedWindowScrollCanvasLease')+method(bridge.read_text(),'internal sealed class SharedResultsHeaderGraphic')+'}';pins+=[toggle,bridge,*[options/(n+'.cs') for n in ['UIResultsOption','UIResultsButtonOption','ExtendedButton','ExtendedToggle']]]
+  bar=args.bar_source_root/'src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs';sources['ActualResultsBar.cs']='using UnityEngine;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {internal sealed partial class GrabbableModal {'+method(bar.read_text(),'    private void SyncBar(')+'}}';pins.append(bar)
+  for rel in ['WorldUI/Grab/GrabBarLayout.cs','WorldUI/Grab/BarSizeSettle.cs','WorldUI/Grab/GrabBarTween.cs','Core/GrabBar.cs','Core/GrabBarVisual.cs','Core/GrabBarTexture.cs','Core/EmbeddedTexture.cs']:
+   path=base/rel;sources[path.name]=path.read_text();pins.append(path)
+  lifecycle=ROOT/'scripts/results-window-runtime/Boundary.cs';lifecycle_text=lifecycle.read_text().replace('internal static class WorldUIConfig','internal static partial class WorldUIConfig');pins.append(lifecycle)
   roles=json.loads((inputs/'roles.json').read_text());sources['NativePaths.cs']='internal static class NativePaths {'+'\n'.join('internal const string '+key+'='+json.dumps(roles['resultsPaths'][str(roles[key])])+';' for key in ['header','resultsPanel','statsPanel','buttonsContainer'])+'}'
   cases=[('production',None,None,None,None),
    ('old-native-image-import','Program.cs','if(c.HasAttribute("nativeMaterial"))image.material=NativeMaterials.Load(c.GetAttribute("nativeMaterial"));','','original custom image materials survive native results and ready import'),
@@ -59,10 +64,12 @@ def main():
    ('future-opening-discarded','ScenarioResultsPresentation.cs','if (_pending != null && _pending.Author == author && _pending.Key == key) _pending = null;','if (_pending != null) _pending = null;','early future opening survives native retirement of the previous results'),
    ('no-smooth-output','ScenarioResultsPresentation.cs','float amount = _blendDuration <= 0f ? 1f : Mathf.Clamp01((ResultsClock.Now - _receivedAt) / _blendDuration);','float amount = 1f;','native transform animation advances smoothly between complete network samples'),
    ('no-atomic-retention','ScenarioResultsPresentation.cs','                    // A late original/asset never replaces a valid picture with a partial one.','                    RetirePicture();','a failed complete candidate retains the entire previously valid public picture')]
+  cases.append(('flowmap-descriptor-refuses','TownServiceAssets.cs','|| texture.name == "T_flowmap_outwards_blur" && texture.width == 256 && texture.height == 256\n               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 9','|| false','late native flowmap duplicate must not freeze host-authored scroll on observer'))
+  cases.append(('results-bar-uses-private-ink','ActualResultsBar.cs','bool inkUsable = !resultsFrame && _inkValid && unit > 1e-9f;','bool inkUsable = _inkValid && unit > 1e-9f;','Results author and observer bars ignore divergent private ink width centre and lower extent'))
   cases.append(('missing-public-continue-surface','ScenarioResultsPresentation.cs','        AttachContinuationInputs(state);','','the visible common original Continue carries its own metadata-only input surface'))
-  cases.append(('old-fitted-footer','ScenarioResultsReadyPark.cs','        Footer.Tick(p, control);','','the original Results footer is outside the live scroll mask at every scroll position'))
-  cases.append(('footer-mount-lost','ScenarioResultsPresentation.cs','if (!source.Binding.Root.IsChildOf(parent)) nodes[0] = RelativeRoot(nodes[0], source.Binding.Root, parent);','','author and observer retain the same actual footer world rectangle'))
-  cases.append(('footer-sibling-lost','ScenarioResultsPresentation.cs','copy.Values[TownServiceProperty.Sibling] = new TownServiceValue\n                { Numbers = new[] { (float)parent.childCount }, Text = sibling.Text };','copy.Values[TownServiceProperty.Sibling] = sibling;','complete native footer and scrolled content have matching author/observer final pixels despite private rows and zoom'))
+  cases.append(('old-fitted-footer','ScenarioResultsReadyPark.cs','        Footer.Tick(p, control);','','the complete final camera image really contains the drawn Results bar'))
+  cases.append(('footer-mount-lost','ScenarioResultsPresentation.cs','if (!source.Binding.Root.IsChildOf(parent)) nodes[0] = RelativeRoot(nodes[0], source.Binding.Root, parent);','','initial complete common Results pixels agree before a second wrapper exists'))
+  cases.append(('footer-sibling-lost','ScenarioResultsPresentation.cs','copy.Values[TownServiceProperty.Sibling] = new TownServiceValue\n                { Numbers = new[] { (float)parent.childCount }, Text = sibling.Text };','copy.Values[TownServiceProperty.Sibling] = sibling;','initial complete common Results pixels agree before a second wrapper exists'))
   cases.append(('footer-takeover-receipt','ScenarioResultsPresentation.cs','        ScenarioResultsReadyPark.BeforeCommonPicture(panel);','','common picture takeover restores the pre-footer fit receipt'))
   cases.append(('footer-overwrites-successor','ScenarioResultsReadyPark.cs','bool ownsFrame = ReferenceEquals(_panel.FitContentRoot, _fitRoot)','bool ownsFrame = bool.Parse("true") || ReferenceEquals(_panel.FitContentRoot, _fitRoot)','footer retirement cannot overwrite a successor frame fit root or target pose'))
   if args.footer_only:cases=[x for x in cases if x[0] in {'production','old-fitted-footer','footer-mount-lost','footer-sibling-lost','footer-takeover-receipt','footer-overwrites-successor'}]
@@ -75,8 +82,9 @@ def main():
    for filename,text in {**sources, 'Program.cs':(fixture/'Program.cs').read_text()}.items():
     if filename==file:assert text.count(before)==1;text=text.replace(before,after)
     (prod/filename).write_text(text)
+   (case/'LifecycleBoundary.cs').write_text(lifecycle_text)
    csproj=case/'Presentation.csproj';shutil.copy2(fixture/'Presentation.csproj',csproj);assembly='ResultsPresentation_'+name.replace('-','_')
-   code=command([str(Path.home()/'.dotnet/dotnet'),'build',str(csproj),'-c','Release','--nologo','--verbosity','quiet','-p:UseSharedCompilation=false','-nodeReuse:false','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(prod),'-p:LifecycleBoundary='+str(ROOT/'scripts/results-window-runtime/Boundary.cs'),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(managed)],case/'build.log')
+   code=command([str(Path.home()/'.dotnet/dotnet'),'build',str(csproj),'-c','Release','--nologo','--verbosity','quiet','-p:UseSharedCompilation=false','-nodeReuse:false','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(prod),'-p:LifecycleBoundary='+str(case/'LifecycleBoundary.cs'),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(managed)],case/'build.log')
    assert code==0,(case/'build.log').read_text()
    dll=case/'bin/Release/netstandard2.1'/(assembly+'.dll');target=project/'Assets/Plugins'/dll.name;shutil.copy2(dll,target);manifest['cases'].append({'name':name,'dll':str(target),'expected':expected or ''})
   spec=importlib.util.spec_from_file_location('native_material_ports',fixture/'native-material-ports.py');ports=importlib.util.module_from_spec(spec);spec.loader.exec_module(ports);ports.write_ports(inputs,project/'Assets/Resources/OriginalShaders')
@@ -86,6 +94,7 @@ def main():
   for file in ['UnityEngine.UI.dll','Unity.TextMeshPro.dll']:shutil.copy2(managed/file,project/'Assets/Plugins'/file)
   shaders=ROOT/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars';source=(shaders/'ActorBarSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarSDF"','Shader "TextMeshPro/Distance Field"',1);source=source.replace('\n\t\t\t#include "ActorBarForeground.cginc"','',1);source=re.sub(r'\n\t\t\tGHVRActorBarForegroundClip\([^;]*\);','',source);source=re.sub(r'\n\t\t\tfloat4 ghvrScreenPosition : TEXCOORD7;','',source);source=re.sub(r'\n\t\t\tOUT.ghvrScreenPosition = ComputeScreenPos\(OUT.vertex\);','',source);source=source.replace('\n\t\t\t\tComputeScreenPos(vPosition),','');source=source.replace('Fallback "GloomhavenVR/ActorBarMobileSDF"','Fallback "TextMeshPro/Mobile/Distance Field"')
   (project/'Assets/Resources/OriginalShaders/NativeSDF.shader').write_text(source)
+  overlay=base.parent.parent/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader';shutil.copy2(overlay,project/'Assets/Resources/OriginalShaders/GrabBarOverlay.shader');pins += [overlay,base/'Assets/grabbar_generic.png']
   for name in ['TMPro.cginc','TMPro_Properties.cginc']:shutil.copy2(shaders/name,project/'Assets/Resources/OriginalShaders'/name)
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{k:'1.0.0' for k in ['com.unity.modules.ui','com.unity.modules.imgui','com.unity.modules.imageconversion','com.unity.modules.physics','com.unity.modules.jsonserialize']}}));(project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');mf=folder/'manifest.json';mf.write_text(json.dumps(manifest,indent=2))
   pins += [frame,native,runner,Path(__file__),ROOT/'scripts/results-window-runtime/Boundary.cs',*fixture.glob('*'),*shaders.glob('*.cginc'),shaders/'ActorBarSDF.shader']
@@ -97,5 +106,5 @@ def main():
   assert code==0 and result.exists(),'Unity failed: '+str(folder)
   status=0
  finally:
-  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
+  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only,'elapsed_seconds':time.monotonic()-started},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
 if __name__=='__main__':main()

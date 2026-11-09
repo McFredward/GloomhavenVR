@@ -41,7 +41,9 @@ def export_texture(reader):
  if key in texture_records:return key
  tree=reader.read_typetree();texture=reader.read();image=texture.image
  raw=texture.get_image_data();raw_hash=hashlib.sha256(raw).hexdigest()
- if tree['m_TextureFormat'] in (3,4):(out/(key+'.raw')).write_bytes(raw)
+ # Keep the audited compressed flowmap's full native descriptor/mip payload too.
+ # Decoding it to RGBA32 hid the Build766 mid-session wrapper collision.
+ if tree['m_TextureFormat'] in (3,4) or tree['m_Name']=='T_flowmap_outwards_blur':(out/(key+'.raw')).write_bytes(raw)
  image.save(out/(key+'.png'))
  texture_records[key]={'name':tree['m_Name'],'width':tree['m_Width'],'height':tree['m_Height'],
   'format':tree['m_TextureFormat'],'mips':tree['m_MipCount'],'original':p.object_id(reader),
