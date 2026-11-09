@@ -20,15 +20,18 @@ def command(cmd,log,timeout=240):
    except ProcessLookupError:pass
    p.wait()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--bar-source-root',type=Path,default=ROOT);parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--source-root',type=Path,default=ROOT);parser.add_argument('--bar-source-root',type=Path,default=ROOT);parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
  started=time.monotonic()
  if args.footer_only:os.environ['RESULTS_FOOTER_ONLY']='1'
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
- fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=ROOT/'src/GloomhavenVR';pins=[]
+ fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=args.source_root/'src/GloomhavenVR';pins=[]
  try:
   inputs=folder/'inputs';inputs.mkdir();assert command([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(ROOT),str(inputs)],folder/'export.log')==0,'Original export failed'
   paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs',base/'WorldUI/Composites/ScenarioResultsReadyPark.cs',base/'WorldUI/Composites/MovedSubtreeLayers.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
+  paths.append(base/'Net/ScenarioResultsOriginalTextures.cs')
   sources={p.name:p.read_text() for p in paths};pins+=paths
+  expected_keys=[json.loads(line.strip().rstrip(',')) for line in sources['ScenarioResultsOriginalTextures.cs'].splitlines() if line.strip().startswith('"texture|')]
+  sources['CatalogExpectations.cs']='using System;using System.Collections.Generic;internal static class CatalogExpectations {private static readonly HashSet<string> Keys=new(StringComparer.Ordinal){'+','.join(json.dumps(key) for key in expected_keys)+'};internal static bool Contains(string key)=>Keys.Contains(key);}'
   sources['TownServiceBinding.cs']=sources['TownServiceBinding.cs'].replace('    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {','    internal void Apply(TownServiceFrame frame, TownServiceAssets assets)\n    {\n        ResultsApplyFault.BeforeApply(Root);')
   sources['ScenarioResultsPresentation.cs']=sources['ScenarioResultsPresentation.cs'].replace('Time.unscaledTime','ResultsClock.Now').replace('Time.frameCount','ResultsClock.Frame')
   dto=args.codec_source_root/'src/GloomhavenVR/Net/ScenarioResultsState.cs'
@@ -47,7 +50,6 @@ def main():
   roles=json.loads((inputs/'roles.json').read_text());sources['NativePaths.cs']='internal static class NativePaths {'+'\n'.join('internal const string '+key+'='+json.dumps(roles['resultsPaths'][str(roles[key])])+';' for key in ['header','resultsPanel','statsPanel','buttonsContainer'])+'}'
   cases=[('production',None,None,None,None),
    ('old-native-image-import','Program.cs','if(c.HasAttribute("nativeMaterial"))image.material=NativeMaterials.Load(c.GetAttribute("nativeMaterial"));','','original custom image materials survive native results and ready import'),
-   ('noise-descriptor-refuses','TownServiceAssets.cs','|| texture.name == "3DNoise" && texture.width == 256 && texture.height == 256\n               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 9','|| false','a whole native picture becomes visible atomically in the converted owner'),
    ('no-inactive-preparation','ScenarioResultsPresentation.cs','''            foreach (ScenarioResultsPart part in state.Parts)
             {
                 Copy copy = copies[part.Id];
@@ -64,7 +66,10 @@ def main():
    ('future-opening-discarded','ScenarioResultsPresentation.cs','if (_pending != null && _pending.Author == author && _pending.Key == key) _pending = null;','if (_pending != null) _pending = null;','early future opening survives native retirement of the previous results'),
    ('no-smooth-output','ScenarioResultsPresentation.cs','float amount = _blendDuration <= 0f ? 1f : Mathf.Clamp01((ResultsClock.Now - _receivedAt) / _blendDuration);','float amount = 1f;','native transform animation advances smoothly between complete network samples'),
    ('no-atomic-retention','ScenarioResultsPresentation.cs','                    // A late original/asset never replaces a valid picture with a partial one.','                    RetirePicture();','a failed complete candidate retains the entire previously valid public picture')]
-  cases.append(('flowmap-descriptor-refuses','TownServiceAssets.cs','|| texture.name == "T_flowmap_outwards_blur" && texture.width == 256 && texture.height == 256\n               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 9','|| false','late native flowmap duplicate must not freeze host-authored scroll on observer'))
+  cases.append(('results-native-catalog-disabled','ScenarioResultsPresentation.cs','private readonly TownServiceAssets _assets = new(ScenarioResultsOriginalTextures.Contains);','private readonly TownServiceAssets _assets = new();','runtime GUI noise dependency does not freeze the persistent observer after Victory; failure: Ambiguous native town-service asset: texture|noise_01|256|256|3|9'))
+  cases.append(('results-original-root-alias-disabled','ScenarioResultsPresentation.cs','private void RegisterRootImageSprite(Transform root)\n    {','private void RegisterRootImageSprite(Transform root)\n    {\n        if (bool.Parse("true")) return;','cold Results observer retains its exact native root backdrop despite conflicting original discovery'))
+  cases.append(('results-late-root-refresh-disabled','ScenarioResultsPresentation.cs','        RegisterRootImageSprite(panel.Target);','','late original root sprite resolves on the existing observer without a structural rebuild'))
+  cases.append(('results-native-catalog-admits-unknown','ScenarioResultsOriginalTextures.cs','=> Keys.Contains(descriptorKey);','=> Keys.Contains(descriptorKey) || descriptorKey.StartsWith("texture|", StringComparison.Ordinal);','Results-only catalog keeps conflicting and mutable original groups excluded'))
   cases.append(('results-bar-uses-private-ink','ActualResultsBar.cs','bool inkUsable = !resultsFrame && _inkValid && unit > 1e-9f;','bool inkUsable = _inkValid && unit > 1e-9f;','Results author and observer bars ignore divergent private ink width centre and lower extent'))
   cases.append(('missing-public-continue-surface','ScenarioResultsPresentation.cs','        AttachContinuationInputs(state);','','the visible common original Continue carries its own metadata-only input surface'))
   cases.append(('old-fitted-footer','ScenarioResultsReadyPark.cs','        Footer.Tick(p, control);','','the complete final camera image really contains the drawn Results bar'))

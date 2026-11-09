@@ -1,5 +1,5 @@
 """Export original results/ready render authoring without executing game controllers."""
-import ast,hashlib,importlib.util,json,sys,xml.etree.ElementTree as ET
+import ast,hashlib,importlib.util,json,re,sys,xml.etree.ElementTree as ET
 from pathlib import Path
 import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
@@ -30,7 +30,7 @@ roles['ready']=807
 # Preserve the ORIGINAL custom image material contracts too. The earlier fixture
 # exported only shader names and then assigned UI/Default at import, so it never
 # asked the real resolver for dormant result/ready effect textures such as3DNoise.
-material_records={};material_envs={};shader_records={};texture_records={}
+material_records={};material_envs={};shader_records={};texture_records={};root_texture_shape=None
 def original_reader(identity):
  name=identity['serialized_file']
  if name not in material_envs:
@@ -39,16 +39,16 @@ def original_reader(identity):
 def export_texture(reader):
  key='native-texture-'+reader.assets_file.name.replace('.','_')+'-'+str(reader.path_id)
  if key in texture_records:return key
- tree=reader.read_typetree();texture=reader.read();image=texture.image
- raw=texture.get_image_data();raw_hash=hashlib.sha256(raw).hexdigest()
- # Keep the audited compressed flowmap's full native descriptor/mip payload too.
- # Decoding it to RGBA32 hid the Build766 mid-session wrapper collision.
- if tree['m_TextureFormat'] in (3,4) or tree['m_Name']=='T_flowmap_outwards_blur':(out/(key+'.raw')).write_bytes(raw)
- image.save(out/(key+'.png'))
+ tree=reader.read_typetree();texture=reader.read()
+ deferred=tree['m_Width']<=0 or tree['m_Height']<=0
+ raw=b'' if deferred else texture.get_image_data();raw_hash=hashlib.sha256(raw).hexdigest()
+ # Preserve every native material dependency's real format and complete mip
+ # stream. Decoding selected formats to RGBA32 hid actual registry identities.
+ if not deferred:(out/(key+'.raw')).write_bytes(raw)
  texture_records[key]={'name':tree['m_Name'],'width':tree['m_Width'],'height':tree['m_Height'],
   'format':tree['m_TextureFormat'],'mips':tree['m_MipCount'],'original':p.object_id(reader),
   'native_pixel_stream_sha256':raw_hash,'native_pixel_stream_bytes':len(raw),
-  'pixels_sha256':hashlib.sha256(image.tobytes()).hexdigest()}
+  'deferred':deferred}
  return key
 def export_material(identity):
  reader=original_reader(identity);key='native-material-'+reader.assets_file.name.replace('.','_')+'-'+str(reader.path_id)
@@ -67,14 +67,25 @@ def export_material(identity):
   'colors':[{'name':k,'value':[v['r'],v['g'],v['b'],v['a']]} for k,v in saved.get('m_Colors',[])]}
  return key
 def native_materials(data):
+ global root_texture_shape
  for component in data['components']:
   if component.get('kind')=='Image' and component.get('material'):
    component['nativeMaterial']=export_material(component['material'])
+  if component.get('kind')=='Image' and component.get('spriteOriginal') and data['original']['path_id']==roles['window']:
+   # The actual Results root's sprite has a conflicting same-descriptor sibling.
+   # Preserve its true full native texture; a cropped RGBA upload under an export
+   # filename hid this provenance edge in the earlier fixture.
+   reader=original_reader(component['spriteOriginal']);sprite=reader.read_typetree()
+   texture=ptr(sprite['m_RD']['texture'],reader).deref();td=texture.read_typetree();rect=sprite['m_Rect']
+   assert rect['x']==rect['y']==0 and rect['width']==td['m_Width'] and rect['height']==td['m_Height']
+   component['nativeSpriteTexture']=export_texture(texture)
+   root_texture_shape=tuple(td[k] for k in ('m_Name','m_Width','m_Height','m_TextureFormat','m_MipCount'))
  for child in data.get('children',[]):native_materials(child)
 def material_xml(node):
  result=xml_node(node)
  for original,component in zip(node['components'],result.findall('component')):
   if original.get('nativeMaterial'):component.set('nativeMaterial',original['nativeMaterial'])
+  if original.get('nativeSpriteTexture'):component.set('nativeSpriteTexture',original['nativeSpriteTexture'])
  for child,element in zip(node.get('children',[]),result.findall('node')):
   result.remove(element);result.append(material_xml(child))
  return result
@@ -95,4 +106,39 @@ for name,gid in [('results',957),('ready',807),('battle',roles['battleGoalResult
 (out/'roles.json').write_text(json.dumps(roles,indent=2))
 (out/'provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((base/'level6').read_bytes()).hexdigest(),'limits':'Original static hierarchy, native sprite/font authoring and manager field identities. Original gameplay controllers, scenario-populated values, native animation clocks and networking are explicit fixture ports.'},indent=2))
 
-(out/'native-materials.json').write_text(json.dumps({'materials':material_records,'shaders':shader_records,'textures':texture_records,'boundary':'Exact original native material/property/texture authoring; GL fragment programs are declared fixture ports, not original Windows shader acceptance.'},indent=2)+'\n')
+# The four serialized roots are not the runtime material closure. Native button
+# state/effect controllers install other original materials after initialization.
+# Enumerate every original material's dependency table independently of what the
+# previous failing screenshot happened to use. The direct inventory and source
+# file hashes make omissions auditable instead of blessing a hand-selected count.
+inventory=[];files=[]
+for file in sorted(path for path in base.iterdir() if path.suffix=='.assets' or re.fullmatch(r'level\d+',path.name)):
+ loaded=UnityPy.load(str(file));loaded.typetree_generator=gen
+ readers={o.path_id:o for o in loaded.objects};material_envs[file.name]=(loaded,readers)
+ files.append({'file':file.name,'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
+ for reader in readers.values():
+  if reader.type.name=='Texture2D' and root_texture_shape is not None:
+   td=reader.read_typetree()
+   if tuple(td[k] for k in ('m_Name','m_Width','m_Height','m_TextureFormat','m_MipCount'))==root_texture_shape:
+    export_texture(reader)
+  if reader.type.name!='Material':continue
+  identity=p.object_id(reader);data=reader.read_typetree();saved=data['m_SavedProperties'];dependencies=[]
+  for name,tex in saved.get('m_TexEnvs',[]):
+   ref=tex['m_Texture']
+   if ref['m_PathID']:
+    original=ptr(ref,reader).deref()
+    assert original.type.name=='Texture2D',(identity,name,original.type.name)
+    dependencies.append({'property':name,'texture':export_texture(original)})
+  shader=ptr(data['m_Shader'],reader).deref() if data['m_Shader']['m_PathID'] else None
+  shader_name=shader.read_typetree()['m_ParsedForm']['m_Name'] if shader else ''
+  # The whole original material/texture closure is inventoried, but only the
+  # reported runtime GUI button family joins actual UI material/render tests.
+  # Unrelated world shaders are not rendered through invented UI substitutes.
+  reported=(data['m_Name'].startswith('GUI_') or shader_name.startswith('GUI/')) and any(
+   texture_records[d['texture']]['name']=='noise_01' for d in dependencies)
+  if reported:export_material(identity)
+  inventory.append({'original':identity,'name':data['m_Name'],'shader':shader_name,
+   'texture_dependencies':dependencies,'saved_properties':saved,'reported_runtime_gui_family':reported})
+(out/'native-material-inventory.json').write_text(json.dumps({'files':files,'materials':inventory,
+ 'root_texture_variants':[key for key,td in texture_records.items() if tuple(td[k] for k in ('name','width','height','format','mips'))==root_texture_shape]},indent=2)+'\n')
+(out/'native-materials.json').write_text(json.dumps({'materials':material_records,'shaders':shader_records,'textures':texture_records,'boundary':'Every original serialized material and its native texture/property dependencies, including runtime GUI button-state candidates; exact native formats/mips. GL fragment programs are declared fixture ports, not original Windows shader acceptance.'},indent=2)+'\n')
