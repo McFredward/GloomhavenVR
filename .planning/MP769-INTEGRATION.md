@@ -80,3 +80,78 @@ means application succeeded, not that headset pixels were measured. The source's
 bit4); receiver stages report -1 rather than inventing a source phase. Repeated
 painting of the same immutable state avoids another census. Detailed frame
 traces have not been promoted to Info.
+
+## Complete-checkpoint environment correction
+
+The initial complete guard invocation starts16source and297local suites. The
+source group passes16/16. Fifteen later suites reject the invocation before
+executing a fixture because `ADB_SERVER_SOCKET` was not supplied. The
+explicit parser errors are preserved in the complete run's logs; this is not
+product or rendering evidence. Let the remaining independent suites finish,
+then run only the refused/failed affected selection with a dedicated local ADB
+socket. Do not repeat passed suites. Complete any subsequently unreached wire,
+bundle, surface and compiled checks separately against the same frozen runtime
+inputs, recording aggregate coverage rather than relabeling the failed complete
+invocation as green. Further failures, if any, must be classified independently.
+
+## Final integrated evidence
+
+Candidate runtime is frozen at the queue repair and `0d111db69` receipt/build
+checkpoint; subsequent commits change fixtures/developer reports only. The
+complete inventory binds `9e217a01e` executable inputs. The later developer head
+README is the only changed file in the11653-input frozen manifest; no renderer,
+fixture executable, native reference or toolchain changed during qualification.
+
+- Source16/16,14.6s. Initial local297/297 recorded in2905.188s:282pass and15
+  environment refusals before fixture execution. Its exit1 and the guard's generic
+  "wire format changed" message are retained; actual goldens independently pass
+  307211assertions. This is aggregate coverage, not a successful complete invocation.
+- Complete Results picture wrapper:2416assertions/24compiling controls, plus its
+  mandatory actual sampled-data transport961/5 and actual built-DLL head55/1.
+  Total437.107s. The old cancellation guard completes only the heading in40.7
+  simulated seconds; the corrected guard completes45pictures, first Stats at
+  step25,0.867s after Stats input starts at step8 (51ms simulated steps).
+- Default publisher/transport/ingress:2176assertions/10compiling controls,
+  105.578s. Two receivers, one reordering same-snapshot pages, converge to the
+  latest common Stats under24native/8other busy background streams. The default
+  suite now includes the exact old full-cancellation guard as a negative control.
+- Original Results window and native continuation controls pass in28.717s and
+  61.377s. Their implementations and original actor/network permissions are unchanged.
+- Strict Release0warnings/0errors,16.24s. The complete head test also builds and
+  source-pins its actual Release DLL. Debug behavior does not differ in the patch.
+- Bundle/native mesh-part format and docs-i18n pass. Surface672config keys,
+  289Harmony registrations and4862log tokens: only one bounded progress marker
+  added, no removed surface. Comparisons against both768and the historical guard
+  baseline pass.
+- Private decompilation against768:14changed existing types, of which11are
+  inspected build/commit metadata and3contain the reviewed behavior (queue,
+  driver, picture receipt). One new internal DTO-only receipt type, no removed
+  types and32byte-identical embedded resources. Full runtime review finds no
+  additional blocker; no capture/shader/codec/native callback implementation changes.
+
+Final repaired union:14/14isolated suites pass in1936.2s with the dedicated
+ADB socket; the additional combat-log scope passes1/1in33.0s. `qualify.py` verifies
+all297unique local IDs, matching inventory hashes, source16/16, frozen runtime
+inputs and no repeated successful scope. `qualification.json` records the exact
+per-ID provenance. The original15refusals remain failed; no successful complete
+invocation is claimed. All originally unreachable wire/bundle/surface/compiled
+checks execute independently, against the same unchanged executable inputs.
+The private ADB server is stopped after all owned processes finish.
+
+## Delivery and acceptance boundary
+
+Integrate/push only `origin/dev`, Build769on both peers. Embedded assets and
+dependencies are unchanged; the mod DLL is the only changed runtime deliverable.
+No local release archive, release, Frame/PC device patch or new installation step.
+Native opening animation/audio remain original; this repair introduces no second
+playback and no final-state-only visual shortcut. The accepted head fixture's
+bootstrap/gameplay/audio/final-layout ports are explicit. Its separate exact-frame
+growth experiment remains unmerged/unqualified, with the unexplained initial
+shader-property failure preserved. No fresh HMD/Photon/Windows visual or audible
+acceptance is claimed.
+
+All failed and passing lane attempts, source/native/PNG evidence and verification
+receipts are preserved under `validation/build769`. Completed-run cache cleanup
+is mandatory; only these three owned worktrees retire after archived-source
+verification and the authorized dev push. Foreign Quest3/NPC602/water673 trees
+and the maintainer's hardware inputs are untouched.

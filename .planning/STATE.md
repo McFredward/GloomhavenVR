@@ -1,3 +1,23 @@
+**Shared Results starvation repair, Build769, 2026-11-09.**
+
+Both current hardware logs are768/d18f3cb7c; missing-original warnings are gone.
+Actual native Graphic enable transitions can require new full pictures. The
+Results queue cancelled every unfinished older full of the SAME opening, leaving
+only the completed Victory heading indefinitely. Finish the active visible full;
+coalesce only waiting full/delta data. New opening/author and close still supersede.
+Native controllers, opening animations/audio, inputs, wire layout and other stream
+policies are unchanged. Bounded queued/assembled/displayed receipts distinguish
+future failures. Independent runtime/compiled reviews find no further blocker.
+
+Final integrated Results consumer2416/24controls, actual-sample transport961/5,
+actual built-DLL head55/1 and default transport2176/10 pass. ClassC checkpoint:
+source16/16 and297local scopes qualify in aggregate. Initial282pass/15private-ADB
+startup refusals are preserved; only the15refused scopes were rerun and pass.
+Actualwire307211, strictRelease0W/0E, bundles/docs/surface pass. No successful
+scope was repeated. No fresh HMD acceptance; dev-only delivery, unchanged assets.
+See MP769-INTEGRATION/REVIEW/TRANSPORT/PICTURE/CAPTURE for actual scope, source
+bindings, all failures, ports and the explicitly unmerged frame-growth experiment.
+
 **Build768 independent post-review,2026-11-09.**
 
 The next supplied run is still767/5dff1344c on both peers, with seven repeated
