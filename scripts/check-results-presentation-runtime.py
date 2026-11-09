@@ -20,9 +20,10 @@ def command(cmd,log,timeout=240):
    except ProcessLookupError:pass
    p.wait()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--source-root',type=Path,default=ROOT);parser.add_argument('--bar-source-root',type=Path,default=ROOT);parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append');parser.add_argument('--footer-only',action='store_true');parser.add_argument('--widget-state-only',action='store_true');parser.add_argument('--source-root',type=Path,default=ROOT);parser.add_argument('--bar-source-root',type=Path,default=ROOT);parser.add_argument('--codec-source-root',type=Path,default=ROOT);args=parser.parse_args()
  started=time.monotonic()
  if args.footer_only:os.environ['RESULTS_FOOTER_ONLY']='1'
+ if args.widget_state_only:os.environ['RESULTS_WIDGET_STATE_ONLY']='1'
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
  fixture=ROOT/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=args.source_root/'src/GloomhavenVR';pins=[]
  try:
@@ -77,7 +78,10 @@ def main():
   cases.append(('footer-sibling-lost','ScenarioResultsPresentation.cs','copy.Values[TownServiceProperty.Sibling] = new TownServiceValue\n                { Numbers = new[] { (float)parent.childCount }, Text = sibling.Text };','copy.Values[TownServiceProperty.Sibling] = sibling;','initial complete common Results pixels agree before a second wrapper exists'))
   cases.append(('footer-takeover-receipt','ScenarioResultsPresentation.cs','        ScenarioResultsReadyPark.BeforeCommonPicture(panel);','','common picture takeover restores the pre-footer fit receipt'))
   cases.append(('footer-overwrites-successor','ScenarioResultsReadyPark.cs','bool ownsFrame = ReferenceEquals(_panel.FitContentRoot, _fitRoot)','bool ownsFrame = bool.Parse("true") || ReferenceEquals(_panel.FitContentRoot, _fitRoot)','footer retirement cannot overwrite a successor frame fit root or target pose'))
+  cases.append(('widget-source-canvas-omitted','TownServiceBinding.cs','Canvas canvas = Require<Canvas>(node); canvas.enabled = n[0] != 0; canvas.overrideSorting = n[1] != 0;','if (bool.Parse("true")) break; Canvas canvas = Require<Canvas>(node); canvas.enabled = n[0] != 0; canvas.overrideSorting = n[1] != 0;','the common source Canvas remains active despite private native pane disablement'))
+  cases.append(('widget-private-graphic-flags-retained','TownServiceBinding.cs','Graphic g = Require<Graphic>(node); g.enabled = n[0] != 0; g.color = ColorAt(n, 1); g.raycastTarget = false;','Graphic g = Require<Graphic>(node); g.color = ColorAt(n, 1); g.raycastTarget = false;','complete original pixels survive private native inactive graphics zero alpha and a newly source-authored Canvas'))
   if args.footer_only:cases=[x for x in cases if x[0] in {'production','old-fitted-footer','footer-mount-lost','footer-sibling-lost','footer-takeover-receipt','footer-overwrites-successor'}]
+  if args.widget_state_only:cases=[x for x in cases if x[0] in {'production','widget-source-canvas-omitted','widget-private-graphic-flags-retained'}]
   if args.case:assert set(args.case)<={x[0] for x in cases};cases=[x for x in cases if x[0] in args.case]
   project=folder/'unity'
   for d in ['Assets/Editor','Assets/Plugins','Assets/Resources/OriginalShaders','Packages','ProjectSettings']:(project/d).mkdir(parents=True,exist_ok=True)
@@ -111,5 +115,5 @@ def main():
   assert code==0 and result.exists(),'Unity failed: '+str(folder)
   status=0
  finally:
-  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only,'elapsed_seconds':time.monotonic()-started},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
+  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only or args.widget_state_only,'elapsed_seconds':time.monotonic()-started},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
 if __name__=='__main__':main()
