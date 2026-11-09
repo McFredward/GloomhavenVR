@@ -655,7 +655,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 768;
+    public const ushort ModBuild = 769;
+
+    // ModBuild769 — paired768 Results can remain at the completed Victory
+    // heading with no missing-original warning. Actual sampled enabled-state
+    // transitions change property membership and require new full pictures.
+    // Replacing an unfinished same-opening full on every such revision can
+    // prevent any statistics picture from completing. Finish that active full,
+    // retaining only the latest waiting full and its exact cumulative delta;
+    // new opening/author and explicit close still supersede immediately.
+    // Add bounded queued/assembled/displayed receipts and actual built-DLL
+    // capture/head coverage. Native opening controllers, animation/audio,
+    // continuation authority, other streams and wire grammar remain unchanged.
+    // See MP769-INTEGRATION.md for the source-real counterexample and limits.
 
     // ModBuild768 — paired767 observer Results still froze on another native
     // runtime GUI material texture. Replace per-report admission with a Results-

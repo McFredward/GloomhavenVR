@@ -12,6 +12,8 @@ internal sealed partial class NetAvatarDriver
     private readonly Dictionary<int, ulong> _resultsRevisions = new();
     private readonly List<int> _resultsPeers = new(4);
     private readonly ScenarioResultsPresentation _resultsPresentation = new();
+    private readonly ScenarioResultsProgress _resultsSendProgress = new("queued");
+    private readonly ScenarioResultsProgress _resultsReceiveProgress = new("assembled");
     private ScenarioResultsState? _sentResults, _resultsSourceBasis;
     private int _resultsPublishingAuthor, _resultsPeerFingerprint;
     private readonly Dictionary<int, List<ScenarioResultsState>> _resultsBases = new();
@@ -90,6 +92,11 @@ internal sealed partial class NetAvatarDriver
         if (_transport is FfsNetTransport ffs)
         { if (!ffs.TrySendResults(bytes, bytes.Length, wire)) return; }
         else _transport.Send(bytes, bytes.Length, wire);
+        if (publisher)
+        {
+            int phase = ScenarioResultsNative.TryRead(out ScenarioResultsParts native) ? native.PhaseBits : -1;
+            _resultsSendProgress.Observe(state, bytes.Length, phase, wire.BaseRevision);
+        }
         if (publisher && wire.BaseRevision == 0) _resultsSourceBasis = state.Visible ? state : null;
         _sentResults = state; _resultsPeerFingerprint = peerFingerprint;
         _nextResultsRefresh = now + .5f;
@@ -180,6 +187,7 @@ internal sealed partial class NetAvatarDriver
         // All sparse dependencies expanded BEFORE coalescing. The complete latest
         // picture is independent of every skipped intermediate animation sample.
         queue.Clear(); queue.Add(state); _resultsQueued[sender] = state.Revision;
+        _resultsReceiveProgress.Observe(state, 0);
     }
 
     private void ApplyResults()
@@ -209,6 +217,7 @@ internal sealed partial class NetAvatarDriver
         _pendingResults.Clear(); _resultsRevisions.Clear(); _resultsPeers.Clear();
         _resultsBases.Clear(); _resultsLatestData.Clear(); _resultsQueued.Clear();
         _resultsPresentation.Reset(); ScenarioResultsPose.Reset();
+        _resultsSendProgress.Reset(); _resultsReceiveProgress.Reset();
         _resultsSourceBasis = _sentResults = null; _resultsPublishingAuthor = _resultsPeerFingerprint = 0;
         _nextResultsCapture = _nextResultsRefresh = 0;
     }
