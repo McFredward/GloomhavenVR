@@ -52,6 +52,7 @@ def main():
             ('unvalidated-shared-scroll','SharedWindowScrollCodec.TryRead(payload, length, out _)','length > 0','malformed scroll input never reaches the native socket'),
             ('borrowed-scroll-buffer','var bytes = new byte[length];\n            Buffer.BlockCopy(payload, 0, bytes, 0, length);','var bytes = payload;','shared scroll emission owns immutable bytes after caller reuse'),
             ('delta-as-full-basis','if (publisher && wire.BaseRevision == 0) _resultsSourceBasis','if (publisher) _resultsSourceBasis','both clients converge to latest Stats sample after coalescing and same-snapshot page reordering'),
+            ('cancel-active-full-original','','','stale active full finishes once before the latest full and its dependency-preserving delta'),
         ]
         if samples:
             variants=[('native-starvation-before','','','native sampled Stats must eventually replace the completed heading'),('native-starvation-production','','','')]
@@ -69,9 +70,9 @@ def main():
             # linked inputs keep the original wire project semantics and let the
             # canonical completion API identify only this case's bin/obj caches.
             project_text=re.sub(r'<Compile Include="([^"$][^"]*)"',lambda match:'<Compile Include="'+str(project.parent/match[1])+'"',project.read_text())
-            if samples:
+            if samples or name=='cancel-active-full-original':
                 queue=(source/'ExtrasSendQueue.cs').read_text()
-                if name=='native-starvation-before':
+                if name in ['native-starvation-before','cancel-active-full-original']:
                     before='|| older.Key != state.Key || (state.Revision > older.Revision\n                && (!older.HasPresentation || older.BaseRevision != 0 || !older.Visible || !state.Visible))))'
                     after='|| older.Key != state.Key || state.Revision > older.Revision))'
                     assert queue.count(before)==1;queue=queue.replace(before,after)
