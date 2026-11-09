@@ -655,7 +655,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 766;
+    public const ushort ModBuild = 767;
+
+    // ModBuild767 — paired766 Results picture follow-up. A late duplicate of
+    // the audited original DXT5 flow map blocked every subsequent observer
+    // picture while native shared scroll inputs kept working at the author.
+    // Admit only that exact native descriptor; exercise late scanning and
+    // complete scrolling pictures with the actual compressed texture/mips.
+    // The Results handle uses the same published native frame on both peers,
+    // independent of private visible-ink/hover classification.
+    // See MP767-INTEGRATION.md for bounded scope and hardware limitations.
 
     // ModBuild766 — paired765 Results input and footer follow-up.
     // Qualify visitor scrolling through the actual converted laser/scroll
