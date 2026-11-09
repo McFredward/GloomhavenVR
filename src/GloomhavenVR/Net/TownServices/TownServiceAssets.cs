@@ -228,6 +228,14 @@ internal sealed partial class TownServiceAssets
             // native descriptor is canonical; arbitrary same-name textures refuse.
             || texture.name == "3DNoise" && texture.width == 256 && texture.height == 256
                && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 9
+            // Build766's observer accepted scroll input but retained its last picture
+            // after discovery saw another wrapper for this dormant button-effect map.
+            // Read-only census of all28 original scene/*.assets files (1396 textures,
+            // 339 materials) verifies one source: resources.assets/265, referenced
+            // by eight native materials. Preserve its exact DXT5/nine-mip identity;
+            // other same-name formats, mip counts and unverified assets still refuse.
+            || texture.name == "T_flowmap_outwards_blur" && texture.width == 256 && texture.height == 256
+               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 9
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }
