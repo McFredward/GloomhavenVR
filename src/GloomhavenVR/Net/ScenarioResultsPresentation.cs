@@ -42,6 +42,7 @@ internal sealed class ScenarioResultsPresentation
     private Sprite? _rootImageSprite;
     private readonly ScenarioResultsVisualLease _lease = new();
     private readonly ScenarioResultsVisualLease _closedLease = new();
+    private readonly ScenarioResultsProgress _displayProgress = new("displayed");
     private Transform? _sourceWindow;
     private int _roleIdentity;
     private GameObject? _quarantine, _picture;
@@ -469,7 +470,13 @@ internal sealed class ScenarioResultsPresentation
         }
         AttachContinuationInputs(state);
         if (_copies.TryGetValue(1, out Copy? rootCopy)) SharedWindowScrollSync.AttachResultsInputs(rootCopy.Binding.Root, _panel?.HostCanvas);
-        if (_picture != null) _picture.SetActive(true);
+        if (_picture != null)
+        {
+            _picture.SetActive(true);
+            // This bounded receipt establishes successful complete widget
+            // application only; it cannot certify capture or final head pixels.
+            _displayProgress.Observe(state, 0);
+        }
     }
     private void AttachContinuationInputs(ScenarioResultsState state)
     {
@@ -633,6 +640,7 @@ internal sealed class ScenarioResultsPresentation
     internal void Reset()
     {
         RetirePicture(); ReleaseClosedLease(); ClearSources(); _assets.Clear(); _rootImageSprite = null; _roles.Clear(); _pending = null;
+        _displayProgress.Reset();
         _lastFrame = -1; _retryAt = 0; _lastFailure = string.Empty;
         if (_quarantine != null) Object.Destroy(_quarantine); _quarantine = null;
     }

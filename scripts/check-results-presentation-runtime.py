@@ -30,6 +30,8 @@ def main():
   inputs=folder/'inputs';inputs.mkdir();assert command([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(ROOT),str(inputs)],folder/'export.log')==0,'Original export failed'
   paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs',base/'WorldUI/Composites/ScenarioResultsReadyPark.cs',base/'WorldUI/Composites/MovedSubtreeLayers.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
   paths.append(base/'Net/ScenarioResultsOriginalTextures.cs')
+  progress=base/'Net/ScenarioResultsProgress.cs'
+  if progress.exists():paths.append(progress)
   sources={p.name:p.read_text() for p in paths};pins+=paths
   expected_keys=[json.loads(line.strip().rstrip(',')) for line in sources['ScenarioResultsOriginalTextures.cs'].splitlines() if line.strip().startswith('"texture|')]
   sources['CatalogExpectations.cs']='using System;using System.Collections.Generic;internal static class CatalogExpectations {private static readonly HashSet<string> Keys=new(StringComparer.Ordinal){'+','.join(json.dumps(key) for key in expected_keys)+'};internal static bool Contains(string key)=>Keys.Contains(key);}'
@@ -47,7 +49,7 @@ def main():
   bar=args.bar_source_root/'src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs';sources['ActualResultsBar.cs']='using UnityEngine;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {internal sealed partial class GrabbableModal {'+method(bar.read_text(),'    private void SyncBar(')+'}}';pins.append(bar)
   for rel in ['WorldUI/Grab/GrabBarLayout.cs','WorldUI/Grab/BarSizeSettle.cs','WorldUI/Grab/GrabBarTween.cs','Core/GrabBar.cs','Core/GrabBarVisual.cs','Core/GrabBarTexture.cs','Core/EmbeddedTexture.cs']:
    path=base/rel;sources[path.name]=path.read_text();pins.append(path)
-  lifecycle=ROOT/'scripts/results-window-runtime/Boundary.cs';lifecycle_text=lifecycle.read_text().replace('internal static class WorldUIConfig','internal static partial class WorldUIConfig');pins.append(lifecycle)
+  lifecycle=ROOT/'scripts/results-window-runtime/Boundary.cs';lifecycle_text=lifecycle.read_text().replace('internal static class WorldUIConfig','internal static partial class WorldUIConfig').replace('internal static class VRLog','internal static partial class VRLog');pins.append(lifecycle)
   roles=json.loads((inputs/'roles.json').read_text());sources['NativePaths.cs']='internal static class NativePaths {'+'\n'.join('internal const string '+key+'='+json.dumps(roles['resultsPaths'][str(roles[key])])+';' for key in ['header','resultsPanel','statsPanel','buttonsContainer'])+'}'
   cases=[('production',None,None,None,None),
    ('old-native-image-import','Program.cs','if(c.HasAttribute("nativeMaterial"))image.material=NativeMaterials.Load(c.GetAttribute("nativeMaterial"));','','original custom image materials survive native results and ready import'),

@@ -11,6 +11,9 @@ namespace GloomhavenVR.Hands.Interact { internal sealed class PokeOnlyTarget:Mon
 namespace GloomhavenVR.Cards { internal static class CardFaceMipBake {internal static Sprite OriginalFor(Sprite s)=>s;internal static Sprite? PresentationFor(Sprite? s)=>s;} }
 namespace GloomhavenVR.WorldUI { internal static class PanelMipBake {internal static Texture OriginalFor(Texture t)=>t;} }
 namespace GloomhavenVR.Core {internal static class BundleShaders {internal static Shader? Resolve(string n,string s,string a,string b)=>Shader.Find(n);} }
+// Logger output remains an explicit fixture port; the actual bounded progress
+// receipt executes its DTO scan and lifecycle under an enabled normal log level.
+namespace GloomhavenVR.Core {internal enum VRLogLevel { Info=3 }internal static partial class VRLog {internal static bool Wants(VRLogLevel level)=>true;} }
 namespace GloomhavenVR.Net {
  // Scroll input is inactive in this original-widget/capture proof. The dedicated
  // shared-scroll runtime exercises the real native coordinator and input proxies.
