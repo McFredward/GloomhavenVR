@@ -14,7 +14,8 @@ It executes `CanvasConversion.Convert`, the real reveal decision/completion,
 `PanelSupersample.Tick`/`LateTick`, the allocator, private layer sweeps, camera
 callbacks, capture/resolve/mip resources and final head-camera raster. An iterator
 advances across actual Unity play frames, so cadence is not a supplied frame count.
-The source and observer retain independent windows and capture allocations. The accepted integration keeps its supplied conversion frame. An unmerged
+The source and observer retain independent windows and capture allocations. The
+accepted integration keeps its supplied conversion frame. An unmerged
 1474x157-to-1474x1024 growth experiment has passing and unexplained failing
 sampler evidence; it is not qualified main coverage.
 

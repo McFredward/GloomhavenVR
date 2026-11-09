@@ -64,7 +64,7 @@ comparisons have zero differing channel bytes. At that receipt, all 1413 source,
 actual DLL and reference pins reverified unchanged. This is a focused head pass;
 the integrator's complete C checkpoint binds the final main union separately.
 
-A later exact hardware-frame-growth experiment (1474x157 heading to1474x1024 Stats)
+A later exact hardware-frame-growth experiment (1474x157 heading to 1474x1024 Stats)
 is explicitly **unmerged and unqualified**. `run-mcwak616` fails during a later
 source capture with `Unsupported town-service shader property`; its initial error
 lacks shader/property identity. `run-_mm_v2s4` passes 62 assertions plus the control
@@ -74,7 +74,7 @@ message. These green attempts do not resolve or waive the earlier failure. All
 production source/reference pins are identical between the first two attempts;
 Head.cs and rebuilt DLL hashes differ, and no normalized binary comparison is
 claimed. No hardware/product cause is assigned, no production sampler is changed,
-and accepted main retains the55 assertion fixture. Further retries were stopped.
+and accepted main retains the 55 assertion fixture. Further retries were stopped.
 
 The first 17 complete lane runs are source-byte verified in the main checkout's
 ignored `.planning/validation/build769/capture-lane/capture-evidence.tar.zst`:
@@ -82,3 +82,13 @@ ignored `.planning/validation/build769/capture-lane/capture-evidence.tar.zst`:
 `c6d8726695f3ffab390578b403dbf89e2ff76c115c2906bb985ee20aa278535e`.
 The three experimental runs and exact source/input comparison are preserved in a
 separate follow-up archive and receipt beside it before worker cleanup.
+
+Follow-up archive verification is complete: 2365 files and 1197287946 uncompressed
+bytes match their source hashes in `capture-experiment.tar.zst`, SHA256
+`848454f1a2c319844839dd493552f678e8794e5889eb0d0f6ce909040ec76baf`.
+`experiment-comparison.json` records the failed input against both later variants;
+`experiment-source/` retains optional unmerged code checkpoint d644ae2e1. Both
+archives are verified before any private worktree cleanup. Across all 20 recorded
+attempts, 7 passed and 13 failed; runner-recorded validation sums to 666.3 seconds,
+with canonical cleanup receipts for all 20. These counts include fixture development
+failures and experimental attempts; they are not 20 complete-gate invocations.
