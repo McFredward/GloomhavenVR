@@ -345,6 +345,10 @@ internal sealed class ScenarioResultsPresentation
 
     private void Accept(ScenarioResultsState state, ConvertedPanel panel)
     {
+        // A native dependency can finish binding after the first heading picture.
+        // Same-shape updates validate without rebuilding/EnsureSources, so refresh
+        // this exact widget slot here too rather than waiting for another opening.
+        RegisterRootImageSprite(panel.Target);
         bool same = _picture != null && _displayed != null && _displayed.Key == state.Key && _copies.Count == state.Parts.Length;
         if (same)
             foreach (ScenarioResultsPart part in state.Parts)
