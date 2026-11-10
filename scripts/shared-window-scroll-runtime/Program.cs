@@ -80,6 +80,13 @@ internal static class Program
             var content = Rect("Content", viewport, new Vector2(400, height));
             content.pivot = new Vector2(.5f, 1); content.anchorMin = content.anchorMax = new Vector2(.5f, 1);
             var ink = Rect("Visible source row", content, new Vector2(350, 80)); ink.gameObject.AddComponent<Image>();
+            for (int i = 0; i < 12; i++)
+            {
+                var stripe = Rect("Author row " + i, content, new Vector2(350, 100));
+                stripe.anchorMin = stripe.anchorMax = new Vector2(.5f, 1);
+                stripe.anchoredPosition = new Vector2(0, -50 - i * 100);
+                stripe.gameObject.AddComponent<Image>().color = new Color(i / 12f, 1f - i / 12f, i % 2, 1);
+            }
             Scroll = holder.gameObject.AddComponent<ScrollRect>(); Scroll.content = content; Scroll.viewport = viewport;
             Scroll.horizontal = false; Scroll.vertical = true; Scroll.scrollSensitivity = 40; Scroll.inertia = false;
             Scroll.movementType = ScrollRect.MovementType.Clamped;
@@ -135,6 +142,124 @@ internal static class Program
         Check(SharedWindowScrollBridge.Pointer(peer.Bar, operation, data), "each participant routes its scrollbar gesture through the common original");
     }
     private static float HandleCenter(Peer host) => host.Bar.size * .5f + host.Bar.value * (1f - host.Bar.size);
+
+    private static RectTransform PicturePart(Peer native, Transform picture, Transform part)
+        => (RectTransform)SharedWindowScrollBridge.Find(picture, SharedWindowScrollBridge.Path(native.Root, part))!;
+    private static float PicturePosition(Peer native, Transform picture)
+    {
+        RectTransform content = PicturePart(native, picture, native.Scroll.content);
+        RectTransform view = PicturePart(native, picture, native.Scroll.viewport);
+        var corners = new Vector3[4]; content.GetWorldCorners(corners);
+        float min = corners.Min(x => view.InverseTransformPoint(x).y);
+        float max = corners.Max(x => view.InverseTransformPoint(x).y);
+        return (view.rect.yMin - min) / (max - min - view.rect.height);
+    }
+    private static Color PicturePixel(Peer peer, Transform picture)
+    {
+        RectTransform view = PicturePart(peer, picture, peer.Scroll.viewport);
+        Vector2 point = peer.Camera.WorldToScreenPoint(view.position);
+        peer.Camera.Render(); RenderTexture? previous = RenderTexture.active;
+        RenderTexture.active = peer.Camera.targetTexture;
+        var read = new Texture2D(1, 1, TextureFormat.RGB24, false);
+        read.ReadPixels(new UnityEngine.Rect(point.x, point.y, 1, 1), 0, 0); read.Apply();
+        Color color = read.GetPixel(0, 0); Object.DestroyImmediate(read); RenderTexture.active = previous;
+        return color;
+    }
+    private static IEnumerator VisiblePictureScroll(Peer host, Peer visitor, Transform picture)
+    {
+        host.Select(); host.Scroll.verticalNormalizedPosition = .82f; host.Publish(); host.Deliver(visitor);
+        float until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint();
+        Check(Near(PicturePosition(visitor, picture), .82f),
+            "accepted small author state moves visible common content without a new Results graph");
+        RectTransform commonContent = PicturePart(visitor, picture, visitor.Scroll.content);
+        Check(!Near(commonContent.rect.height, visitor.Scroll.content.rect.height),
+            "visible projection retains author-sized content instead of private guest row bounds");
+        Color before = PicturePixel(visitor, picture);
+        Vector3 staleGraphPosition = commonContent.localPosition;
+        var proxy = picture.GetComponentsInChildren<SharedWindowScrollProxy>(true).First(x => x.Control == 1);
+        visitor.Select(); Check(SharedWindowScrollBridge.Wheel(proxy, new Vector2(0, -3)),
+            "guest own visible wheel retains the common ordered request path");
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint(); visitor.Deliver(host); host.Publish();
+        SharedWindowScrollMessage accepted = FirstState(host);
+        float expected = host.Scroll.verticalNormalizedPosition; host.Deliver(visitor);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint();
+        Check(Near(PicturePosition(visitor, picture), expected),
+            "guest sees its own accepted wheel in visible content within the small-state roundtrip");
+        Color after = PicturePixel(visitor, picture);
+        Check(Mathf.Abs(before.r - after.r) + Mathf.Abs(before.g - after.g) + Mathf.Abs(before.b - after.b) > .1f,
+            "real rendered Results pixels change on guest own scroll before a full graph arrives");
+
+        RectTransform handle = PicturePart(visitor, picture, visitor.Bar.handleRect);
+        Check(Near(handle.anchorMin.y, host.Bar.value * (1f - host.Bar.size))
+            && Near(handle.anchorMax.y - handle.anchorMin.y, host.Bar.size),
+            "visible common scrollbar handle follows accepted author position and size without callbacks");
+        for (int i = 0; i < 4; i++)
+        {
+            // A delayed whole-picture binding restores transform properties after
+            // small scroll state arrived. The real post-Paint hook must repair it
+            // even though normalized updates do not change proxy descriptors.
+            commonContent.localPosition = staleGraphPosition;
+            handle.anchorMin = Vector2.zero; handle.anchorMax = Vector2.one;
+            visitor.Core.AttachResultsInputs(picture, visitor.Canvas);
+            Check(Near(PicturePosition(visitor, picture), expected)
+                && Near(handle.anchorMin.y, host.Bar.value * (1f - host.Bar.size)),
+                "unchanged-descriptor post-Paint projection defeats a stale graph content and handle overwrite");
+        }
+        var stale = SharedWindowScrollCodec.Write(accepted);
+        Check(SharedWindowScrollCodec.TryRead(stale, stale.Length, out var late), "accepted state can be copied for stale visible replay");
+        late.Revision--; late.Y = .99f; Receive(visitor, 1, late);
+        late.Revision += 1000; Receive(visitor, 3, late);
+        visitor.Paint();
+        Check(Near(PicturePosition(visitor, picture), expected),
+            "stale or foreign small state cannot move visible common content");
+        Check(picture.GetComponentsInChildren<ScrollRect>(true).Length == 0
+            && picture.GetComponentsInChildren<Scrollbar>(true).Length == 0,
+            "visible scroll projection installs no native controller or Selectable on the inert picture");
+    }
+
+    private static void PictureGeometry()
+    {
+        var source = Rect("Projection differential original", null, new Vector2(600, 400));
+        var viewport = Rect("Viewport", source, new Vector2(400, 200));
+        var content = Rect("Content", viewport, new Vector2(900, 1200));
+        content.pivot = new Vector2(.3f, .8f);
+        ScrollRect scroll = source.gameObject.AddComponent<ScrollRect>(); scroll.content = content; scroll.viewport = viewport;
+        scroll.horizontal = scroll.vertical = true; scroll.inertia = false;
+        var barRoot = Rect("Scrollbar", source, new Vector2(25, 200));
+        var handle = Rect("Handle", barRoot, new Vector2(25, 40));
+        Scrollbar bar = barRoot.gameObject.AddComponent<Scrollbar>(); bar.handleRect = handle;
+        var picture = Object.Instantiate(source.gameObject).transform;
+        Object.DestroyImmediate(picture.GetComponent<ScrollRect>());
+        Object.DestroyImmediate(picture.GetComponentInChildren<Scrollbar>());
+        RectTransform common = PicturePartFrom(source, picture, content);
+        RectTransform commonHandle = PicturePartFrom(source, picture, handle);
+        var projection = new SharedWindowScrollPicture();
+        foreach (Vector2 size in new[] { new Vector2(900, 1200), new Vector2(200, 90) })
+        {
+            content.sizeDelta = common.sizeDelta = size;
+            foreach (Vector2 position in new[] { Vector2.zero, new Vector2(.13f, .75f), Vector2.one })
+            {
+                scroll.normalizedPosition = position;
+                projection.Apply(picture, source, scroll, SharedWindowScrollBridge.Path(source, viewport), position, 7, 0, 0);
+                Check((common.localPosition - content.localPosition).sqrMagnitude < .001f,
+                    "common picture axes and undersized pivot alignment match real Unity ScrollRect geometry");
+            }
+        }
+        for (byte direction = 0; direction < 4; direction++)
+        {
+            bar.direction = (Scrollbar.Direction)direction; bar.size = .23f; bar.value = .71f;
+            projection.Apply(picture, source, bar, SharedWindowScrollBridge.Path(source, barRoot), new Vector2(bar.value, 0), 1, bar.size, direction);
+            Check((commonHandle.anchorMin - handle.anchorMin).sqrMagnitude < .0001f
+                && (commonHandle.anchorMax - handle.anchorMax).sqrMagnitude < .0001f,
+                "common handle geometry matches real Unity Scrollbar in every axis and reverse direction");
+        }
+        Object.DestroyImmediate(picture.gameObject); Object.DestroyImmediate(source.gameObject);
+    }
+    private static RectTransform PicturePartFrom(Transform original, Transform picture, Transform part)
+        => (RectTransform)SharedWindowScrollBridge.Find(picture, SharedWindowScrollBridge.Path(original, part))!;
 
     private static IEnumerator WholeWindowInputs(Peer host, Peer visitor, Transform picture, UguiPointer pointer,
         RayUguiDriver stick, GloomhavenVR.Hands.VRHand hand)
@@ -223,7 +348,7 @@ internal static class Program
         GloomhavenVR.Hands.VRHands.Left = null;
     }
 
-    private static IEnumerator ConcurrentInputs(Peer host, Peer visitor, Peer third)
+    private static IEnumerator ConcurrentInputs(Peer host, Peer visitor, Peer third, Transform picture)
     {
         host.Select(); host.Scroll.verticalNormalizedPosition = .5f;
         host.Publish(); var baseline = host.Sent.ToArray(); host.Deliver(visitor);
@@ -249,6 +374,8 @@ internal static class Program
         visitor.Select(); visitor.Core.Tick(Time.unscaledTime + .08f); third.Select(); third.Core.Tick(Time.unscaledTime + .08f);
         Check(Near(visitor.Scroll.verticalNormalizedPosition, .7f) && Near(third.Scroll.verticalNormalizedPosition, .7f),
             "simultaneous opposing requests converge on every participant");
+        Check(Near(PicturePosition(visitor, picture), .7f),
+            "the visible common picture converges on the same last author-ordered opposite input");
 
         Canvas.ForceUpdateCanvases();
         PointerRequest(visitor, SharedScrollInput.PointerDown, HandleCenter(host)); visitor.Deliver(host);
@@ -276,6 +403,7 @@ internal static class Program
     internal static IEnumerator Run(Action<int> report)
     {
         _checks = 0; _clock = 0; Peers.Clear(); Unmodded.Clear(); FFSNetwork.IsOnline = true;
+        PictureGeometry();
         SharedWindowSpawnAuthority.AuthorId = 1;
         SharedWindowScrollSync.MapParticipant = SharedWindows.MapActiveFor;
         new GameObject("Native event system", typeof(EventSystem));
@@ -356,6 +484,12 @@ internal static class Program
         Check(Aim(stick, visitor, proxy.transform.position, out RaycastResult viewportHit)
             && viewportHit.gameObject == proxy.gameObject,
             "real original GraphicRaycaster reaches the common viewport through inert observer groups");
+        IEnumerator visibleScroll = VisiblePictureScroll(host, visitor, picture.transform);
+        while (visibleScroll.MoveNext()) yield return visibleScroll.Current;
+        // Restore the original baseline for the existing pointer/joystick checks.
+        host.Select(); host.Scroll.verticalNormalizedPosition = after; host.Publish(); host.Deliver(visitor);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint();
         pointer.Scroll(new Vector2(0, -2));
         until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Select(); visitor.Core.Tick(Time.unscaledTime); Check(visitor.Sent.Count > 0, "visible common viewport wheel creates its exact original-address request");
@@ -366,6 +500,11 @@ internal static class Program
         visitor.Paint(); visitor.Deliver(host);
         Check(UiScrollFocus.Delivered > delivered && host.Scroll.verticalNormalizedPosition < stickBefore,
             "the actual pointing-hand joystick scrolls the visible common proxy through the original native author");
+        host.Publish(); host.Deliver(visitor);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint();
+        Check(Near(PicturePosition(visitor, picture.transform), host.Scroll.verticalNormalizedPosition),
+            "guest joystick acceptance reaches its own visible picture through the small author state");
 
         host.Publish(); host.Deliver(visitor); until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Paint(); visitor.Core.AttachResultsInputs(picture.transform, visitor.Canvas);
@@ -396,6 +535,11 @@ internal static class Program
         until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
         visitor.Select(); visitor.Core.Tick(Time.unscaledTime); visitor.Deliver(host);
         Check(host.Bar.value < .5f, "native source scrollbar receives projected original down/drag/up with correct direction and handle geometry");
+        host.Publish(); host.Deliver(visitor);
+        until = Time.unscaledTime + .08f; while (Time.unscaledTime < until) yield return null;
+        visitor.Paint();
+        Check(Near(PicturePosition(visitor, picture.transform), host.Scroll.verticalNormalizedPosition),
+            "guest scrollbar acceptance reaches its own visible picture through the small author state");
 
         // Genuine native raycast disablement wins over a previously admitted packet.
         host.Select(); var blocker = host.Root.GetComponent<CanvasGroup>(); blocker.blocksRaycasts = false;
@@ -430,7 +574,7 @@ internal static class Program
         IEnumerator wholeWindow = WholeWindowInputs(host, visitor, picture.transform, pointer, stick, hand);
         while (wholeWindow.MoveNext()) yield return wholeWindow.Current;
 
-        IEnumerator concurrent = ConcurrentInputs(host, visitor, third);
+        IEnumerator concurrent = ConcurrentInputs(host, visitor, third, picture.transform);
         while (concurrent.MoveNext()) yield return concurrent.Current;
 
         // Native show/hide in one frame starts a new input opening.

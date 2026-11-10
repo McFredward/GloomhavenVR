@@ -154,6 +154,17 @@ def main():
     sources['Protocol.cs']='namespace GloomhavenVR.Net {internal static class NetProtocol {'+constants+block(protocol,'public static uint HashMapKey(string? id)')+'}}'
     cases = [
         ('production','','','',''),
+        ('missing-visible-small-state','SharedWindowScrollSync.cs',
+         'if (original != null)\n                target.Picture.Apply',
+         'if (original != null && state.Kind == 0)\n                target.Picture.Apply',
+         'accepted small author state moves visible common content without a new Results graph'),
+        ('stale-graph-overwrites-scroll','SharedWindowScrollSync.cs',
+         'ApplyResultsPicture(pictureRoot, Time.unscaledTime);', '',
+         'unchanged-descriptor post-Paint projection defeats a stale graph content and handle overwrite'),
+        ('linked-handle-split-state','SharedWindowScrollSync.cs',
+         'if (original is Scrollbar bar)\n                foreach (Target linked',
+         'if (original is Scrollbar bar && state.Kind == 0)\n                foreach (Target linked',
+         'visible common scrollbar handle follows accepted author position and size without callbacks'),
         ('modular-original-names','ActualResultsBuild.cs','clone.name = original.name;','',
          'modular original Results paths resolve the exact viewport and scrollbar before reveal'),
         ('inert-header-hover','SharedWindowScrollBridge.cs','if (header != null) lease.AdmitHeader(host, header, enabled);','',

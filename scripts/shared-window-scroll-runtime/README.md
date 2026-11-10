@@ -32,6 +32,16 @@ version. Original inert groups block raycasts. Only an own metadata input
 surface under the actual common viewport/scrollbar can receive events. Its exact
 canvas joins and leaves the production nested-pointer registry. Private client
 lists deliberately have different content heights from the source prototype.
+Small ordered author state is projected onto the actual inert content and handle
+geometry before a new full Results graph arrives. Guest wheel, joystick and
+scrollbar actions change its own visible picture, including final rendered pixel
+checks for wheel input. Repeated stale graph transforms are repaired by the real
+post-paint hook even when input descriptors are unchanged. Linked handles use the
+same accepted content position to avoid a pre-LateUpdate native handle lag.
+Direct differential cases compare both axes, undersized pivot alignment and all
+four scrollbar directions against original Unity UI geometry. No cloned native
+controller or callback is restored, and opposite/concurrent and stale/foreign
+requests retain existing author ordering.
 One test fits the outer host133pixels short of the original scrollbar and picks
 and drags that unchanged common scrollbar through the registered nested canvas.
 This includes the original surface-admission methods; it does not replace the

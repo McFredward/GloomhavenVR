@@ -48,6 +48,7 @@ internal sealed class SharedWindowScrollCoordinator
         internal bool Dragging;
         internal float FromX, FromY, ReceivedAt, Duration;
         internal bool HasApplied;
+        internal readonly SharedWindowScrollPicture Picture = new();
     }
     private INetTransport? _transport;
     private Func<byte[], int, bool, bool>? _send;
@@ -568,6 +569,34 @@ internal sealed class SharedWindowScrollCoordinator
             }
             else if (original is Scrollbar bar && bar.value != value.x) bar.SetValueWithoutNotify(value.x);
         }
+        if (_proxyRoot != null) ApplyResultsPicture(_proxyRoot, now);
+    }
+
+    private void ApplyResultsPicture(Transform pictureRoot, float now)
+    {
+        Transform? nativeRoot = SharedWindowScrollBridge.PublicRoot(SharedWindowKind.Results, out _);
+        if (!Online || IsAuthor((byte)SharedWindowKind.Results) || nativeRoot == null) return;
+        foreach (Target target in Observed.Values)
+        {
+            SharedWindowScrollMessage state = target.State;
+            if (state.Kind != (byte)SharedWindowKind.Results || (state.Flags & 1) == 0) continue;
+            Component? original = Resolve(state);
+            Vector2 value = Display(target, now);
+            if (original is Scrollbar bar)
+                foreach (Target linked in Observed.Values)
+                {
+                    if (linked.State.Kind != state.Kind || (linked.State.Flags & 1) == 0
+                        || !(Resolve(linked.State) is ScrollRect scroll)) continue;
+                    // Unity updates linked bars in LateUpdate. The same accepted
+                    // content state must drive both pieces even if a capture
+                    // occurred before that native visual-only update.
+                    if (scroll.horizontalScrollbar == bar) { value.x = Display(linked, now).x; break; }
+                    if (scroll.verticalScrollbar == bar) { value.x = Display(linked, now).y; break; }
+                }
+            if (original != null)
+                target.Picture.Apply(pictureRoot, nativeRoot, original, state.Viewport,
+                    value, state.Flags, state.HandleSize, state.Direction);
+        }
     }
     internal void ForgetPeer(int peer)
     {
@@ -601,6 +630,9 @@ internal sealed class SharedWindowScrollCoordinator
     /// Viewports/scrollbar frames come from that common picture, never private client rows.</summary>
     internal void AttachResultsInputs(Transform pictureRoot, Canvas? host = null)
     {
+        // A graph paint can restore an older content transform without changing
+        // input descriptors. Small accepted scroll state must win immediately.
+        ApplyResultsPicture(pictureRoot, Time.unscaledTime);
         if (_proxyRoot == pictureRoot && _proxyVersion == _paintedProxyVersion) return;
         if (_proxyRoot != pictureRoot) { Proxies.Clear(); _proxyRoot = pictureRoot; }
         foreach (SharedWindowScrollProxy old in Proxies.Values) if (old != null) old.gameObject.SetActive(false);

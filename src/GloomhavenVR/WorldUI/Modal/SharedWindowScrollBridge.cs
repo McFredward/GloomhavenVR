@@ -80,6 +80,66 @@ internal static class SharedWindowScrollBridge
     }
 }
 
+/// <summary>Projects accepted scroll metadata onto inert shared picture geometry.
+/// Original components supply path identity only; travel comes from the common
+/// picture, whose row heights can differ from the observer's private native UI.</summary>
+internal sealed class SharedWindowScrollPicture
+{
+    private Transform? _picture, _nativePart;
+    private string _viewportPath = string.Empty;
+    private RectTransform? _part, _viewport;
+    private readonly Vector3[] _corners = new Vector3[4];
+
+    internal void Apply(Transform picture, Transform nativeRoot, Component original,
+        string viewportPath, Vector2 value, byte flags, float handleSize, byte direction)
+    {
+        Transform? nativePart = original is ScrollRect scroll ? scroll.content
+            : original is Scrollbar bar ? bar.handleRect : null;
+        if (nativePart == null || !nativePart.IsChildOf(nativeRoot)) return;
+        if (_picture != picture || _nativePart != nativePart || _viewportPath != viewportPath || _part == null || _viewport == null)
+        {
+            _picture = picture; _nativePart = nativePart; _viewportPath = viewportPath;
+            _part = SharedWindowScrollBridge.Find(picture, SharedWindowScrollBridge.Path(nativeRoot, nativePart)) as RectTransform;
+            _viewport = SharedWindowScrollBridge.Find(picture, viewportPath) as RectTransform;
+        }
+        if (_part == null || _viewport == null) return;
+        if (original is Scrollbar)
+        {
+            // Match Scrollbar.UpdateVisuals without adding a live Selectable or
+            // invoking the observer's private onValueChanged listeners.
+            int axis = direction < 2 ? 0 : 1;
+            float position = value.x * (1f - handleSize);
+            if (direction == 1 || direction == 3) position = 1f - position - handleSize;
+            Vector2 min = Vector2.zero, max = Vector2.one;
+            min[axis] = position; max[axis] = position + handleSize;
+            _part.anchorMin = min; _part.anchorMax = max;
+            return;
+        }
+        _part.GetWorldCorners(_corners);
+        Vector3 low = new(float.PositiveInfinity, float.PositiveInfinity, 0);
+        Vector3 high = new(float.NegativeInfinity, float.NegativeInfinity, 0);
+        for (int i = 0; i < 4; i++)
+        {
+            Vector3 point = _viewport.InverseTransformPoint(_corners[i]);
+            low = Vector3.Min(low, point); high = Vector3.Max(high, point);
+        }
+        Vector3 delta = Vector3.zero;
+        Rect view = _viewport.rect;
+        for (int axis = 0; axis < 2; axis++)
+        {
+            if ((flags & (axis == 0 ? 2 : 4)) == 0) continue;
+            float size = high[axis] - low[axis], viewSize = view.size[axis];
+            // ScrollRect expands undersized bounds about the content pivot.
+            // Applying the same adjustment also preserves its zero-travel pose.
+            float excess = Mathf.Max(0f, viewSize - size);
+            float minimum = low[axis] - excess * _part.pivot[axis];
+            delta[axis] = view.min[axis] - value[axis] * Mathf.Max(0f, size - viewSize) - minimum;
+        }
+        if (delta.sqrMagnitude > 1e-8f && _part.parent != null)
+            _part.localPosition += _part.parent.InverseTransformVector(_viewport.TransformVector(delta));
+    }
+}
+
 /// <summary>Metadata-only input on the EXACT visible inert results viewport.
 /// No original controller/callback is copied onto a received picture.</summary>
 internal sealed class SharedWindowScrollProxy : MonoBehaviour, IScrollHandler,
