@@ -2,6 +2,7 @@
 """Source-bound original menu illustration mesh, GPU and typed native binding proof."""
 from pathlib import Path
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -52,7 +53,7 @@ def main():
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
         names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
                  'MenuDepthDisplay.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs', 'MenuDepthCatalogue.cs', 'MenuDepthDriver.cs', 'MenuDepthCharacterDisplayObserver.cs',
-                 'MenuDepthCards.cs', 'MenuDepthCardPlane.cs')
+                 'MenuDepthCards.cs', 'MenuDepthCardPlane.cs', 'MenuDepthPerksCardClip.cs', 'MenuDepthPerksAudit.cs')
         source_files = {name: source / name for name in names}
         source_files['CardFaceMipBake.cs'] = ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs'
         sources = {name: path.read_text() for name, path in source_files.items()}
@@ -60,6 +61,10 @@ def main():
         cases = [
             ('production-corpus', '', '', '', '', 'Corpus'),
             ('production', '', '', '', ''),
+            ('existing-native-surface-duplicate756', 'MenuDepthDriver.cs',
+             'MenuDepthGraphic mesh = image.GetComponent<MenuDepthGraphic>()\n                ?? image.gameObject.AddComponent<MenuDepthGraphic>();',
+             'MenuDepthGraphic mesh = image.gameObject.AddComponent<MenuDepthGraphic>();',
+             'existing original card surface joins the driver without a duplicate component or failed tick'),
             ('old-json-array-parser', 'MenuDepthCatalogue.cs',
              'using (Stream input = File.OpenRead(file))\n                manifest = new DataContractJsonSerializer(typeof(Manifest),\n                    new DataContractJsonSerializerSettings { MaxItemsInObjectGraph = 100000 }).ReadObject(input) as Manifest;',
              'manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(file));',
@@ -157,7 +162,15 @@ def main():
                     # Mono FileInfo.Length reports a symlink's own byte length.
                     # Hardlinks retain real-file packaging semantics without a
                     # second regenerable copy of the 515 prepared companions.
-                    os.link(corpus / entry['depth_file'], staged / entry['depth_file'])
+                    try:
+                        os.link(corpus / entry['depth_file'], staged / entry['depth_file'])
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        # RAM-backed worktrees can borrow the immutable corpus
+                        # from another filesystem. A real copy preserves the
+                        # same FileInfo semantics; other link failures stay fatal.
+                        shutil.copyfile(corpus / entry['depth_file'], staged / entry['depth_file'])
                 counts = {'fields': len(corpus_data['images']), 'narratives': len(corpus_data['narrative_configs']),
                           'artwork': len(corpus_data['artwork']),
                           'defaults': len({a['native_field'] for a in corpus_data['artwork'] if a.get('native_field')}),

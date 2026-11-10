@@ -69,7 +69,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         get
         {
-            if (!BindingAlive || !_image.isActiveAndEnabled || !_image.gameObject.activeInHierarchy
+            if (BindingAlive) UpdatePresentationVisibility();
+            if (!BindingAlive || _surface.Suppressed || !_image.isActiveAndEnabled || !_image.gameObject.activeInHierarchy
                 || !_camera.isActiveAndEnabled || !_manager.isActiveAndEnabled
                 || !_holder.gameObject.activeInHierarchy || !_nativeTarget.IsCreated() || _readHidden(_manager)) return null;
             return ReadOriginal == null ? _holder : ReadOriginal(_manager);
@@ -775,8 +776,12 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     }
 
     // Called by the bounded known-consumer maintenance loop, never a scene scan.
+    private void UpdatePresentationVisibility()
+        => _surface.SetSuppressed(MenuDepthCharacterProjection.StartingCardsOpen(_image));
+
     internal void MaintainResources(float now)
     {
+        UpdatePresentationVisibility();
         if (!_rendering && _borrowed == null && _pairBytes > 0 && now - _lastCapture > 2f) ReleaseTargets();
     }
 
@@ -1108,7 +1113,14 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
     private MenuDepthCharacterProjection.View _view;
     private RenderTexture? _depth;
     private Rect _viewport, _uv, _captureClip;
-    private bool _capturing, _headRaster;
+    private bool _capturing, _headRaster, _suppressed;
+    internal bool Suppressed => _suppressed;
+    internal void SetSuppressed(bool value)
+    {
+        if (_suppressed == value) return;
+        _suppressed = value;
+        if (this != null && graphic != null) graphic.SetVerticesDirty();
+    }
     private Vector3 _eyeGraphic;
 
     internal void Configure() { graphic.SetMaterialDirty(); }
@@ -1201,7 +1213,8 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
             _viewport.y * (1f - 2f / _captureClip.height) + _viewport.height * (.5f - (1f + _captureClip.center.y) / _captureClip.height)));
     }
 
-    public override void ModifyMesh(VertexHelper helper) { }
+    public override void ModifyMesh(VertexHelper helper)
+    { if (_suppressed && !_retired) helper.Clear(); }
 
     internal void Retire()
     {
@@ -1209,7 +1222,7 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
         if (_material != null) Object.Destroy(_material);
         _material = _original = null;
         if (this == null) return;
-        if (graphic != null) graphic.SetMaterialDirty();
+        if (graphic != null) { graphic.SetMaterialDirty(); graphic.SetVerticesDirty(); }
         Object.Destroy(this);
     }
 }

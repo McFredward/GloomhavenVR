@@ -29,7 +29,7 @@ def main():
     ports=ports.replace('NATIVE_ENHANCEMENT_METHODS','\n'.join(checker.method(exports['EnhancementButton'],s)for s in ['public override void Init(','public void UpdateEnhancement(','public Sprite GetEnhancementSprite(']))
     ports=ports.replace('NATIVE_WINDOW_METHODS','\n'.join(checker.method(exports['UINewEnhancementWindow'],s)for s in ['private void HighlightButtons(','private void ClearHighlights(','private void SetEnhanceFilters(']))
     pointer=(root/'src/GloomhavenVR/Hands/Interact/UguiPointer.cs').read_text()
-    ports=ports.replace('NATIVE_RAYCAST_METHOD',checker.method(pointer,'private bool TryRaycastTop('))
+    ports=ports.replace('NATIVE_RAYCAST_METHOD',checker.method(pointer,'private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top, Canvas? admittedHost = null)'))
     handoff=(root/'src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementHandoff.cs').read_text()
     ports=ports.replace('NATIVE_AREA_METHOD',checker.method(handoff,'internal static bool TryNativeArea(').replace('VRCard?','GloomhavenVR.Cards.VRCard?'))
     (fixture/'NativePorts666.cs').write_text(ports)

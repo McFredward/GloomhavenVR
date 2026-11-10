@@ -37,7 +37,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal enum SharedWindowKind : byte { None, ScenarioStory, MapStory, QuestConfirm, Encounter, Video, RewardShowcase }
+    // Match the production identities even though this fixture exercises the
+    // original six subjects. Actual Results ownership is tested separately.
+    internal enum SharedWindowKind : byte { None, ScenarioStory, MapStory, QuestConfirm, Encounter, Video, RewardShowcase, Results = 7 }
     // Native identity/session and unrelated chrome are explicit boundaries. Unity hierarchy,
     // RectTransform, CanvasScaler and every production pose/size writer below execute unmodified.
     internal sealed class FixtureWindow { internal SharedWindowKind Kind = SharedWindowKind.None; }

@@ -63,7 +63,12 @@ def startup_sources(source_root, movie, lease, surface):
     common = 'using System;\nusing System.Collections.Generic;\nusing BepInEx.Configuration;\nusing GloomhavenVR.Core;\nusing GloomhavenVR.Hands.Interact;\nusing UnityEngine;\nusing UnityEngine.SceneManagement;\nusing UnityEngine.Video;\nusing Object = UnityEngine.Object;\nnamespace GloomhavenVR.WorldUI;\n'
     assert '        _coverageOwner = this;' in member(core, '    public FlatScreen()\n'), 'Fixture ownership port must match the real constructor assignment'
     flat = common + 'internal sealed partial class FlatScreen\n{\n'
-    flat += core[core.index('    private sealed class CapturedCamera'):core.index('    // Placement anchors:')]
+    # The capture-field slice also contains a separately qualified pointer-domain
+    # query. This movie-only fixture has no scrub-input lifecycle; exclude that
+    # unrelated method rather than inventing its owning state.
+    fields = core[core.index('    private sealed class CapturedCamera'):core.index('    // Placement anchors:')]
+    fields = fields.replace(member(core, '    internal static bool OwnsNativeUiPixels('), '')
+    flat += fields
     for signature in ('    public void Tick()\n',):
         flat += member(core, signature)
     for signature in ('    private static bool IsPreMenuScene()\n', '    private bool WantVisible()\n', '    private void Show()\n'):
@@ -100,7 +105,8 @@ def startup_sources(source_root, movie, lease, surface):
     keys = keys[:keys.index('/// <summary>Presentation only.')]
     defaults = (ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs').read_text()
     defaults = '\n'.join(line for line in defaults.splitlines() if re.search(r'internal const .* (StereoScreen|ScreenDepthStrength|VideoDepthLayer|VideoDepth|ScreenParallaxScale) =', line))
-    result = {'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
+    result = {'NativeUiViewport.cs': (source_root.parent / 'Conversion/NativeUiViewport.cs').read_text(),
+        'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
         'Compositor.cs': stereo + '}\n', 'Movie.cs': movie, 'NativeMovieCameraPlane.cs': lease, 'StereoVideoSurface.cs': surface,
         'Movies.cs': movies, 'Keys.cs': keys, 'StartupPatch.cs': (source_root / 'NativeEmbeddedMoviePatches.cs').read_text(),
         'Defaults.cs': 'namespace GloomhavenVR;\ninternal static class Defaults\n{\n' + defaults + '\n}\n'}
@@ -167,6 +173,7 @@ def main():
                 'FlatScreen.7.CaptureRender.cs', 'FlatScreenStereo.2.Compositor.cs', 'FlatScreenStereo.4.PerEye.cs',
                 'FlatScreenStereo.5.Movie.cs', 'NativeMovieCameraPlane.cs', 'NativeVideoMovies.cs', 'NativeEmbeddedMoviePatches.cs',
                 'StereoVideoSurface.cs')]]
+        input_paths.append(source_root.parent / 'Conversion/NativeUiViewport.cs')
         input_hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in input_paths}
         (run / 'source-inputs.json').write_text(json.dumps(input_hashes, indent=2) + '\n')
         for path in input_paths:

@@ -62,6 +62,7 @@ internal sealed class SelfUpdateDialog
 
     private GameObject? _root;
     private Canvas? _canvas;
+    private ConvertedPanel? _orderPanel;
     private Vector3 _pos;
 
     private TextMeshProUGUI? _title;
@@ -166,6 +167,9 @@ internal sealed class SelfUpdateDialog
     /// <summary>Destroy the window. Idempotent.</summary>
     internal void Close()
     {
+        if (_orderPanel != null)
+            CanvasConversion.UnregisterStandalonePanelOrder(_orderPanel);
+        _orderPanel = null;
         if (_canvas != null)
             UguiPokeSurfaces.Unregister(_canvas);
         if (_root != null)
@@ -247,6 +251,16 @@ internal sealed class SelfUpdateDialog
             go.transform.SetPositionAndRotation(_pos, rot);
         }
         go.transform.localScale = Vector3.one * (WorldUIConfig.CanvasScaleMm.Value * 0.001f * ws);
+        // The main menu's grab bar writes depth and sorts above its own picture.
+        // This independent canvas used order zero, so the farther bar could paint
+        // over the update prompt. Borrow the existing standalone-window ladder
+        // slot (also used by native movies), after final placement, rather than
+        // forcing an always-on-top tier. Nearer windows and hands retain depth.
+        _orderPanel = new ConvertedPanel
+        {
+            Target = rect, HostGo = go, HostRect = rect, HostCanvas = _canvas,
+        };
+        CanvasConversion.RegisterStandalonePanelOrder(_orderPanel);
     }
 
     private void BuildProgressRow(Transform parent)

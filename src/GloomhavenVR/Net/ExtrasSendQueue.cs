@@ -99,6 +99,48 @@ internal sealed class ExtrasSendQueue
         else _latest = copy;
     }
 
+    // Full Results pictures are immutable delta dependencies. Keep the latest
+    // complete baseline in front of its cumulative sparse update; never replace
+    // that baseline with the very update which names it. At most two waiters.
+    internal void EnqueueResults(byte[] bytes, int length, ScenarioResultsState state)
+    {
+        if (_payloadType != ScenarioResultsCodec.MessageType || length < 6 || length > bytes.Length
+            || length > _snapshotLimit || NetPacket.PeekType(bytes, length) != _payloadType)
+            throw new ArgumentException("Invalid results presentation.");
+        bool full = state.HasPresentation && state.BaseRevision == 0;
+        if (full)
+        {
+            if (_activeIdentity is ScenarioResultsState active && active.HasPresentation
+                && active.BaseRevision == 0 && active.Key == state.Key && active.Author == state.Author
+                && active.Revision == state.Revision) return;
+            foreach (Pending pending in _pending)
+                if (pending.Identity is ScenarioResultsState queued && queued.HasPresentation
+                    && queued.BaseRevision == 0 && queued.Key == state.Key && queued.Author == state.Author
+                    && queued.Revision == state.Revision) return;
+            // Actual Results sampling can change property membership while the
+            // window remains open: Graphic.enabled toggles its Material entry.
+            // Repeated full originals then cancelled every unfinished Stats
+            // picture, leaving the last small heading forever. Finish an active
+            // visible full original of THIS opening while retaining only the
+            // newest waiting full and its delta below. New openings, closes and
+            // superseded sparse/pose output still cancel immediately.
+            if (_activeIdentity is ScenarioResultsState older && (older.Author != state.Author
+                || older.Key != state.Key || (state.Revision > older.Revision
+                && (!older.HasPresentation || older.BaseRevision != 0 || !older.Visible || !state.Visible))))
+            { _pages = null; _page = 0; _activeIdentity = null; }
+            _pending.Clear();
+        }
+        else
+        {
+            for (int i = _pending.Count - 1; i >= 0; i--)
+                if (_pending[i].Identity is not ScenarioResultsState queued || !queued.HasPresentation
+                    || queued.BaseRevision != 0 || queued.Key != state.Key || queued.Author != state.Author
+                    || queued.Revision != state.BaseRevision) _pending.RemoveAt(i);
+        }
+        var copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length);
+        _pending.Add(new Pending(copy, state));
+    }
+
     // Town batching drains exactly the next immutable queued snapshot, preserving the
     // same first/latest transition order as normal per-module fragmentation.
     internal int PendingLength => !HasInFlight && _pending.Count > 0 ? _pending[0].Bytes.Length : 0;
@@ -221,6 +263,7 @@ internal sealed partial class ExtrasSendScheduler
     private readonly ExtrasSendQueue _prompt;
     private readonly ExtrasSendQueue _itemAppearance;
     private readonly ExtrasSendQueue _mapTooltip;
+    private readonly ExtrasSendQueue _results;
     private readonly TownServices.TownServiceSendQueue _town;
     private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
@@ -231,6 +274,8 @@ internal sealed partial class ExtrasSendScheduler
     internal ExtrasSendScheduler(ulong sequence, byte animationType, byte animationEnvelope)
     {
         _presence = new ExtrasSendQueue(sequence);
+        _results = new ExtrasSendQueue(sequence, ScenarioResultsCodec.MessageType,
+            ScenarioResultsCodec.FragmentType, preserveFirst: true, snapshotLimit: ScenarioResultsCodec.MaxBytes);
         _town = new TownServices.TownServiceSendQueue(sequence);
         _animation = new ExtrasSendQueue(sequence, animationType, animationEnvelope, preserveFirst: true);
         _plumes = new ExtrasSendQueue(sequence, NetProtocol.MsgCardPlume, NetProtocol.MsgCardPlumeFragments,
@@ -257,7 +302,24 @@ internal sealed partial class ExtrasSendScheduler
         if (snapshot == null || length < 6 || length > snapshot.Length)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int type = NetPacket.PeekType(snapshot, length);
-        if (type == NetProtocol.MsgTownOriginalReceipt) EnqueueOriginalReceipt(snapshot, length);
+        if (type == ScenarioResultsCodec.MessageType)
+        {
+            if (identity is not ScenarioResultsState results)
+            { if (!ScenarioResultsCodec.TryRead(snapshot, length, out var decoded)) return; results = decoded!; }
+            _results.EnqueueResults(snapshot, length, results);
+            if (results.HasPresentation && results.Visible && results.BaseRevision == 0
+                && (_resultsOpeningKey != results.Key || _resultsOpeningAuthor != results.Author
+                    || _resultsOpeningRevision != results.Revision))
+            {
+                _resultsOpeningKey = results.Key; _resultsOpeningAuthor = results.Author;
+                _resultsOpeningRevision = results.Revision;
+                // A late participant or changed original needs the same finite
+                // baseline share as a new opening. Sparse animation/heartbeats do
+                // not renew it; all shares retain the existing4:1 repayment.
+                _resultsOpeningBudget = 16;
+            }
+        }
+        else if (type == NetProtocol.MsgTownOriginalReceipt) EnqueueOriginalReceipt(snapshot, length);
         else if (type == TownServices.TownServiceCodec.MessageType)
         {
             if (identity is not TownServices.TownServiceFrame town)
@@ -344,7 +406,7 @@ internal sealed partial class ExtrasSendScheduler
         bool openingBackground = _openingTownTurns >= 4;
         if (result == null && !openingBackground)
         {
-            result = _town.NextOpening(now);
+            result = NextResultsOpening(now) ?? _town.NextOpening(now);
             if (result != null) _openingTownTurns++;
         }
         // Build614 cold original item/purse/confirmation output otherwise waits
@@ -378,8 +440,9 @@ internal sealed partial class ExtrasSendScheduler
                 : turn == 3 ? _plumes.Next(now) : turn == 6 || turn == 15 ? _board.Next(now)
                 : turn == 7 || turn == 8 || turn == 10 ? _appearance.Next(now)
                 : turn == 11 || turn == 12 || turn == 14 ? _itemAppearance.Next(now)
-                : turn == 9 ? _prompt.Next(now) : turn == 17 ? _mapTooltip.Next(now) : NextNative(now);
-            ordinaryTurn = result != null && turn < 18;
+                : turn == 9 ? _prompt.Next(now) : turn == 17 ? NextResultsOrMapTooltip(now) : NextNative(now);
+            ordinaryTurn = result != null && turn < 18
+                && !(turn == 17 && PresentationBatch.HasResultsPage(result, result.Length));
         }
         if (openingBackground)
         {
@@ -388,7 +451,7 @@ internal sealed partial class ExtrasSendScheduler
             if (ordinaryTurn) _openingTownTurns = 0;
             else if (result == null)
             {
-                result = _town.NextOpening(now);
+                result = NextResultsOpening(now) ?? _town.NextOpening(now);
                 // An empty/exhausted reservation cannot keep all regular town
                 // turns masked when the other streams have no page to repay it.
                 // The next normal selector still honors urgent debt and clocks.
@@ -396,6 +459,27 @@ internal sealed partial class ExtrasSendScheduler
             }
         }
         return result;
+    }
+
+    private byte[]? NextResultsOpening(double now)
+    {
+        if (_resultsOpeningBudget == 0) return null;
+        byte[]? page = _results.Next(now);
+        if (page != null) _resultsOpeningBudget--;
+        return page;
+    }
+
+    // Results has no map tooltip competitor during scenario results. If both are
+    // queued across a transition, alternate this existing turn; never add an event.
+    private bool _resultsTurn;
+    private int _resultsOpeningBudget, _resultsOpeningAuthor;
+    private uint _resultsOpeningKey;
+    private ulong _resultsOpeningRevision;
+    private byte[]? NextResultsOrMapTooltip(double now)
+    {
+        _resultsTurn = !_resultsTurn;
+        return _resultsTurn ? _results.Next(now) ?? _mapTooltip.Next(now)
+            : _mapTooltip.Next(now) ?? _results.Next(now);
     }
 
     private byte[]? NextNative(double now)
@@ -413,7 +497,9 @@ internal sealed partial class ExtrasSendScheduler
     internal void Clear()
     {
         _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _itemAppearance.Clear(); _mapTooltip.Clear(); _heldPage = null;
-        _town.Clear();
+        _town.Clear(); _results.Clear(); _resultsTurn = false;
+        _resultsOpeningBudget = _resultsOpeningAuthor = 0; _resultsOpeningKey = 0;
+        _resultsOpeningRevision = 0;
         ClearOriginalReceipts();
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = _urgentTownTurn = _urgentTownDebt = _openingTownTurns = 0; _nativeCursor = 8;

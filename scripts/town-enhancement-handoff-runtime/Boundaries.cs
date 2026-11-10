@@ -197,7 +197,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 {
     public static class MapRoomDriver
     {
-        public static bool Active = true, CanVisit = true, LastSuppressed, SwitchForcesFirst; public static int Visits;
+        public static bool Active = true, CanVisit = true, LastSuppressed, SwitchForcesFirst, AbilityHandFailed; public static int Visits;
         public static bool CanVisitTownService(EGuildmasterMode mode) => CanVisit;
         public static bool PressGuildmasterMode(EGuildmasterMode mode, string reason, bool suppressNativeSound = false)
         {

@@ -2557,9 +2557,9 @@ internal static partial class ModalFallback
     /// </summary>
     private static readonly HashSet<UIWindow> EmptyRefused = new();
 
-    /// <summary>Rate limit for the content probe below — the same 6 Hz <see cref="EmptyHeldNow"/>
-    /// uses, on its own field so one set's probe can never starve the other's.</summary>
-    private static float _nextEmptyRefusedProbe;
+    /// <summary>Each original gets its own6Hz content probe. A shared deadline let the
+    /// first permanently empty window starve every later, now-populated window.</summary>
+    private static readonly WindowProbeCadence EmptyRefusedProbes = new();
 
     /// <summary>
     /// Is this window still held out of the float set for having been born empty? Read by the
@@ -2597,18 +2597,19 @@ internal static partial class ModalFallback
         if (!window.IsOpen)
         {
             EmptyRefused.Remove(window);
+            EmptyRefusedProbes.Forget(window);
             VRLog.Info("WorldUI", $"EMPTY WINDOW REFUSAL LIFTED: '{window.name}' (ID {window.ID}) — "
                                   + "the game has closed the window, so its next open is judged "
                                   + "afresh. This is the original ModBuild 226 release condition.");
             return false;
         }
         float now = Time.unscaledTime;
-        if (now < _nextEmptyRefusedProbe)
+        if (!EmptyRefusedProbes.Due(window, now))
             return true;
-        _nextEmptyRefusedProbe = now + 1f / 6f;
         if (!DrawsAnythingLoose(window.transform))
             return true;
         EmptyRefused.Remove(window);
+        EmptyRefusedProbes.Forget(window);
         // HW-VERIFY
         VRLog.Note("WorldUI", $"EMPTY WINDOW REFUSAL LIFTED: '{window.name}' (ID {window.ID}) — the "
                               + "window is DRAWING CONTENT AGAIN while the game still reports it "
@@ -2977,7 +2978,7 @@ internal static partial class ModalFallback
     /// </summary>
     private static readonly HashSet<UIWindow> EmptyHold = new();
 
-    private static float _nextEmptyHoldProbe;
+    private static readonly WindowProbeCadence EmptyHoldProbes = new();
     private static float _nextLivenessCensus;
     private static float _nextChromeSweep;
 
@@ -3005,6 +3006,7 @@ internal static partial class ModalFallback
         if (!window.IsOpen)
         {
             EmptyHold.Remove(window);
+            EmptyHoldProbes.Forget(window);
             VRLog.Info("WorldUI", $"MODAL LIVENESS: hold on '{window.name}' (ID {window.ID}) released "
                                   + "— the game has closed the window, so its next open is judged afresh.");
             return false;
@@ -3014,12 +3016,12 @@ internal static partial class ModalFallback
         // deliberately the LOOSER of the two tests, because a false "it is back" only causes a
         // re-float, which the floated-side measurement then judges properly.
         float now = Time.unscaledTime;
-        if (now < _nextEmptyHoldProbe)
+        if (!EmptyHoldProbes.Due(window, now))
             return true;
-        _nextEmptyHoldProbe = now + 1f / 6f;
         if (!DrawsAnythingLoose(window.transform))
             return true;
         EmptyHold.Remove(window);
+        EmptyHoldProbes.Forget(window);
         VRLog.Info("WorldUI", $"MODAL LIVENESS: hold on '{window.name}' (ID {window.ID}) released — "
                               + "the window is drawing content again (at least one enabled, un-culled "
                               + "Graphic above the 0.05 effective-alpha floor with a non-degenerate "

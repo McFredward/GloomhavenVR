@@ -1,3 +1,10 @@
+// CURRENT Build762 (2026-11-06): multiplayer cheats are explicitly authorized.
+// Victory uses the native host DebugWinScenario seam, including unmodded peers.
+// The other test mutations are host-only, require every connected peer on this
+// build, and execute through the original reliable GameAction queue. See
+// MultiplayerCheats and MP762-CHEATS.md. Earlier offline-only rationale below
+// is historical; it does not describe the new ordered host-authorized path.
+//
 // =====================================================================================
 //  TEMPORARY FEATURE — BUILT TO BE DELETED.  READ THIS BLOCK BEFORE TOUCHING ANYTHING.
 // =====================================================================================
@@ -114,27 +121,10 @@ namespace GloomhavenVR.WorldUI;
 /// is where the everyday settings live and a tab labelled "Cheats" sitting next to "Komfort" is
 /// one mis-click from a player who never wanted it.</para>
 ///
-/// <para><b>MULTIPLAYER: BOTH BUTTONS REFUSE WHILE A SESSION IS LIVE, and say so on the button
-/// itself.</b> This is the "refuse" half of the standing choice, taken for each button on its own
-/// evidence rather than as a blanket:</para>
-/// <list type="bullet">
-/// <item><b>Doors/rooms have NO synchronisation mechanism to go through.</b> The game's action
-/// enum (<c>FFSNet.GameActionType</c>) carries <c>DebugWinScenario</c>, <c>DebugLoseScenario</c>,
-/// <c>DebugAddItem</c> and <c>RegenerateAllScenarios</c> — and nothing door- or room-related.
-/// Door opening normally reaches peers because every client runs the SAME deterministic rule
-/// library over the same synchronised action; a locally forced <c>ForceActivate</c> is not an
-/// action, so it changes one client's <c>ScenarioState</c> and no one else's. The game then
-/// detects exactly that and logs "Map Revealed state does not match." (<c>CMap.Compare</c>). A
-/// desynced session is worse than no cheat, so this one is offline-only, full stop.</item>
-/// <item><b>Unlocking scenarios writes the HOST'S campaign save</b> — the party's
-/// <c>CMapState</c>, which is one shared object owned by the session, not a per-client view. A
-/// guest pressing it would edit a save that is not the one being played from; a host pressing it
-/// mid-session would move the campaign under everyone's feet between two map phases. It could in
-/// principle be made host-only, and it is not, for one reason worth writing down: the button
-/// exists so the user can walk a scenario list ALONE ("ohne das spiel wirklich zu spielen"), and
-/// a cheat that is correct only under a condition nobody will check is a trap. Offline-only is a
-/// rule that cannot be got wrong.</item>
-/// </list>
+/// <para>Online test mutations are host-only. Native victory uses the game's original
+/// multiplayer action; the other commands use a bounded host-authorized action in
+/// the same ordered queue and require every connected player to run this build.
+/// See MultiplayerCheats for join/roster admission and native authority.</para>
 ///
 /// <para><b>CONFIRMATION: THE SAVE-WRITING BUTTON IS ARMED FIRST, AND THE FILE IS BACKED UP
 /// BEFORE IT IS WRITTEN.</b> Both, not one — they protect against different accidents. The arm
@@ -229,6 +219,8 @@ internal static partial class VROptionsTab
     /// be opened from inside the room it locks is not a gate — and the request is explicitly that
     /// this be a .cfg decision. Hand-editing the file still works, which is the whole point.</para>
     /// </summary>
+    internal static bool CheatsEnabledNow => CheatsAvailable;
+
     private static bool CheatsAvailable
     {
         get
@@ -299,6 +291,7 @@ internal static partial class VROptionsTab
             "A temporary testing aid. It will be removed again once the walkthrough is done.",
             "Eine vorübergehende Testhilfe. Sie wird nach dem Durchtesten wieder entfernt."));
         BuildNote(ContentRoot, Loc.VideoReviewCheatsScope, multiline: true);
+        BuildNote(ContentRoot, Loc.CheatsMultiplayerHelp, multiline: true);
 
         bool online = SessionOnline();
         int rows = 0;
@@ -350,20 +343,6 @@ internal static partial class VROptionsTab
             + "nach der Rückkehr erneut drücken). Das SCHREIBT den Spielstand — eine Kopie der alten "
             + "Datei wird vorher daneben abgelegt. Einmal drücken zum Scharfschalten, erneut zum "
             + "Bestätigen."));
-        // 2026-09-04. His report names "eine map ... die wegen den Cheats aktiviert wurde, die
-        // eigentlich gesperrt sind". The row BELOW is off in multiplayer from this round on; THIS
-        // one cannot be, because its effect is a save write that is already in the file by the time
-        // a session starts. Saying so on the row is the only honest place: the multiplayer refusal
-        // on the button is about the PRESS, never about what an earlier press left behind.
-        BuildNote(ContentRoot, Text(
-            "Multiplayer cannot switch this one off again: it is written into the savegame, so "
-            + "scenarios opened here are still open once a session starts. One the game would "
-            + "still refuse — a locked starting village, or party requirements — shows its warning "
-            + "when clicked and closes the open quest window with it.",
-            "Im Mehrspieler lässt sich das hier nicht wieder abschalten: es steht im Spielstand, "
-            + "hier geöffnete Szenarien sind also auch in einer Sitzung offen. Eines, das das Spiel "
-            + "trotzdem ablehnt — gesperrtes Startdorf oder Gruppen-Voraussetzungen — zeigt beim "
-            + "Anklicken seine Warnung und schließt das offene Quest-Fenster mit."));
 
         RegisterCheatRow(
             BuildLinkRow(ContentRoot, UnlockCaption(online), () => OnUnlockAllLevels(), asAction: true),
@@ -372,9 +351,8 @@ internal static partial class VROptionsTab
     }
 
     private static string UnlockCaption(bool online) =>
-        online
-            ? Text("Unlock all levels — BLOCKED (multiplayer session)",
-                   "Alle Level freischalten — GESPERRT (Mehrspieler-Sitzung)")
+        online && MultiplayerCheats.UnavailableReason() is string reason && reason.Length != 0
+            ? Loc.Mod(reason)
             : CheatArmed
                 ? Text("Unlock all levels — PRESS AGAIN TO CONFIRM",
                        "Alle Level freischalten — ZUM BESTÄTIGEN ERNEUT DRÜCKEN")
@@ -386,13 +364,10 @@ internal static partial class VROptionsTab
         try
         {
             bool online = SessionOnline();
-            if (online)
+            if (!CheatsAvailable) return;
+            if (online && MultiplayerCheats.UnavailableReason() is string blocked && blocked.Length != 0)
             {
-                VRLog.Info("WorldUI", "CHEAT 'unlock all levels': REFUSED — a multiplayer session is "
-                                      + "live (FFSNetwork.IsOnline). Nothing was read and nothing was "
-                                      + "written. The campaign save is the session's shared state and "
-                                      + "there is no game action that could carry this change to the "
-                                      + "other players.");
+                VRLog.Info("WorldUI", "CHEAT 'unlock all levels': REFUSED — " + Loc.Mod(blocked));
                 return;
             }
 
@@ -416,6 +391,12 @@ internal static partial class VROptionsTab
                 return;
             }
             _cheatArmedAt = float.NegativeInfinity;
+            if (online)
+            {
+                MultiplayerCheats.TryQueue(MultiplayerCheatKind.Unlock);
+                RefreshCheatRows();
+                return;
+            }
 
             // MEASURED, NOT ASSUMED: the two counts below are read from the live CMapState on either
             // side of the loop, so the log's number is what actually changed rather than what the
@@ -530,7 +511,7 @@ internal static partial class VROptionsTab
     /// reconstructed here from the party name and the platform id, which would be a second opinion
     /// able to drift from the first.</para>
     /// </summary>
-    private static string BackUpAdventureSave()
+    internal static string BackUpAdventureSave()
     {
         try
         {
@@ -593,18 +574,6 @@ internal static partial class VROptionsTab
             + "Schreibt nichts; bei jedem Spielstart wieder aus. Gesperrte Szenarien brauchen "
             + "weiterhin den Knopf oben. Ein Solo-Szenario ohne seine Klasse startet stattdessen mit "
             + "einem deiner Charaktere."));
-        // 2026-09-04, his ruling: "Dieser Cheat soll im Multiplayer völlig deaktiviert werden - man
-        // soll also nach wie vor dann nicht darauf klicken können". A cheat that silently stops
-        // working reads as a broken cheat, so the row says it in his own language: the caption
-        // below already reads BLOCKED while a session is live, and this note says what happens to a
-        // toggle that was already on when one starts.
-        BuildNote(ContentRoot, Text(
-            "COMPLETELY OFF IN MULTIPLAYER. A running session switches this off, and the scenario "
-            + "icons go back to the game's own locked look, so a scenario the game keeps locked "
-            + "cannot be entered there. Switch it on again after the session.",
-            "IM MEHRSPIELER VÖLLIG DEAKTIVIERT. Eine laufende Sitzung schaltet das hier aus, und "
-            + "die Szenario-Symbole zeigen wieder die Sperre des Spiels — ein gesperrtes Szenario "
-            + "lässt sich dort also nicht betreten. Nach der Sitzung wieder einschalten."));
 
         RegisterCheatRow(
             BuildLinkRow(ContentRoot, ScenarioGateCaption(online), () => OnToggleScenarioGate(), asAction: true),
@@ -613,9 +582,8 @@ internal static partial class VROptionsTab
     }
 
     private static string ScenarioGateCaption(bool online) =>
-        online
-            ? Text("Every scenario loadable — BLOCKED (multiplayer session)",
-                   "Jedes Szenario ladbar — GESPERRT (Mehrspieler-Sitzung)")
+        online && MultiplayerCheats.UnavailableReason() is string reason && reason.Length != 0
+            ? Loc.Mod(reason)
             : Patches.ScenarioGateCheat.Enabled
                 ? Text("Every scenario loadable: ON (press to switch off)",
                        "Jedes Szenario ladbar: AN (drücken zum Ausschalten)")
@@ -627,23 +595,12 @@ internal static partial class VROptionsTab
         try
         {
             bool online = SessionOnline();
+            if (!CheatsAvailable) return;
             if (online)
             {
-                // Switching OFF is always allowed — it only ever restores the game's verdicts.
-                if (Patches.ScenarioGateCheat.Enabled)
-                {
-                    Patches.ScenarioGateCheat.Set(false);
-                    // HW-VERIFY
-                    VRLog.Note("WorldUI", "CHEAT 'every scenario loadable': switched OFF while a multiplayer "
-                                          + "session is live (FFSNetwork.IsOnline). It was already inert online; "
-                                          + "the game's own requirement verdicts stand from here on.");
-                    RefreshCheatRows();
-                    return;
-                }
-                VRLog.Info("WorldUI", "CHEAT 'every scenario loadable': REFUSED — a multiplayer session is "
-                                      + "live (FFSNetwork.IsOnline). Nothing was changed. The party-requirement "
-                                      + "verdict is evaluated on every client and there is no game action that "
-                                      + "could carry an overridden verdict to the other players.");
+                MultiplayerCheats.TryQueue(MultiplayerCheatKind.Requirements,
+                    enabled: !Patches.ScenarioGateCheat.Enabled);
+                RefreshCheatRows();
                 return;
             }
 
@@ -690,9 +647,8 @@ internal static partial class VROptionsTab
     }
 
     private static string DoorCaption(bool online) =>
-        online
-            ? Text("Open all doors — BLOCKED (multiplayer session)",
-                   "Alle Türen öffnen — GESPERRT (Mehrspieler-Sitzung)")
+        online && MultiplayerCheats.UnavailableReason() is string reason && reason.Length != 0
+            ? Loc.Mod(reason)
             : Text("Open all doors, reveal all rooms",
                    "Alle Türen öffnen, alle Räume aufdecken");
 
@@ -700,14 +656,11 @@ internal static partial class VROptionsTab
     {
         try
         {
+            if (!CheatsAvailable) return;
             if (SessionOnline())
             {
-                VRLog.Info("WorldUI", "CHEAT 'open all doors': REFUSED — a multiplayer session is live "
-                                      + "(FFSNetwork.IsOnline). Nothing was touched. There is no game "
-                                      + "action for revealing a room (FFSNet.GameActionType has none), "
-                                      + "so this would change only this client's ScenarioState and the "
-                                      + "session would desynchronise — the game itself detects that and "
-                                      + "logs 'Map Revealed state does not match.'");
+                MultiplayerCheats.TryQueue(MultiplayerCheatKind.Reveal);
+                RefreshCheatRows();
                 return;
             }
 

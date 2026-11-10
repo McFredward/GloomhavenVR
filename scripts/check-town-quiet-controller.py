@@ -25,6 +25,32 @@ def sources(root):
     check_registration(registration)
     hashes = {name: hashlib.sha256(value.encode()).hexdigest() for name, value in bound.items()}
     hashes["WorldUIModule.cs"] = hashlib.sha256(registration.encode()).hexdigest()
+    presentation_path = root / "src/GloomhavenVR/WorldUI/TownServices/TownServicePresentation.cs"
+    presentation = presentation_path.read_text()
+    def body(signature):
+        start = presentation.index("    " + signature)
+        end = presentation.index("\n    }", start) + len("\n    }")
+        return presentation[start:end]
+    recovery = body("private static bool RestoreFailedAbilityHand(")
+    claim = body("private static bool WantsNativeController(")
+    if "if (RestoreFailedAbilityHand(window, service)) return;" not in presentation \
+            or "|| WantsNativeController(window)" not in presentation:
+        raise RuntimeError("Failed ability-hand recovery is disconnected from native ownership")
+    # Failure is injected at the fixture's scene-resource boundary, so separately
+    # pin its shipping connection to the actual hand's existing exception latch.
+    for filename, binding in (
+        ("MapRoomDriver.cs", "internal static bool AbilityHandFailed => Hand.HasFailed;"),
+        ("MapRoomHand.1.Core.cs", "internal bool HasFailed => _failed;"),
+    ):
+        original = (root / "src/GloomhavenVR/WorldUI/MapRoom" / filename).read_text()
+        if binding not in original:
+            raise RuntimeError("Failed ability-hand capability binding is disconnected: " + filename)
+        hashes[filename] = hashlib.sha256(original.encode()).hexdigest()
+    bound["AbilityHandRecovery.cs"] = ("using System;using GloomhavenVR.Core;using GloomhavenVR.Net.TownServices;using GloomhavenVR.WorldUI.MapRoom;"
+        "namespace GloomhavenVR.WorldUI { public static partial class TownServicePresentation {\n"
+        + recovery + "\n" + claim + "\n} }\n")
+    hashes["TownServicePresentation.cs"] = hashlib.sha256(presentation.encode()).hexdigest()
+    hashes["AbilityHandRecovery.bound.cs"] = hashlib.sha256(bound["AbilityHandRecovery.cs"].encode()).hexdigest()
     return bound, hashes
 
 
@@ -42,6 +68,9 @@ def check_registration(source):
 
 def mutations():
     return [
+        ("failed-fan-preclaim", "AbilityHandRecovery.cs", "if (mode == EGuildmasterMode.Enchantress && MapRoomDriver.AbilityHandFailed)", "if (mode == EGuildmasterMode.Enchantress && false)", "failed ability fan must not preclaim the original enhancement window"),
+        ("failed-fan-pending", "AbilityHandRecovery.cs", "if (shop != null && shop._isConfirmationBoxOpened) return true;", "if (shop != null && false) return true;", "failed optional fan preserves the original pending native confirmation"),
+        ("failed-fan-original", "AbilityHandRecovery.cs", "ModalFallback.RestoreClassicTownService(window);", "/* original controls not restored */", "failed ability fan restores original selectable enhancement controls"),
         ("flat-show", "TownServiceQuietController.cs", "            _owner = window; _party = party; _character = character;", "            window.Show(); _owner = window; _party = party; _character = character;", "quiet merchant preserves flat window and exact party slot"),
         ("merchant-original-init", "TownServiceQuietController.cs", "                shop.ItemInventory.Init(nativeService, character);", "                /* skipped original inventory init */", "original merchant inventory receives current party and character exactly once"),
         ("merchant-event-release", "TownServiceQuietController.cs", "            if (owner != null && owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant)\n                Invoke(merchant, \"ClearEvents\");", "            /* missing original merchant event teardown */", "merchant release unregisters every exact original bus callback"),

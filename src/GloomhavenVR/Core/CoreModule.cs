@@ -32,6 +32,7 @@ internal sealed class CoreModule : IVRModule
         // throw have been indistinguishable single anonymous lines in Player.log. See
         // ExceptionTraces for the full evidence chain. Runs regardless of VR availability.
         ExceptionTraces.Install();
+        NativeFigureAudioPatches.Install();
 
         // Order matters: nothing referencing Unity.XR.* types may be JIT-compiled
         // before LoadAll() has put those assemblies into the AppDomain. Init() itself

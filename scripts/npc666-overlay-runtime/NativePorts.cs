@@ -12,6 +12,18 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using GloomhavenVR.Hands.Interact;
+
+namespace GloomhavenVR.Hands.Interact
+{
+    // This fixture installs no coordinate Harmony patch: its native coordinates
+    // stay original. The complete lease is tested by ugui-coordinates760-runtime.
+    internal static class UguiRaycastCoordinates
+    {
+        internal readonly struct Lease : IDisposable { public void Dispose() {} }
+        internal static Lease Enter(GraphicRaycaster caster,PointerEventData data,Canvas? admittedHost=null)=>default;
+    }
+}
 
 namespace GloomhavenVR.WorldUI
 {

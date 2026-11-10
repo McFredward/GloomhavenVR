@@ -82,6 +82,8 @@ LEGACY_SECTIONS = {"SquareCaps", "TransientButtons"}
 #  family (_Oak/_Steel/_Bronze) in one line, exactly like the wire ids' own doc comments do.
 # ---------------------------------------------------------------------------------------------
 EXEMPT = {
+    ("Cards", "ProgressHelpMode"): ("DERIVED", "owner-authored visible text or absence is already mirrored by pick-banner record7; remote never reads viewer help preferences"),
+    ("Cards", "ProgressHelpDelaySeconds"): ("DERIVED", "owner clock selects actual visible text on existing pick-banner record7; peers mirror the owner result, not a second timer"),
     # ---- DERIVED: the RESULT is already on the wire, so the recipe must not be -----------------
     ("Cards", "BoardScale_{board}"): ("DERIVED", "the board's world SCALE rides the synced board transform"),
     ("Cards", "BoardTilt_{board}"): ("DERIVED", "folded into the synced board ROTATION"),

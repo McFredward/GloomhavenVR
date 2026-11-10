@@ -46,7 +46,8 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (!wp.IsResults || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
                 continue;
-            if (wp.ResultsScroll == null && wp.ResultsScrollbar == null
+            if (SharedWindowScrollBridge.ResultsInput?.Invoke(wp.Panel.HostTransform) == null
+                && wp.ResultsScroll == null && wp.ResultsScrollbar == null
                 && !TryFindResultsScrollTarget(wp))
                 continue;
             DriveResultsScroll(wp, VRHands.Left);
@@ -153,8 +154,24 @@ internal static partial class ModalFallback
         GameObject? hovered = hand.RayUgui.Hovered ?? hand.Poke.HoveredUi;
         if (hovered == null || !hovered.transform.IsChildOf(wp.Panel.HostTransform))
             return;
-        if (hovered.GetComponentInParent<ScrollRect>() != null)
+        if (hovered.GetComponentInParent<ScrollRect>() != null || hovered.GetComponentInParent<SharedWindowScrollProxy>() != null)
             return; // generic RayUguiDriver stick-scroll owns this hover — never double-drive
+
+        // Observer Results are inert common pictures: the private native list
+        // may be absent or closed, and must not decide the common list's travel.
+        // Header/background hover uses the same metadata proxy as viewport hover.
+        SharedWindowScrollProxy? common = SharedWindowScrollBridge.ResultsInput?.Invoke(wp.Panel.HostTransform);
+        if (common != null)
+        {
+            if (common.CanScroll) UiScrollFocus.NoteScrollHover(hand, common, "ModalFallback.ResultsScroll");
+            float axis = hand.Thumbstick.y;
+            if (Mathf.Abs(axis) < ResultsScrollDeadzone) return;
+            float amount = (Mathf.Abs(axis) - ResultsScrollDeadzone) / (1f - ResultsScrollDeadzone);
+            SharedWindowScrollBridge.Wheel(common, new Vector2(0f,
+                Mathf.Sign(axis) * amount * ResultsScrollNotchesPerSecond * Time.unscaledDeltaTime));
+            if (common.CanScroll) UiScrollFocus.NoteScrollDelivered(hand, common, "ModalFallback.ResultsScroll");
+            return;
+        }
 
         // SCROLL BEATS FLIGHT (user 2026-08-03), reported from the same place the scroll is
         // decided so the two can never disagree — see UiScrollFocus. This branch
@@ -183,7 +200,8 @@ internal static partial class ModalFallback
             float notches = Mathf.Sign(y) * response * ResultsScrollNotchesPerSecond * Time.unscaledDeltaTime;
             _resultsScrollData ??= new PointerEventData(EventSystem.current);
             _resultsScrollData.scrollDelta = new Vector2(0f, notches);
-            ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
+            if (!SharedWindowScrollBridge.Wheel(scroll, _resultsScrollData.scrollDelta))
+                ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
             _resultsScrollData.scrollDelta = Vector2.zero;
             if (live)
                 UiScrollFocus.NoteScrollDelivered(hand, scroll, "ModalFallback.ResultsScroll");
@@ -197,8 +215,9 @@ internal static partial class ModalFallback
             // scrollbars (the uGUI vertical-list convention), shrinks for the other two.
             float dir = bar.direction == Scrollbar.Direction.BottomToTop
                      || bar.direction == Scrollbar.Direction.LeftToRight ? 1f : -1f;
-            bar.value = Mathf.Clamp01(bar.value
+            float next = Mathf.Clamp01(bar.value
                 + dir * Mathf.Sign(y) * response * ResultsScrollbarUnitsPerSecond * Time.unscaledDeltaTime);
+            if (!SharedWindowScrollBridge.Position(bar, new Vector2(next, 0))) bar.value = next;
             if (live)
                 UiScrollFocus.NoteScrollDelivered(hand, bar, "ModalFallback.ResultsScroll");
         }

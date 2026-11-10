@@ -1,13 +1,80 @@
 # Planning index
 
-Updated 2026-10-30: Build753 enlarges the naming preview by about50% with a stable
-upright frame beside the keyboard. Final rendered silhouette clearance includes
-a wide body and companion; the accepted752 quest/default framing stays intact.
-Class B selects five variants, strict/source/compiled checks and explicitly bound
-750/752 reuse. STATE.md and ignored menu753 evidence retain the initial pixel
-obstruction, corrected proof, cleanup and hardware limits. Release1.2.2 is
-published; dev's version is1.2.3. Windows builds its archive from dev. Passive
-map stalls remain open in MP746-PERFORMANCE.md.
+Updated2026-11-09: independent Build768 post-review distinguishes a fresh run
+still stamped767 from unprovided768hardware evidence. MP768-POSTREVIEW and its
+two independent reports record default/asset lifetime and rendering boundaries,
+exact negative contract repros and the matching-log requirement. Review only:
+no runtime/fixture change or new ModBuild.
+
+Updated2026-11-09: Build768 replaces per-report Results texture admission with
+the complete audited native catalogue, scoped only to Results, and exact native
+root-sprite provenance. The paired767 error is reproduced by its exact warning.
+MP768 reports record comprehensive runtime-material census, bounded2407/22
+consumer qualification,4183catalogue decisions, failures, proof reuse and limits.
+
+Updated2026-11-09: Build767 repairs a late audited native flow-map duplicate
+freezing the observer Results picture despite working shared scroll inputs.
+Common Results handle geometry is independent of viewer-local ink. The two
+MP767 reports record fresh original-material/scroll/pixel proof, bounded20-control
+qualification, independent exact-source census, reused evidence and limitations.
+
+Updated2026-11-08: Build766 repairs original modular Results paths, real header
+laser hover and a stable native footer outside scrolling rows. MP766-INTEGRATION
+records exact765 causes, targeted734/23 aggregate, unchanged proof, all failures,
+compiled/source/archive bindings and hardware limits. No full local test repeat.
+
+Updated2026-11-08: Build765 repairs guest Results scroll admission/header-stick
+input, the exact native spectator-ACK visibility deadlock and shared continuation
+presses. MP765-INTEGRATION.md records bounded775-assertion/38-control coverage,
+input-bound764 inheritance, original failures, compiled review and hardware limits.
+No complete test repetition, release or device changes.
+
+Updated2026-11-08: Build764 fixes late-join native intro locks blocking selection
+and queued Win/Results, compact combat-log geometry/manual sizing and complete
+nested character creation/cancellation. MP764-INTEGRATION.md records the complete
+unique296-ID classC qualification, two bounded fixture repairs without a full
+repeat, verified inputs/archives, actual native/pixel proof and hardware limits.
+Owned COMBATLOG/CREATION/RESULTS/SELECTION/START-REVIEW reports retain the detail.
+
+Updated2026-11-06: Build763 repairs complete observer Results after Victory and
+physical shared-video move/resize. Exact native-material/coordinator causes,
+bounded final qualification, prior fixture gaps, failed-run accounting and
+hardware limits are recorded in MP763-INTEGRATION.md and its three owned reviews.
+
+Updated2026-11-06: Build762 adds visitor-operated shared-window scrolling and
+default-off ordered host cheats, with exact native capability-ingress repair.
+All292 local obligations are qualified once across frozen/updated/inherited
+proof; no full repeat after the bounded repair. See MP762-INTEGRATION.md for
+complete scope, timings, actual native metadata and hardware handoff.
+
+Updated2026-11-06: Build761 integrates the paired multiplayer presentation review:
+ESC roster lifetime, public forced-loss provenance, original rest glow/portrait
+input, figure audio, native MR coverage and common Results presentation/pose.
+Complete290-ID aggregate and original failures are recorded in
+MP761-INTEGRATION.md; owned Windows/Cards/MR reviews retain native source and
+pixel evidence. No new headset/Photon acceptance is inferred.
+
+Updated2026-11-06: Build760 integrates maximum-zoom depth, starting-card scrolling,
+desktop-independent native frame/capture and scoped VR input repairs. See
+MP760-INTEGRATION.md for complete unique classC coverage, bounded repairs,
+retained failures, proof relocation and hardware limits; MP760-DISPLAY.md,
+MP760-INPUT-REVIEW.md and POPUP760-CONSUMER.md hold the owned source/native/pixel
+reviews. The subsequent ten-point paired759 report is addressed by Build761 above.
+
+Updated2026-11-05: Build759 fixes the observed same-frame confirmation blackout,
+animates critical-story recovery with finite shared fast-cadence publication,
+and makes optional board explanations owner-configurable (default150s).
+The bounded final union reuses the qualified758 checkpoint for unchanged areas;
+see the three new focused reviews and STATE.md for proof and limits.
+
+Build758 integrates the comprehensive SP/MP progression
+review. Independently proven lifecycle, cancellation, confirmation and fallback
+repairs plus player guidance are detailed in DEADLOCK-758-REVIEW.md and the
+three owned reviews. Final classC qualification covers276 local IDs,16 sources,
+306739 wire assertions and compiled/surface review; interrupted invocations and
+bounded repairs are recorded separately in STATE.md. The historical Issue27 incident
+remains causally unresolved; no fabricated acknowledgment or forced choice is
+used to hide it. Passive map stalls remain open in MP746-PERFORMANCE.md.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -17,6 +84,40 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP768-POSTREVIEW.md](MP768-POSTREVIEW.md) | Fresh767 retest provenance, independent review findings and current evidence boundary |
+| [MP768-REVIEW-ASSETS.md](MP768-REVIEW-ASSETS.md) | Independent original-asset policy, canonical lifetime, material context and font alias review |
+| [MP768-REVIEW-PICTURE.md](MP768-REVIEW-PICTURE.md) | End-to-end Results picture/visibility/retirement review and split-client proof limits |
+| [MP768-INTEGRATION.md](MP768-INTEGRATION.md) | Paired767 repeated failure, complete scoped remedy, bounded final union and reuse |
+| [MP768-ASSETS.md](MP768-ASSETS.md) | Full original texture/material/image census, strict catalogue and immutable root-sprite provenance |
+| [MP768-RESULTS.md](MP768-RESULTS.md) | Runtime noise/cold-background/late-alias consumer, final pixels, controls, failures and ports |
+| [MP767-INTEGRATION.md](MP767-INTEGRATION.md) | Paired766 frozen observer cause, common handle, exact scope and bounded qualification |
+| [MP767-RESULTS.md](MP767-RESULTS.md) | Original DXT5 census, late duplicate reproduction, persistent scroll/bar pixels and fixture limits |
+| [MP766-INTEGRATION.md](MP766-INTEGRATION.md) | Paired765 input/footer causes, bounded final union, proof reuse and hardware handoff |
+| [MP766-INPUT.md](MP766-INPUT.md) | Actual modular producer and physical laser entry, header scope and source/proxy diagnostics |
+| [MP766-FOOTER.md](MP766-FOOTER.md) | Native footer layout, detached draw order, nine state views and exact ownership restoration |
+| [MP765-INTEGRATION.md](MP765-INTEGRATION.md) | Paired764 causes, bounded Results union, exact evidence reuse, final qualification and hardware handoff |
+| [MP765-RESULTS.md](MP765-RESULTS.md) | Native visibility reproduction, original pointer permission, inert observer inputs and pixel/fixture limits |
+| [MP765-SCROLL.md](MP765-SCROLL.md) | Inactive canvas admission, guest stick/bar delivery and simultaneous-input convergence |
+| [MP765-CONTROLS.md](MP765-CONTROLS.md) | Reliable native requests, exact player/opening identity, lifecycle guards and compiling controls |
+| [MP763-INTEGRATION.md](MP763-INTEGRATION.md) | Paired762 causes, bounded763 union qualification, source/compiled/archive bindings and hardware handoff |
+| [MP763-RESULTS.md](MP763-RESULTS.md) | Exact original material repair, inactive candidate transaction and full-stage fixture limits |
+| [MP763-VIDEO.md](MP763-VIDEO.md) | Real mirror/initializer ordering, physical move/resize and actual Unity frame/pixel proof |
+| [MP763-REVIEW.md](MP763-REVIEW.md) | Independent native descriptor census, all shared-kind caller audit and proof-reuse boundaries |
+| [MP762-INTEGRATION.md](MP762-INTEGRATION.md) | Shared scroll/host cheats, final292-ID aggregate, bounded repair, cleanup and hardware handoff |
+| [MP762-SCROLL.md](MP762-SCROLL.md) | Exact common viewport input, per-kind authority, source permissions and source-bound Unity checks |
+| [MP762-CHEATS.md](MP762-CHEATS.md) | Original gameplay-queue authority, exact recipient/roster and one-action permit handling |
+| [MP762-INDEPENDENT-REVIEW.md](MP762-INDEPENDENT-REVIEW.md) | Independent native/projection audit and inherited proof boundaries |
+| [MP762-CAPABILITY-INGRESS.md](MP762-CAPABILITY-INGRESS.md) | Actual version-only/sparse ingress,268+18 full proof and native reflection/constructor verification |
+| [MP761-INTEGRATION.md](MP761-INTEGRATION.md) | Ten-point paired multiplayer repair, complete aggregate qualification, evidence reuse and hardware handoff |
+| [POPUP-SCALE-759-REVIEW.md](POPUP-SCALE-759-REVIEW.md) | Current confirmation blackout cause, actual image/input proof and bounded final union qualification |
+| [DECISION-HELP-759.md](DECISION-HELP-759.md) | Three owner-local explanation modes, final150s default and existing remote banner provenance |
+| [STORY-759-ANIMATION.md](STORY-759-ANIMATION.md) | Finite critical-story recovery flight, grip/authority gates and actual15Hz sender consumer |
+| [DEADLOCK-758-REVIEW.md](DEADLOCK-758-REVIEW.md) | Integrated progression-safety findings, ownership boundaries, guidance and final validation |
+| [DEADLOCK-758-CARDS.md](DEADLOCK-758-CARDS.md) | Complete Cards/Board audit, original cancellation and queued-lifetime repairs, input guidance and secondary render/data review |
+| [DEADLOCK-758-WINDOWS.md](DEADLOCK-758-WINDOWS.md) | Required-window recovery, actual confirmation pixels and exception-safe peer retirement |
+| [DEADLOCK-758-MAP.md](DEADLOCK-758-MAP.md) | Map/NPC/tutorial flow review, native joining latch, failed-hand fallback and startup review |
+| [ISSUES-24-27-757-REVIEW.md](ISSUES-24-27-757-REVIEW.md) | Initiative plane repair and explicitly unresolved historical turn-stall evidence |
+| [MP756-REVIEW.md](MP756-REVIEW.md) | Paired character-creation repair and multiplayer progression presentation checkpoint |
 | [MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md](MENU748-DEPTH-INTERACTION-AND-TRANSITIONS.md) | Left-gap previews, actual menu surface laser geometry, story retirement and first-frame backdrop ownership; complete aggregate validation |
 | [MENU747-COMPLETE-PREVIEWS-AND-STORY.md](MENU747-COMPLETE-PREVIEWS-AND-STORY.md) | Complete native More Cards previews, exact composed loadout backing lease and bounded verification |
 | [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |

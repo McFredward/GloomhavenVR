@@ -848,10 +848,22 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         if (newScenario)
             _retryBoardRestorePending = false;
         float baseScale = ResolveWorldScale();
+        bool arrival = newScenario || _priorKind != RigKind.Scenario;
+        float savedZoom = ComfortSettings.ClampedSavedMultiplier;
+        float arrivalZoom = ScenarioArrivalScale.Resolve(savedZoom, Defaults.SavedScaleMultiplier, arrival);
+        if (arrivalZoom != savedZoom && !_scenarioStart.RestorePending)
+        {
+            // Commit the safe arrival as the new remembered size too. Otherwise
+            // a later camera/rig rebuild would silently re-import the same outlier.
+            ComfortSettings.PersistScaleMultiplier(arrivalZoom);
+            VRLog.Note("Rig", $"SCENARIO ARRIVAL ZOOM: saved {savedZoom:F3}x is outside the "
+                + $"readable arrival range; using {arrivalZoom:F3}x for this arrival. "
+                + "Remembered zoom corrected; deliberate live zoom limits are unchanged.");
+        }
         // Ordinary entries use saved zoom; an explicit Retry restores the original arrival scale.
         float scale = _scenarioStart.RestorePending
             ? _scenarioStart.Pose.Scale
-            : baseScale * ComfortSettings.ClampedSavedMultiplier;
+            : baseScale * arrivalZoom;
 
         _rigRoot = CreateRigRoot();
         // Rig at the orbit focus, yaw taken from the current camera so the board is
@@ -872,7 +884,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // The WINDOW itself is armed later still, by the first tracked pose (see UpdateBody) — a
         // window opened here would be spent on the scenario load. Until then the sentinel end time
         // keeps the poll from acting at all.
-        bool arrival = newScenario || _priorKind != RigKind.Scenario;
         _ringPlaced = false;
         _ringSettled = !arrival;
         // The arrival window opens and closes with the ring's own window — one writer per event,

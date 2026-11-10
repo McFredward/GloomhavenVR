@@ -40,6 +40,7 @@ try:
   if item.is_file():shutil.copy2(item,assembly/item.name)
  originals={path:path.read_text() for path in source.iterdir()}
  mutations=[
+ ('stale-loadout-tab','MapQuestReadyRoster.cs','&& LoadoutConfirmPark.GameWantsConfirmShown()','&& true','readiness crests leave non-confirmable cards tab immediately'),
  ('stale-phase-offer','MapQuestReadyRoster.cs','&& IsCurrentSite((ReadyRosterSite)i, _offerConfirm[i])','&& true','stale previous-phase offer cannot steal city row'),
  ('self-measured-city-row','MapQuestReadyRoster.cs','TryInkBounds(win, confirmRect, rowRect, out confirmInk, out confirmCount)','TryInkBounds(win, confirmRect, out confirmInk, out confirmCount)','city same-root measurement cannot chase its own row upward'),
  ('city-reservation','MapQuestReadyRoster.cs','_row != null && _site == ReadyRosterSite.Quest ? _reserved : 0f','_row != null ? _reserved : 0f','city row never offsets quest confirmation'),

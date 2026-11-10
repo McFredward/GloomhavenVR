@@ -355,6 +355,7 @@ internal sealed class InitiativeReorderSlide
 
     /// <summary>A reorder was announced and this slide will take it over on the frame the tweens exist.</summary>
     private bool _armed;
+    private bool _adoptedInFlight;
 
     /// <summary><see cref="Time.unscaledTime"/> until which the y half of the row-axis guard stands down.</summary>
     private float _guardSettleUntil;
@@ -384,6 +385,23 @@ internal sealed class InitiativeReorderSlide
     public bool Active => _legs.Count > 0;
 
     /// <summary>
+    /// Capture the original row immediately after adoption, before a native Update can
+    /// integrate a world-x tween in the new VR frame. A first LateTick is too late:
+    /// the original LeanTween writer may already have displaced all three local axes.
+    /// </summary>
+    internal void Prime(InitiativeTrack? track)
+    {
+        Abort("new native row conversion");
+        Transform? holder = track != null ? track.initiativeTrackHolder : null;
+        if (track == null || holder == null)
+            return;
+        LatchRest(track, holder);
+        _sawAnimating = track.isAnimating || track.animationDelayed;
+        _armed = _sawAnimating;
+        _adoptedInFlight = track.moveXAnimations != null && track.moveXAnimations.Count > 0;
+    }
+
+    /// <summary>
     /// Per-frame from <see cref="InitiativeTrackSurface.LateTick"/> — i.e. after every Update-phase
     /// transform writer in the process (LeanTween's updater included) has had its say.
     /// </summary>
@@ -401,10 +419,12 @@ internal sealed class InitiativeReorderSlide
             return;
         }
 
-        // ARM on the rising edge of vanilla's own animation flag. That edge is the coroutine's FIRST
-        // segment (InitiativeTrack.cs:260-263): the layout writers are already off and NOT ONE tween
-        // exists yet, so it is also the last moment at which the live transforms are guaranteed to
-        // still be the settled layout — hence the latch here.
+        List<LTDescr>? batch = track.moveXAnimations;
+        int pending = batch != null ? batch.Count : 0;
+
+        // ARM on the rising edge of vanilla's own animation flag. Only an observation
+        // before the batch exists is the coroutine's safe pre-tween segment; a flag
+        // first seen alongside a batch can already contain its first world-x write.
         bool animating = track.isAnimating || track.animationDelayed;
         if (animating && !_sawAnimating)
         {
@@ -412,7 +432,10 @@ internal sealed class InitiativeReorderSlide
             // Latch only when nothing is in flight: mid-slide positions are this class's own
             // interpolation, not a rest pose, and the latch from before the running slide is still
             // the row's last layout-owned truth.
-            if (!Active)
+            // A coroutine may start after our previous LateTick. If its batch already
+            // exists, the first native Update may have landed too: keep the clean
+            // idle/adoption latch instead of recording that foreign y/z as native rest.
+            if (!Active && pending == 0)
                 LatchRest(track, holder);
         }
         _sawAnimating = animating;
@@ -422,8 +445,6 @@ internal sealed class InitiativeReorderSlide
         // covers the reorder that starts while this slide is still running (vanilla's own
         // `animationDelayed` re-entry, where isAnimating never falls and there is no rising edge to
         // see) and the one driven from a callback that runs after our LateUpdate.
-        List<LTDescr>? batch = track.moveXAnimations;
-        int pending = batch != null ? batch.Count : 0;
         if (pending > 0 && _sawBatchCount == 0)
             _armed = true;
         _sawBatchCount = pending;
@@ -438,6 +459,9 @@ internal sealed class InitiativeReorderSlide
             Begin(track, holder);
             return; // first visible frame is the row at its REST pose — no jump
         }
+
+        if (!animating && pending == 0 && !Active)
+            _adoptedInFlight = false;
 
         if (Active)
         {
@@ -455,6 +479,7 @@ internal sealed class InitiativeReorderSlide
                       "UpdateInitiativeTrack -> NormalizeActorsPool instantly on EndRound / " +
                       "NextRound / Spawn / ActorDead …, Choreographer.cs:12534) and no new reorder " +
                       "followed it — the plan describes a row that is gone");
+                PrimeAfterMembershipChange(track, holder);
                 return;
             }
             Advance(track);
@@ -752,6 +777,16 @@ internal sealed class InitiativeReorderSlide
             return;
         }
 
+        if (_adoptedInFlight)
+        {
+            _adoptedInFlight = false;
+            // Adoption can interrupt an already-progressing flat-native tween. Its
+            // captured positions are honest origins, but no longer a final slot set.
+            // Use the original layout for destinations, retaining those origins.
+            BeginOnChangedRow(track, holder, adoptedInFlight: true);
+            return;
+        }
+
         // ROUND 3 — WHOSE ROW IS THE LATCH ABOUT? When the membership has changed under a running
         // slide (the round boundary: Choreographer.HandleMessage -> UpdateInitiativeTrack ->
         // NormalizeActorsPool, Choreographer.cs:12534), the latch describes a row that is gone. Its
@@ -790,6 +825,10 @@ internal sealed class InitiativeReorderSlide
                 Entry = entry, FromX = rest.X, LastX = rest.X, RestY = rest.Y, RestZ = rest.Z,
             });
             _slots.Add(rest.X);
+            // Begin returns without Advance this frame. Publish the captured native
+            // plane now, including no-travel plans; otherwise the first visible frame
+            // still contains the world-x leak that was just cancelled.
+            entry.localPosition = new Vector3(rest.X, rest.Y, rest.Z);
         }
         if (_legs.Count < 2)
         {
@@ -880,7 +919,7 @@ internal sealed class InitiativeReorderSlide
     /// <para>The forced rebuild is never a rendered frame: the writers go back off and every leg is
     /// written to its ORIGIN before this method returns, all inside the same LateUpdate.</para>
     /// </summary>
-    private void BeginOnChangedRow(InitiativeTrack track, Transform holder)
+    private void BeginOnChangedRow(InitiativeTrack track, Transform holder, bool adoptedInFlight = false)
     {
         // Keep the old latch: it is the only honest origin for an entry that was in the old row but
         // was not being driven by the superseded slide.
@@ -959,6 +998,15 @@ internal sealed class InitiativeReorderSlide
 
         _duration = Mathf.Clamp(track.trackReorderDuration, MinDuration, MaxDuration);
 
+        if (adoptedInFlight)
+        {
+            VRLog.Info("WorldUI", $"INITIATIVE REORDER SLIDE adopted: {_legs.Count} portrait(s) " +
+                $"continue from their captured native origins to the original layout over {_duration:F2} s. " +
+                "The already-moving source positions are origins, never destination slots; " +
+                "entry planes and nested portrait styling retain their native ownership.");
+            return;
+        }
+
         VRLog.Info("WorldUI",
             $"INITIATIVE REORDER SLIDE start [CHANGED ROW]: {_legs.Count} portrait(s) re-order, travel " +
             $"max {maxTravel:F0} px / total {totalTravel:F0} px along the ROW's local x, over " +
@@ -1004,7 +1052,40 @@ internal sealed class InitiativeReorderSlide
         if (target != null)
             LayoutRebuilder.ForceRebuildLayoutImmediate(target);
 
+        RestoreEntryPlanes(track, holder);
         LatchRest(track, holder);
+    }
+
+    /// <summary>
+    /// A Unity layout rebuild owns x/y, never local z. Reusing its live z after a
+    /// native world-x step makes that leak permanent. Preserve known original planes;
+    /// newly pooled native player/enemy roots are authored at zero (level6's two
+    /// referenced prefabs). Nested portrait/selection depth is deliberately untouched.
+    /// </summary>
+    private void RestoreEntryPlanes(InitiativeTrack track, Transform holder)
+    {
+        List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
+        for (int i = 0; actors != null && i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour entry = actors[i];
+            if (entry == null || !entry.gameObject.activeSelf || entry.transform.parent != holder)
+                continue;
+            Transform root = entry.transform;
+            float z = _rest.TryGetValue(root, out Rest native) ? native.Z : 0f;
+            Vector3 live = root.localPosition;
+            if (Mathf.Abs(live.z - z) > 0.001f)
+                root.localPosition = new Vector3(live.x, live.y, z);
+        }
+    }
+
+    private void PrimeAfterMembershipChange(InitiativeTrack track, Transform holder)
+    {
+        // Abort hands layout back and clears its old plan. Ask that original layout
+        // for the new row before another EOF batch can reach the following Update.
+        _layoutGroup = track.layoutGroup;
+        _fitter = track.contentSizeFitter;
+        SettleRowIntoLayout(track, holder);
+        RestoreLayoutWriters();
     }
 
     /// <summary>
@@ -1172,6 +1253,7 @@ internal sealed class InitiativeReorderSlide
     public void Abort(string reason)
     {
         _armed = false;
+        _adoptedInFlight = false;
         _sawAnimating = false;
         _sawBatchCount = 0;
 

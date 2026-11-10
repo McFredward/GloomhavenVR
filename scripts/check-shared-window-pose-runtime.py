@@ -40,12 +40,14 @@ def execute(command, log):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--unity-video', action='store_true', help='Actual Unity frame/Canvas companion for the complete video coordinator')
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/shared-window-pose-runtime')
-    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return'), default='complete', help='Partial development reproduction; requires --case production')
+    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return','results-poses','video-mirror'), default='complete', help='Partial development reproduction; requires --case production')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
-    if args.scenario != 'complete' and args.case != ['production']: parser.error('Partial scenarios require exactly --case production')
+    results_cases = {'production', 'results-stale-full-rewind', 'results-motion-resets'}
+    if args.scenario != 'complete' and args.case != ['production'] and not (args.scenario == 'results-poses' and args.case and set(args.case) <= results_cases): parser.error('Partial scenarios require production, or explicit bounded Results pose controls')
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir)).resolve()
@@ -66,8 +68,11 @@ def main():
             'law': 'WorldUI/Modal/SharedWindowSizeLaw.cs', 'sender': 'Net/Avatar/NetAvatarDriver.cs',
             'presence': 'Net/PresenceState.cs', 'module': 'Net/NetModule.cs',
             'video': 'Net/Remote/RemoteMapStory.Video.cs', 'playback': 'Net/Remote/RemoteVideoPlayback.cs',
+            'video_state': 'Net/VideoWindowState.cs',
             'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
             'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
+            'results_pose': 'Net/ScenarioResultsPose.cs', 'results_state': 'Net/ScenarioResultsState.cs',
+            'results_nodes': 'Net/TownServices/TownServiceFrame.cs',
             'move_order': 'Net/SharedWindowMoveOrder.cs', 'move_register': 'Net/SharedWindowMoveRegister.cs',
             'roommaking': 'WorldUI/Modal/ModalFallback.WindowRoomMaking.cs', 'reflow': 'Net/Remote/RemoteMapStory.Reflow.cs', 'moves': 'Net/SharedWindowMoves.cs', 'move_bridge': 'WorldUI/Modal/SharedWindowInteractionBridge.cs',
         }
@@ -99,9 +104,14 @@ def main():
             'private static void Forget(', 'private static void ResolvePose(', 'private static void PruneStale(Dictionary'))
         codec = '\n'.join(block(original['codec'], signature) for signature in (
             'internal static void WriteU32(', 'internal static uint ReadU32(',
-            'internal static void WriteF32(', 'internal static float ReadF32('))
+            'internal static void WriteF32(', 'internal static float ReadF32(',
+            'internal static void WriteI16(', 'internal static short ReadI16(',
+            'private static void WritePose(', 'private static void ReadPose('))
+        codec += '\nprivate const float QuatScale = 32767f;\n'
+        codec += 'internal static void WritePoseShared(byte[] b, ref int i, in RigPose p) => WritePose(b, ref i, in p);\n'
+        codec += 'internal static void ReadPoseShared(byte[] b, ref int i, out RigPose p) => ReadPose(b, ref i, out p);\n'
         protocol = '\n'.join(re.search(r'public const (?:byte|ushort|float) ' + name + r' = [^;]+;', original['protocol'])[0] for name in (
-            'ModBuild', 'ExtIdSharedWindowMoveOrder', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
+            'ModBuild', 'ExtIdVideoWindow', 'SharedFrameMax', 'ExtIdSharedWindowMoveOrder', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
             'StoryOpenBit', 'StoryPoseBit', 'StoryFinishedBit', 'StoryPageNone', 'StoryPageMax',
             'SharedOpenBit', 'SharedPoseBit', 'SharedFinishedBit', 'SharedWindowKindMapStory',
             'SharedWindowKindQuestConfirm', 'SharedWindowKindEncounter', 'SharedFrameSeatAnchor', 'SharedFrameParchment',
@@ -117,6 +127,9 @@ def main():
         video_observe = block(original['playback'], 'internal static void Observe(')
         video_tail = video_observe[video_observe.rindex('        if (extras.HasVideoWindow)'):-1]
         sources = {
+            'ResultsPose.cs': original['results_pose'],
+            'ResultsState.cs': prefix + 'using GloomhavenVR.Net.TownServices;\n' + block(original['results_state'], 'internal sealed class ScenarioResultsState') + '\n' + block(original['results_state'], 'internal sealed class ScenarioResultsPart') + '\n}',
+            'ResultsNodes.cs': 'using System; using System.Collections.Generic; namespace GloomhavenVR.Net.TownServices {\n' + block(original['results_nodes'], 'internal sealed class TownServiceNode') + '\n' + block(original['results_nodes'], 'internal sealed class TownServiceValue') + '\n}',
             'Reflow.cs': original['reflow'], 'MoveOrder.cs': original['move_order'], 'MoveRegister.cs': original['move_register'],
             'Moves.cs': original['moves'], 'MoveBridge.cs': original['move_bridge'],
             'Context.cs': original['context'], 'Scales.cs': original['scales'], 'Authority.cs': original['authority'],
@@ -132,7 +145,7 @@ def main():
             'Protocol.cs': prefix + 'internal static class NetProtocol {\n' + protocol + '\n}}',
             'Anchor.cs': original['anchor'], 'Law.cs': original['law'],
             'VideoReceipt.cs': prefix + 'internal static class VideoPoseReceipt { internal static void Observe(int sender, in PresenceState extras) {\n' + video_tail + '\n}}}',
-            'Video.cs': original['video'], 'Reward.cs': original['reward'],
+            'Video.cs': original['video'], 'VideoPlayback.cs': original['playback'], 'VideoState.cs': original['video_state'], 'Reward.cs': original['reward'],
             'RewardHandshake.cs': original['reward_handshake'], 'RewardHandoff.cs': original['reward_handoff'],
             'RewardWindow.cs': prefix + block(original['reward_window'], 'internal struct RewardWindowState') + '\n' + block(original['reward_window'], 'internal static class RewardPosePolicy') + '\ninternal static class RewardWindowCodec {\n' + block(original['reward_window'], 'internal static bool Valid(') + '\n' + re.search(r'private static bool Finite\([^;]+;', original['reward_window'])[0] + '\n}}',
             'RewardCensus.cs': prefix + 'internal static class NetAvatarDriver {\n' + block(original['sender'], 'internal static void CollectRewardPosePeers(') + '\n}}',
@@ -143,8 +156,33 @@ def main():
             room += '\n' + re.search(r'private const (?:int|float) '+name+r' = [^;]+;', original['roommaking'])[0]
         sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
             'internal static partial class ModalFallback {\n'+room+'\n}')
+        if args.unity_video:
+            sys.path.insert(0, str(fixture))
+            from unity_video import run_unity_video
+            status = run_unity_video(root, run, sources, fixture_sources, original, hashes)
+            return status
         variants = [
             ('production', '', '', '', ''),
+            ('video-mirror-repeated-initial', 'VideoPlayback.cs',
+             'if (!NativeVideoWindow.SharedInitialPoseReady\n            && RemoteMapStory.TryVideoSharedInitialPose(',
+             'if (RemoteMapStory.TryVideoSharedInitialPose(',
+             'revealed mirror follows the physical shared drag: native/scenario/host'),
+            ('results-stale-full-rewind', 'ResultsPose.cs',
+             'if (PoseRevisions.TryGetValue(sender, out ulong previous) && state.Revision <= previous) return original;',
+             'if (bool.Parse("false")) return original;', 'delayed complete Results content cannot rewind the newer independent live pose'),
+            ('results-motion-resets', 'ResultsPose.cs', 'if (_mover != sender) { Track.Reset(); _mover = sender; }',
+             'if (true) { Track.Reset(); _mover = sender; }', 'actual Results producer and pose consumer remain smooth under incomplete heavy content, jitter, loss and late full pictures'),
+            ('results-foreign-author', 'ResultsPose.cs',
+             'state.Author != SharedWindowSpawnAuthority.AuthorId', 'false',
+             'results refuses a foreign content author'),
+            ('scenario-auto-author-missing', 'Moves.cs',
+             'register.SetAutomaticAuthor(SharedWindowSpawnAuthority.AuthorId, Time.unscaledTime);',
+             'register.SetAutomaticAuthor(0, Time.unscaledTime);',
+             'scenario recovery author can claim after the actual peer release'),
+            ('scenario-auto-observer-map-only', 'Moves.cs',
+             '(kind == SharedWindowKind.ScenarioStory ? SharedWindowSpawnAuthority.AuthorId\n                    : RemoteMapStory.SharedReflowAuthor())',
+             'RemoteMapStory.SharedReflowAuthor()',
+             'scenario recovery automatic pose reaches every original resolver'),
             ('initial-hint-before-validation', 'MoveRegister.cs',
              '        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',
              '        if (row.Phase == SharedWindowMovePhase.Initial) See(row.Sequence);\n        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',
@@ -271,6 +309,18 @@ def main():
             ('reward-writer-seat-domain', 'Map.cs', 'if (scenarioFrame)', 'if (scenarioFrame && bool.Parse("false"))',
              'the actual reward sampler keeps WorldFrame2 even while parchment geometry is available'),
         ]
+        trace_path = os.environ.get('GVR_RESULTS_MOTION_TRACE')
+        if trace_path:
+            incoming_trace = Path(trace_path).resolve()
+            trace_bytes = incoming_trace.read_bytes()
+            owned_trace = run / 'results-motion-trace.tsv'
+            owned_trace.write_bytes(trace_bytes)
+            (run / 'motion-input.json').write_text(json.dumps({'source': str(incoming_trace), 'copy': str(owned_trace), 'sha256': hashlib.sha256(trace_bytes).hexdigest(), 'projection': 'All exact production decoded fields consumed by ScenarioResultsPose, with native delivery times; content graph stays in transport companion.'}, indent=2) + '\n')
+            os.environ['GVR_RESULTS_MOTION_TRACE'] = str(owned_trace)
+        else:
+            if args.case and 'results-motion-resets' in args.case:
+                parser.error('results-motion-resets requires GVR_RESULTS_MOTION_TRACE from the transport companion')
+            variants = [item for item in variants if item[0] != 'results-motion-resets']
         if args.case:
             unknown = set(args.case) - {item[0] for item in variants}
             if unknown:

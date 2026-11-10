@@ -13,7 +13,12 @@ def require(condition, message):
     assert condition, message
 rig = source('VRRigDriver.cs')
 require('_scenarioStart.EnterScenario(Choreographer.s_Choreographer)' in rig, 'Native scenario identity must scope cached arrival')
-require(re.search(r'float scale = _scenarioStart.RestorePending\s*\? _scenarioStart.Pose.Scale\s*: baseScale \* ComfortSettings.ClampedSavedMultiplier', rig), 'Retry camera must begin at original scale')
+require(re.search(r'float scale = _scenarioStart.RestorePending\s*\? _scenarioStart.Pose.Scale\s*: baseScale \* arrivalZoom', rig), 'Retry camera must begin at original scale')
+# Build756 normalizes extreme remembered zoom for ordinary arrival only. The
+# retry arm above must keep taking its captured pose scale before that branch.
+require('float savedZoom = ComfortSettings.ClampedSavedMultiplier;' in rig
+        and 'float arrivalZoom = ScenarioArrivalScale.Resolve(savedZoom, Defaults.SavedScaleMultiplier, arrival);' in rig,
+        'Ordinary arrival must use the tested normalization without changing Retry precedence')
 require('bool arrival = newScenario || _priorKind != RigKind.Scenario;' in rig, 'Direct scenario replacement must count as arrival')
 require('if (arrival && !_scenarioStart.RestorePending)' in rig, 'Retry must preserve arrival azimuth')
 require(re.search(r'if \(_kind == RigKind.Scenario && _scenarioStart.RestorePending\)\s*\{\s*RestoreScenarioStart\(\);\s*\}\s*else if \(_kind == RigKind.Scenario\)', rig), 'Retry must bypass a fresh peer seat solve')

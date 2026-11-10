@@ -12,13 +12,15 @@ public sealed class TransparentMaterialRead : MonoBehaviour
     public Color[] pixels;
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
+        TransparentMaterialFixture.Trace761("OnRenderImage begin "+GetComponent<Camera>().name);
         RenderTexture old=RenderTexture.active;
         var read=new Texture2D(source.width,source.height,TextureFormat.RGBAFloat,false,true);
         try{RenderTexture.active=source;read.ReadPixels(new Rect(0,0,source.width,source.height),0,0,false);read.Apply();pixels=read.GetPixels();Graphics.Blit(source,destination);}
         finally{RenderTexture.active=old;DestroyImmediate(read);}
+        TransparentMaterialFixture.Trace761("OnRenderImage end "+GetComponent<Camera>().name+" alpha="+pixels[0].a);
     }
 }
-public static class TransparentMaterialFixture
+public static partial class TransparentMaterialFixture
 {
     [Serializable] public sealed class Row{public string name;public int layers;public float originalAlpha,coverageAlpha;}
     [Serializable] public sealed class Report
@@ -37,6 +39,8 @@ public static class TransparentMaterialFixture
     private static Dictionary<string,Shader> bankShaders=new Dictionary<string,Shader>();
     private static Camera head,foreign;
     private static bool hooks,nested;
+    private static bool nativePorts761;
+    private static bool globalState761;
     private static Renderer nestedRenderer;
     private static Material nestedSource;
     private static void Check(bool condition,string why){result.checks++;if(!condition)throw new Exception(why);}
@@ -45,7 +49,10 @@ public static class TransparentMaterialFixture
     private static void Before(Camera c)
     {
         if(!hooks)return;
+        Trace761("camera begin "+c.name);
+        if(globalState761)Shader.SetGlobalFloat("_NativePortAlpha761",c==head?1:5);
         helper.EnterHead(c);
+        Trace761("camera entered "+c.name);
         if(c==foreign && nestedRenderer!=null)Life(nestedRenderer.sharedMaterial==nestedSource,"Nested foreign sees exact original material");
         if(c==head && nested)
         {
@@ -53,7 +60,7 @@ public static class TransparentMaterialFixture
             if(nestedRenderer!=null)Life(nestedRenderer.sharedMaterial!=nestedSource,"Head clone resumes after nested foreign camera");
         }
     }
-    private static void After(Camera c){if(hooks)helper.ExitHead(c);}
+    private static void After(Camera c){if(hooks){Trace761("camera post-before "+c.name);helper.ExitHead(c);if(globalState761)Shader.SetGlobalFloat("_NativePortAlpha761",c==foreign?1:5);Trace761("camera post-after "+c.name);}}
     public static void Start()
     {
         string[] args=Environment.GetCommandLineArgs();string output=args[Array.IndexOf(args,"-transparentResult")+1];int code=1;
@@ -63,12 +70,18 @@ public static class TransparentMaterialFixture
             result.colorSpace=QualitySettings.activeColorSpace.ToString();Check(result.backend!="Null" && result.colorSpace=="Gamma","Actual Gamma GPU");
             bank=AssetBundle.LoadFromFile(args[Array.IndexOf(args,"-transparentBank")+1]);
             Shader[] loaded=bank!=null?bank.LoadAllAssets<Shader>():new Shader[0];
-            Check(loaded.Length==16,"Exact coverage shader and fifteen shipping material variants load");
+            Check(loaded.Length==23,"Exact coverage shader, fifteen owned and seven native-program derivatives load");
             foreach(Shader item in loaded)bankShaders.Add(item.name,item);
             head=CameraFor("Owned head");foreign=CameraFor("Foreign capture");
             helper=new SceneTransparentMaterials(name=>Variant(name));Life(helper.BindHead(head),"Explicit cold head binding");
             Camera.onPreRender+=Before;Camera.onPostRender+=After;
-            if(Array.IndexOf(args,"-transparentLifecycleOnly")<0)
+            nativePorts761=Array.IndexOf(args,"-nativeAlpha761")>=0;
+            globalState761=Array.IndexOf(args,"-nativeGlobal761")>=0;nativePorts761|=globalState761;
+            if(nativePorts761){Canvas.preWillRenderCanvases+=PreCanvas761;Canvas.willRenderCanvases+=WillCanvas761;}
+            if(globalState761) NativeGlobalProbe761();
+            else if(nativePorts761 && Array.IndexOf(args,"-nativeArrivals761")>=0){SceneMaterialObservers.Install();NativeArrivalControls761();NativeGlobalLifetime761();NativeGeneration761();}
+            else if(nativePorts761) NativeAlpha761();
+            else if(Array.IndexOf(args,"-transparentLifecycleOnly")<0)
                 foreach(string name in new[]{"GloomhavenVR/EnvParticleAlpha","GloomhavenVR/EnvParticleAdd","GloomhavenVR/Overlay"})
                     foreach(int layers in new[]{1,2})Probe(name,layers);
             Lifecycle();
@@ -78,6 +91,8 @@ public static class TransparentMaterialFixture
         catch(Exception error){result.failure=error.ToString();Debug.LogException(error);}
         finally
         {
+            Canvas.preWillRenderCanvases-=PreCanvas761;Canvas.willRenderCanvases-=WillCanvas761;
+            if(nativePorts761)File.WriteAllLines(Path.Combine(Path.GetDirectoryName(output),"native-event-trace761.txt"),trace761);
             hooks=false;Camera.onPreRender-=Before;Camera.onPostRender-=After;
             if(helper!=null)helper.Dispose();
             for(int i=owned.Count-1;i>=0;i--)if(owned[i])UnityEngine.Object.DestroyImmediate(owned[i]);
@@ -102,7 +117,11 @@ public static class TransparentMaterialFixture
         var m=Keep(new Material(shader));m.SetColor(name=="GloomhavenVR/Overlay"?"_Color":"_Tint",new Color(.2f,.3f,.4f,.5f));
         var texture=Keep(new Texture2D(1,1,TextureFormat.RGBAFloat,false,true));texture.SetPixel(0,0,Color.white);texture.Apply();m.SetTexture("_MainTex",texture);return m;
     }
-    private static Shader Variant(string name){Shader shader;return bankShaders.TryGetValue(name+SceneTransparentMaterials.Suffix,out shader)?shader:null;}
+    private static Shader Variant(string name){
+        if(nativePorts761 && (name=="GUI/AbilityCard_Shd" || name=="VFX/GUI_Smoke_Shd" || name=="GUI/AbilityCard_Add_Shd"))
+            return Resources.Load<Shader>("NativePorts761/"+name.Replace('/','-')+"-coverage");
+        Shader shader;return bankShaders.TryGetValue(name+SceneTransparentMaterials.Suffix,out shader)?shader:null;
+    }
     private static Renderer Surface(Material m,float z=0)
     {
         var go=Keep(new GameObject("Owned test surface"));go.layer=30;go.transform.position=new Vector3(0,0,z);

@@ -1,3 +1,11 @@
+// CURRENT Build762 (2026-11-06): the maintainer now permits multiplayer cheats.
+// A requirements override is online ONLY with the exact map/session/roster lease
+// produced by a host-authorized command in the original reliable gameplay queue.
+// Receiving clients do not consult their private Cheats.Enabled value. A join,
+// session change or an old offline toggle still uses the historical fail-closed
+// restoration below. The older 2026-09-04 blanket prohibition in the historical
+// investigation is SUPERSEDED by that explicit request and common lease.
+//
 // =====================================================================================
 //  TEMPORARY FEATURE — PART OF THE CHEATS PAGE, BUILT TO BE DELETED WITH IT.
 //  See the block at the top of WorldUI/Options/VROptionsTab.Cheats.cs for the removal steps.
@@ -199,6 +207,7 @@ internal static class ScenarioGateCheat
 {
     /// <summary>The toggle. Process state; starts off; never persisted.</summary>
     internal static bool Enabled { get; private set; }
+    private static bool _sharedEnable;
 
     /// <summary>
     /// True once the toggle has been on at any point this session. The scenario-load line prints
@@ -267,10 +276,11 @@ internal static class ScenarioGateCheat
         }
     }
 
-    /// <summary>Flip the toggle. Called from the Cheats page only; the page has already refused
-    /// the press while a session is live.</summary>
+    /// <summary>Flip the test override. Online callers use the original ordered
+    /// host command; its common lease, not a private receiver checkbox, admits use.</summary>
     internal static void Set(bool on)
     {
+        _sharedEnable = false;
         Enabled = on;
         if (on)
         {
@@ -284,6 +294,12 @@ internal static class ScenarioGateCheat
         }
     }
 
+    internal static void SetFromSharedHost(bool on)
+    {
+        Set(on);
+        _sharedEnable = on;
+    }
+
     /// <summary>
     /// The postfix body: empty the six requirement fields while the toggle is on, and remember
     /// what was emptied for the scenario-load line. Runs on the result the game just built, so
@@ -295,11 +311,24 @@ internal static class ScenarioGateCheat
             return;
         try
         {
-            // THE MULTIPLAYER GATE, and it sits HERE on purpose: this is the moment the verdict is
-            // produced, so no order of events — toggling the row mid-session, a session started
-            // after the toggle, a session ended and restarted — can present an answer that was
-            // decided earlier. The term is the game's own FFSNetwork.IsOnline, asked live.
-            if (Online(out bool certain))
+            // A replicated online enable must never become a private offline
+            // override after leaving the session or loading another campaign.
+            if (_sharedEnable)
+            {
+                if (!Online() || !MultiplayerCheats.SharedRequirementsIdentityCurrent)
+                {
+                    Set(false);
+                    QueueMarkerRepaint();
+                    return;
+                }
+                // Native join/loading flags can settle later on an observer. Keep
+                // its accepted lease, but return the original verdict meanwhile.
+                if (!MultiplayerCheats.SharedRequirementsAllowed) return;
+            }
+            // Only the accepted shared host lease permits the online override.
+            // A stale offline toggle or changed session/roster must still restore
+            // the original native verdict and marker presentation.
+            if (Online(out bool certain) && !MultiplayerCheats.SharedRequirementsAllowed)
             {
                 RefuseWhileOnline(quest?.ID, certain);
                 return;
@@ -403,9 +432,9 @@ internal static class ScenarioGateCheat
 
         // HW-VERIFY
         VRLog.Note("WorldUI", "CHEAT 'every scenario loadable': CONSULTED and REFUSED because the "
-                              + "session is online. The game's own RequirementCheckResult was returned "
-                              + $"untouched for {forQuest}. Deciding term: {term}. Ruling 2026-09-04 — "
-                              + $"the cheat is completely disabled in multiplayer: {state}. Map marker "
+                              + "online session has no matching shared host authorization. The game's own RequirementCheckResult was returned "
+                              + $"untouched for {forQuest}. Deciding term: {term}. Historical local-only safeguard — "
+                              + $"the unshared override is disabled: {state}. Map marker "
                               + $"repaint (so a marker painted while the toggle was on gets its lock "
                               + $"mask back): {repaint}. Printed once per session; refusal count so far "
                               + $"{_onlineRefusals}, later ones ride on the scenario-load line. "
@@ -525,13 +554,13 @@ internal static class ScenarioGateCheat
     /// </summary>
     private static string OnlineClause()
     {
+        if (Online() && MultiplayerCheats.SharedRequirementsAllowed)
+            return "Online rule: the shared host authorization is current; native requirement overrides apply to every admitted peer.";
         if (_onlineRefusals == 0)
-            return "Online rule: the override was never consulted while a session was live "
-                   + "(0 refusals), so nothing was refused for that reason.";
+            return "Online rule: no unshared override was refused (0 refusals).";
 
         string what = _forcedOffByOnline
-            ? "and the rule switched the toggle OFF for the session (ruling 2026-09-04: the cheat "
-              + "is completely disabled in multiplayer)"
+            ? "and the rule switched the unshared toggle OFF because no matching host lease remained"
             : "and the toggle was left as it was, because the session term threw rather than "
               + "answered and an unanswered question must not end a single-player test run";
         string repainted = _repaintQueued
@@ -588,9 +617,9 @@ internal static class ScenarioGateCheat
             // interpolation hole flips its idea of what is code, and an apostrophe in that
             // stretch then swallows the rest of the file as a char literal — the two patch
             // classes below silently stopped existing for the inventory check.
-            string mp = Online()
-                ? "YES — the override was INERT, the verdicts of the game stood"
-                : "no";
+            string mp = !Online() ? "no"
+                : MultiplayerCheats.SharedRequirementsAllowed ? "YES — shared host authorization is current"
+                : "YES — the override was INERT, the verdicts of the game stood";
             string overrode = quest != null && Overrides.TryGetValue(quest.ID, out string? summary)
                 ? $"overrode {summary}"
                 : "overrode 0 gates — the game's own requirement verdict already passed for it (or it was "
@@ -614,7 +643,7 @@ internal static class ScenarioGateCheat
 
 /// <summary>
 /// Gate (b): empties the requirement fields of every <c>RequirementCheckResult</c> the game
-/// builds while the toggle is on (offline only). See the file header.
+/// builds while the toggle is on (offline or with the common authorized lease). See the file header.
 /// </summary>
 [HarmonyPatch(typeof(CQuestStateExtensions), nameof(CQuestStateExtensions.CheckRequirements))]
 internal static class CQuestStateExtensions_CheckRequirements_Patch

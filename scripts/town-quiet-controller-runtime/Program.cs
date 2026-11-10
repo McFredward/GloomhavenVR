@@ -36,9 +36,44 @@ public static class InteractionProgram
         Merchant(parent,selected,character);
         Mage(parent,selected,character);
         RequestOwnership(character);
+        FailedAbilityHand(parent);
         TownServiceQuietController.Reset();TownServicePresentation.Window=null;
         UnityEngine.Object.Destroy(parent.gameObject);
         return _checks;
+    }
+    private static void FailedAbilityHand(RectTransform parent)
+    {
+        TownServicePresentation.ResetCapabilityFixture();
+        var window=Rect("Exact native mage fallback",parent).gameObject.AddComponent<UIWindow>();
+        var mage=window.gameObject.AddComponent<UINewEnhancementWindow>();
+        GuildmasterDestinations.Source=window;GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
+        MapRoomDriver.AbilityHandFailed=true;
+        Check(!TownServicePresentation.Preclaims(window),"failed ability fan must not preclaim the original enhancement window");
+        Check(!TownServicePresentation.Recover(window,1)&&!TownServicePresentation.Recover(window,2),
+            "an unavailable ability hand does not replace merchant items or temple purses");
+        mage._isConfirmationBoxOpened=true;
+        Check(TownServicePresentation.Recover(window,3)&&mage._isConfirmationBoxOpened
+            &&TownServicePresentation.NewFallbacks==0&&TownServicePresentation.PriorFallbacks==0
+            &&!window.IsOpen,"failed optional fan preserves the original pending native confirmation");
+        mage._isConfirmationBoxOpened=false;
+        Check(TownServicePresentation.Recover(window,3)&&window.IsOpen
+            &&TownServicePresentation.NewFallbacks==1&&ModalFallback.Restores==1,
+            "failed ability fan restores original selectable enhancement controls");
+        Check(TownServicePresentation.Recover(window,3)&&TownServicePresentation.NewFallbacks==1,
+            "same failed opening never reopens its original window on every tick");
+        Check(!TownServicePresentation.Preclaims(window),"restored original window retains its native conversion ownership");
+        TownServicePresentation.ResetCapabilityFixture();TownServicePresentation.Window=window;TownServicePresentation.Service=3;
+        Check(TownServicePresentation.Recover(window,3)&&TownServicePresentation.PriorFallbacks==1,
+            "already prepared mage releases through the existing exact native fallback route");
+        MapRoomDriver.AbilityHandFailed=false;
+        Check(!TownServicePresentation.Recover(window,3),"healthy fan never activates the capability recovery route");
+        TownServicePresentation.ResetCapabilityFixture();
+        MapRoomDriver.AbilityHandFailed=true;GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
+        Check(TownServicePresentation.Preclaims(window),"failed ability fan leaves immersive merchant admission unchanged");
+        GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
+        Check(TownServicePresentation.Preclaims(window),"failed ability fan leaves immersive temple admission unchanged");
+        MapRoomDriver.AbilityHandFailed=false;GuildmasterDestinations.Source=null;
+        TownServicePresentation.ResetCapabilityFixture();
     }
     private static void Merchant(RectTransform parent,NewPartyCharacterUI selected,CMapCharacter character)
     {

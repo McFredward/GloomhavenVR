@@ -270,6 +270,12 @@ AUTHORIZED_RETIREMENTS = {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
     },
     "logTokens": {
+        # Build762: the maintainer explicitly enabled multiplayer test cheats.
+        # These were the old BuildNote(ContentRoot, Text(...)) help captions,
+        # never runtime log markers. Preserve the source-specific boundary;
+        # no real diagnostic token is retired and no parser rule is relaxed.
+        "COMPLETELY OFF IN MULTIPLAYER": "src/GloomhavenVR/WorldUI/Options/VROptionsTab.Cheats.cs",
+        "IM MEHRSPIELER": "src/GloomhavenVR/WorldUI/Options/VROptionsTab.Cheats.cs",
         # The maintainer's 2026-10-28 environment request explicitly includes menus
         # and maps. These all-caps fragments occurred only in the obsolete English
         # and German Sky/Style configuration help, never a VRLog call. Keep this

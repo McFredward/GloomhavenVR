@@ -144,6 +144,10 @@ internal static class MenuWindowFamily
         UIWindowID.ViceOptionsSubmenu,
         UIWindowID.CompendiumPanel,
         UIWindowID.MultiplayerFriendList,
+        // UIMultiplayerEscSubmenu owns this chooser and hides it from OnHidden.
+        // In the map room its sticky float must retire with that native close too.
+        // The separate mandatory MutiplayerHeroAssignPanel is not an ESC child.
+        UIWindowID.MutiplayerPlayerPicker,
     };
 
     /// <summary>

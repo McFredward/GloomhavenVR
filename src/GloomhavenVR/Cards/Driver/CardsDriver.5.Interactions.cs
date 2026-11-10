@@ -1082,7 +1082,7 @@ internal sealed partial class CardsDriver
         {
             _pickReopenBusy = false;
             _dirty = true;
-        });
+        }, onCancelled: () => { _pickReopenBusy = false; _dirty = true; });
     }
 
     /// <summary>
@@ -1324,7 +1324,8 @@ internal sealed partial class CardsDriver
                     _fan.Add(card);
                 }
                 _dirty = true;
-            });
+            },
+            onCancelled: () => { _pickCommitBusy = false; _dirty = true; });
     }
 
     private void PlaceOnField(VRCard card)

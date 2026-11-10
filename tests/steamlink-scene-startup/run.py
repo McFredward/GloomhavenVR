@@ -128,7 +128,7 @@ def main():
         shutil.copyfile(gpu_fixture/'Fixture.csproj', typecheck/'Fixture.csproj')
         packages = Path(os.environ.get('NUGET_PACKAGES', str(Path.home()/'.nuget/packages')))
         framework = packages/'microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
-        modules = ['CoreModule', 'XRModule', 'VRModule', 'AssetBundleModule', 'JSONSerializeModule']
+        modules = ['UIModule', 'CoreModule', 'XRModule', 'VRModule', 'AssetBundleModule', 'JSONSerializeModule']
         unity_files = [args.unity_managed/'UnityEngine'/('UnityEngine.'+name+'.dll') for name in modules]
         use_unity = args.metadata != 'nuget' and all(p.is_file() for p in unity_files)
         if args.metadata == 'unity':
@@ -146,12 +146,14 @@ def main():
             managed = run/'owned-typecheck-metadata'
             (managed/'UnityEngine').mkdir(parents=True)
             for p in metadata_files: shutil.copyfile(p, managed/'UnityEngine'/p.name)
+        ui_assembly = ROOT/'libs/RefAsm/UnityEngine.UI.dll'
+        metadata_files.append(ui_assembly)
         metadata_pins = {str(p): sha(p) for p in metadata_files}
         (run/'metadata-pins.json').write_text(json.dumps({'provider': 'unity' if use_unity else 'nuget',
             'unity_version': '2021.3.5', 'files': metadata_pins}, indent=2)+'\n')
         status = execute([dotnet, 'build', str(typecheck/'Fixture.csproj'), '-c', 'Release',
                           '-p:FrozenSource='+str(frozen), '-p:FixtureDir='+str(gpu_fixture),
-                          '-p:UnityManaged='+str(managed), '-p:FrameworkReferenceDir='+str(framework),
+                          '-p:UnityManaged='+str(managed), '-p:UiAssembly='+str(ui_assembly), '-p:FrameworkReferenceDir='+str(framework),
                           '-p:UseSharedCompilation=false'], run/'net472-typecheck.log')
         assert status == 0, 'Actual Unity net472 compile failed: '+str(run)
         assert metadata_pins == {str(p): sha(p) for p in metadata_files}, 'Borrowed metadata changed through child reap'

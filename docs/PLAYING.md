@@ -107,6 +107,11 @@ For shared windows, everyone sees the turn toward the last player who released
 the window. **VR Options ▸ Panels ▸ Turn to you on release** controls this;
 the releasing player's setting applies to a shared window.
 
+Point at a list and move that hand's stick up or down to scroll. You can also
+grab a scrollbar with the trigger. In a window with the blue shared symbol,
+any player can scroll and everyone sees the same movement and position,
+including on the victory screen. Scrolling a local window affects only you.
+
 **More character cards:** open the character window's **Cards** view and point at
 **More Cards** or the card icon at the top right. Press the trigger to open the
 unlocked-card list, even when no level-up is in progress; press again to close it.

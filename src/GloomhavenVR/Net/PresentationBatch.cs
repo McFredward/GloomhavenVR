@@ -8,7 +8,8 @@ namespace GloomhavenVR.Net;
 internal static class PresentationBatch
 {
     internal const int MaxSize = ExtrasFragments.MaxDatagramBytes;
-    internal static bool ChildType(int type) => type == NetProtocol.MsgExtras
+    internal static bool ChildType(int type) => type == NetProtocol.MsgScenarioResultsFragments
+        || type == NetProtocol.MsgScenarioResults || type == NetProtocol.MsgExtras
         || type == NetProtocol.MsgTownOriginalReceipt
         || type == TownServices.TownServiceCodec.FragmentType || type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
         || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
@@ -62,11 +63,15 @@ internal static class PresentationBatch
     /// <summary>Exact town artwork is a delta dependency, not a disposable motion
     /// sample. Select reliable delivery without allocating/unpacking batch children.
     /// This does not change the existing event budget or the separate rig clocks.</summary>
-    internal static bool HasTownOriginalPage(byte[] buffer, int length)
+    private static readonly Func<byte[], int, int, bool> TownQuery = TownOriginalAt, ResultsQuery = ResultsAt;
+    internal static bool HasTownOriginalPage(byte[] buffer, int length) => HasPage(buffer, length, TownQuery);
+    internal static bool HasResultsPage(byte[] buffer, int length) => HasPage(buffer, length, ResultsQuery);
+
+    private static bool HasPage(byte[] buffer, int length, Func<byte[], int, int, bool> query)
     {
         if (buffer == null || length < 6 || length > buffer.Length || length > MaxSize) return false;
         if (NetPacket.PeekType(buffer, length) != NetProtocol.MsgPresentationBatch)
-            return TownOriginalAt(buffer, 0, length);
+            return query(buffer, 0, length);
         if (length < 7 || buffer[6] < 2 || buffer[6] > 32) return false;
         int at = 7; bool town = false;
         for (int i = 0; i < buffer[6]; i++)
@@ -74,7 +79,7 @@ internal static class PresentationBatch
             if (length - at < 2) return false;
             int count = buffer[at] | buffer[at + 1] << 8; at += 2;
             if (count < 6 || count > length - at || !ChildType(buffer[at + 5])) return false;
-            town |= TownOriginalAt(buffer, at, count); at += count;
+            town |= query(buffer, at, count); at += count;
         }
         return at == length && town;
     }
@@ -95,6 +100,25 @@ internal static class PresentationBatch
             int id = buffer[at++], count = buffer[at++];
             if (count <= 15 || count > end - at || id != NetProtocol.ExtIdPresentationCompression) return false;
             if (buffer[at + 8] != TownServices.TownServiceCodec.MessageType) return false;
+            found = true; at += count;
+        }
+        return found;
+    }
+    private static bool ResultsAt(byte[] buffer, int start, int length)
+    {
+        if (buffer[start] != 0x31 || buffer[start + 1] != 0x52 || buffer[start + 2] != 0x56
+            || buffer[start + 3] != 0x47 || buffer[start + 4] != NetProtocol.Version) return false;
+        int type = buffer[start + 5];
+        if (type == NetProtocol.MsgScenarioResultsFragments || type == NetProtocol.MsgScenarioResults)
+            return true;
+        if (type != NetProtocol.MsgPresentationCompression) return false;
+        int end = start + length; bool found = false;
+        for (int at = start + 6; at < end;)
+        {
+            if (end - at < 2) return false;
+            int id = buffer[at++], count = buffer[at++];
+            if (count <= 15 || count > end - at || id != NetProtocol.ExtIdPresentationCompression) return false;
+            if (buffer[at + 8] != NetProtocol.MsgScenarioResults) return false;
             found = true; at += count;
         }
         return found;

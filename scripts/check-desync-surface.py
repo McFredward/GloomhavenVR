@@ -48,6 +48,10 @@ LEDGER = ROOT / "docs" / "NET-ACTION-SURFACE.md"
 
 # Types the game dispatches network actions / networked state changes into. See PROVENANCE.
 RECEIVERS = {
+    # The dispatch boundaries themselves execute inside (or immediately before)
+    # the same native error policy. Their rare test-action hooks need review too.
+    "GameAction": 121,
+    "ActionProcessor": 0,
     # --- GameAction dispatch table, by number of actions dispatched -------------------
     "Choreographer": 27,
     "CardsHandManager": 13,

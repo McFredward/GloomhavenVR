@@ -11,6 +11,8 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal struct PresenceState
 {
+    public PublicHandPickState? PublicHandPick;
+    public bool PublicHandPickSeen;
     /// <summary>Facial stream recovery from the elected resident author; never viewer-authored.</summary>
     public bool TownActivityRecordSeen; // Distinguish malformed81 from an absent legacy extension.
     public bool HasTownActivity;
@@ -1939,7 +1941,8 @@ internal static class PresenceSerializer
     // Exact recent and durable dismissal origins122: 7774 + 4741 = 12515 bytes.
     // Opening-scoped move order123:12515 +183 =12698 bytes. Allocation retains257 spare;
     // the unchanged bounded12800-byte envelope leaves102 bytes.
-    public const int MaxSize = 12955;
+    // Public hand-pick124 adds at most46 bytes:12698→12744, still under12800.
+    public const int MaxSize = 13001;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2099,6 +2102,7 @@ internal static class PresenceSerializer
                           // what keeps every packet outside the few seconds of an actual short rest
                           // byte-identical to the previous build's.
                           || (state.HasSacrificeSeat && SacrificeSeatPayload(in state) > 0)
+                          || state.PublicHandPick?.Valid == true
                           // A spent-half record with an EMPTY mask says nothing — "no half of my
                           // two round cards is dimmed" is the resting state of every round before
                           // anything is played, and drawing it would cost a record on every packet
@@ -3212,6 +3216,12 @@ internal static class PresenceSerializer
             AvatarSerializer.WriteU32(buffer, ref i, state.HeldMapPoolSeat | (uint)state.HeldMapPoolCount << 16);
             buffer[i++] = state.HeldMapArcSeat;
             records++;
+        }
+        if (state.PublicHandPick?.Valid == true && i + 2 + state.PublicHandPick.PayloadBytes <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdPublicHandPick;
+            buffer[i++] = (byte)state.PublicHandPick.PayloadBytes;
+            i += state.PublicHandPick.Write(buffer, i); records++;
         }
         int sacrificeBytes = SacrificeSeatPayload(in state);
         if (state.HasSacrificeSeat && sacrificeBytes > 0
@@ -4987,6 +4997,11 @@ internal static class PresenceSerializer
                 state.SacrificeSeatCode1 = seatCode1;
                 state.SacrificeSeatCount1 = seatCount1;
             }
+        }
+        else if (id == NetProtocol.ExtIdPublicHandPick)
+        {
+            state.PublicHandPickSeen = true;
+            PublicHandPickState.TryRead(buffer, i, len, out state.PublicHandPick);
         }
         else if (id == NetProtocol.ExtIdRoundHalfSpent
                  && len >= NetProtocol.RoundHalfSpentBytes)

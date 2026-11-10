@@ -29,6 +29,9 @@ internal static partial class ModalFallback
         // snapshots this original, so no delayed owner cleanup can reclaim it later.
         if (!ConfirmationOnOwner.ReleaseForExternalOwner(window))
             return false;
+        // Give another admitted owner the actual native home of the pooled
+        // results-ready control, never its temporary results footer.
+        ScenarioResultsReadyPark.BeforeExternalOwner(window);
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];

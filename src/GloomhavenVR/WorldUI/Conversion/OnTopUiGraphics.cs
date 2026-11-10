@@ -12,6 +12,11 @@ namespace GloomhavenVR.WorldUI;
 /// "on-top UI material" helper (initiative hover popup round 3; see
 /// <c>Surfaces/TablePanelSurfaces.cs</c> for the report that motivated it).
 ///
+/// The historical default remains Always. Current enemy-card consumers explicitly
+/// request LessEqual and use a physical portrait-relative seat instead: nearer hands,
+/// furniture and other boards must occlude them. The cache is keyed by source AND
+/// depth policy so an old foreground clone cannot silently override that request.
+///
 /// ─── THE PROBLEM THIS SOLVES ────────────────────────────────────────────────────────────────────
 /// A converted panel is a WORLD-SPACE canvas. Unity's UI shader family (UI/Default, the TMP
 /// distance-field shaders, TMP/Sprite) all declare <c>ZTest [unity_GUIZTestMode]</c>, and on a
@@ -102,7 +107,14 @@ internal sealed class OnTopUiGraphics
     // ---- session-long clone cache (shared across all instances) ------------------------------
     /// <summary>On-top clone per distinct source material. Never destroyed — see the class doc
     /// (RemoteWidgetMirror shares these by reference across a clone boundary).</summary>
-    private static readonly Dictionary<Material, Material> CloneCache = new(8);
+    private static readonly Dictionary<(Material Source, CompareFunction Test), Material> CloneCache = new(8);
+
+    private readonly CompareFunction _depthTest;
+
+    // Enemy hover cards now occupy a real plane in front of their own board. Their
+    // fragments must still lose to nearer hands, furniture and other players' boards.
+    // Keep the original default for any explicitly foreground-only future consumer.
+    internal OnTopUiGraphics(CompareFunction depthTest = CompareFunction.Always) => _depthTest = depthTest;
 
     /// <summary>Hard cap on the cache. Distinct UI source materials are a handful per session
     /// (UI default + one per TMP atlas); at the cap, dead (Unity-destroyed) source keys are
@@ -194,7 +206,7 @@ internal sealed class OnTopUiGraphics
                     // Through the SHARED accessor — the instance accessors (material/fontMaterial)
                     // mint a per-text copy on READ; see the class doc.
                     Material orig = text.fontSharedMaterial;
-                    if (orig == null || !TryGetClone(orig, out Material clone))
+                    if (orig == null || !TryGetClone(orig, _depthTest, out Material clone))
                         continue;
                     text.fontSharedMaterial = clone;
                     _texts.Add((text, orig, clone));
@@ -202,7 +214,7 @@ internal sealed class OnTopUiGraphics
                 else if (g is TMP_SubMeshUI sub)
                 {
                     Material orig = sub.sharedMaterial;
-                    if (orig == null || !TryGetClone(orig, out Material clone))
+                    if (orig == null || !TryGetClone(orig, _depthTest, out Material clone))
                         continue;
                     sub.sharedMaterial = clone;
                     _subMeshes.Add((sub, orig, clone));
@@ -212,7 +224,7 @@ internal sealed class OnTopUiGraphics
                     // Plain Graphic (Image/RawImage/legacy Text): the getter is side-effect-free
                     // (m_Material ?? the shared default UI material).
                     Material orig = g.material;
-                    if (orig == null || !TryGetClone(orig, out Material clone))
+                    if (orig == null || !TryGetClone(orig, _depthTest, out Material clone))
                         continue;
                     g.material = clone;
                     _graphics.Add((g, orig, clone));
@@ -232,11 +244,10 @@ internal sealed class OnTopUiGraphics
         if (swapped > 0)
         {
             VRLog.Info("WorldUI",
-                $"ON-TOP UI ({context}): {swapped} graphic(s) swapped onto ZTest-Always clones of " +
+                $"ON-TOP UI ({context}): {swapped} graphic(s) swapped onto ZTest-{_depthTest} clones of " +
                 $"their own materials ({Count} held, {CloneCache.Count} distinct clone(s) cached, " +
                 $"{_driverRoots.Count} FX-driver subtree(s) excluded). renderQueue/ZWrite untouched " +
-                "— paint order and panel occlusion are exactly as before; the treated fragments " +
-                "just stop losing the depth test against raised opaque geometry.");
+                "— original paint order is retained; this consumer explicitly selects its world-depth test.");
         }
         return swapped;
     }
@@ -291,9 +302,9 @@ internal sealed class OnTopUiGraphics
 
     /// <summary>The on-top clone for a source material, from the session cache or freshly minted.
     /// False only when the cache is full of LIVE keys (never expected — logged once).</summary>
-    private static bool TryGetClone(Material src, out Material clone)
+    private static bool TryGetClone(Material src, CompareFunction depthTest, out Material clone)
     {
-        if (CloneCache.TryGetValue(src, out clone) && clone != null)
+        if (CloneCache.TryGetValue((src, depthTest), out clone) && clone != null)
             return true;
         if (CloneCache.Count >= CloneCacheCap)
         {
@@ -306,15 +317,15 @@ internal sealed class OnTopUiGraphics
                 return false;
             }
         }
-        clone = new Material(src) { name = src.name + " (VR on-top)" };
-        clone.SetInt(GuiZTestMode, (int)CompareFunction.Always);
+        clone = new Material(src) { name = src.name + " (VR " + depthTest + ")" };
+        clone.SetInt(GuiZTestMode, (int)depthTest);
         if (clone.HasProperty(ZTestMode))
-            clone.SetInt(ZTestMode, (int)CompareFunction.Always);
-        CloneCache[src] = clone;
+            clone.SetInt(ZTestMode, (int)depthTest);
+        CloneCache[(src, depthTest)] = clone;
         Shader shader = src.shader;
         string shaderName = shader != null ? shader.name : "<null shader>";
-        if (ShaderLogged.Add(shaderName))
-            VRLog.Info("WorldUI", $"ON-TOP UI: minted ZTest-Always clone of '{src.name}' " +
+        if (ShaderLogged.Add(shaderName + "/" + depthTest))
+            VRLog.Info("WorldUI", $"ON-TOP UI: minted ZTest-{depthTest} clone of '{src.name}' " +
                                   $"(shader '{shaderName}') — cached for the session.");
         return true;
     }
@@ -324,10 +335,10 @@ internal sealed class OnTopUiGraphics
     /// no longer exists except stale references our restore path reference-checks anyway.</summary>
     private static void PruneCloneCache()
     {
-        var dead = new List<Material>(4);
-        foreach (KeyValuePair<Material, Material> kv in CloneCache)
+        var dead = new List<(Material Source, CompareFunction Test)>(4);
+        foreach (var kv in CloneCache)
         {
-            if (kv.Key == null) // Unity fake-null: destroyed, but still a real dictionary key
+            if (kv.Key.Source == null) // Unity fake-null: destroyed, but still a real dictionary key
                 dead.Add(kv.Key!);
         }
         for (int i = 0; i < dead.Count; i++)

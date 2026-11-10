@@ -102,6 +102,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(ConfirmationDeferredCoroutinePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
+        VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementJoinGuard)); // joining refusal must precede the native confirmation latch
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialStepPatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));
@@ -134,10 +135,13 @@ internal sealed class WorldUIModule : IVRModule
         // keyed on MapRoomDriver.Active — inert in every other scene.
         VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
         // CHEATS (temporary), 2026-09-03: the "every scenario loadable" test toggle on the Cheats
-        // page. Both patches are inert while the toggle is off (a static bool, off at every start)
-        // and while FFSNetwork.IsOnline. Removal: step 6 in VROptionsTab.Cheats.cs's header.
+        // page. ModBuild762 additionally admits an explicit common host-authorized
+        // multiplayer lease; no client-local toggle may override that common verdict.
+        // Removal: step 6 in VROptionsTab.Cheats.cs's header and the queued-action patch below.
         VRSession.Harmony?.PatchAll(typeof(Patches.CQuestStateExtensions_CheckRequirements_Patch)); // CHEATS (temporary)
         VRSession.Harmony?.PatchAll(typeof(Patches.UnityGameEditorRuntime_LoadScenario_Patch)); // CHEATS (temporary)
+        VRSession.Harmony?.PatchAll(typeof(MultiplayerCheatActionPatch)); // CHEATS (temporary): ordered native host action, never a cosmetic state mutation
+        VRSession.Harmony?.PatchAll(typeof(MultiplayerCheatQueueGuard)); // CHEATS (temporary): original reveal safe point before dequeue
         // User request 2026-09-03: "Bitte deaktiviere die animationen für das mouseover im
         // Kartenraum wenn ich über ein Kartensymbol hovere - an der Stelle möchte ich es nicht."
         // MapLocation.Highlight pops the symbol to 1.2x and starts a NodeHoverIndicator particle
@@ -288,6 +292,7 @@ internal sealed class WorldUIModule : IVRModule
         TownServiceAssets.Reset();
         MapRoom.MapRetirementPrompt.Reset();
         MenuDepth.MenuDepthDriver.Shutdown();
+        ScenarioResultsReadyPark.Reset();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -436,6 +441,8 @@ internal sealed class WorldUIModule : IVRModule
                 ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("TownPalmConfirmation", TownServicePalmConfirmation.Tick), // restore/position owned native controls before fallback scans
                 ("MapRetirementPrompt", () => MapRoom.MapRetirementPrompt.Tick(MapRoom.MapRoomDriver.Active)),
+                // FRAME-ORDER WorldUIModule.ResultsReady [ScenarioResultsReadyPark.Tick, ModalFallback.Tick]
+                ("ScenarioResultsReadyPark", ScenarioResultsReadyPark.Tick),
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownTempleApproach", TownServiceTempleOffering.TickApproach),
                 ("TownServicePresentation", TownServicePresentation.Tick),

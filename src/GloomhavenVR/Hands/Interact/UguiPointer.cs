@@ -72,6 +72,7 @@ internal sealed class UguiPointer
     private readonly HandSide _side;    // this pointer's hand — source of the depth aim ray
     private readonly bool _farRay;      // laser (true) vs fingertip poke (false)
     private readonly List<RaycastResult> _hits = new(16);
+    private readonly List<Component> _scrollHandlers = new(4);
 
     private PointerEventData? _pointerData;
     private GameObject? _hovered;
@@ -203,6 +204,9 @@ internal sealed class UguiPointer
     /// modality gate stays intact.
     /// </summary>
     internal bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit)
+        => TryRaycast(canvas, screenPos, out topHit, worldPlane: true);
+
+    private bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit, bool worldPlane)
     {
         topHit = default;
 
@@ -245,7 +249,7 @@ internal sealed class UguiPointer
         PointerEventData data = GetData();
         data.position = screenPos;
 
-        bool any = TryRaycastTop(raycaster, data, out topHit);
+        bool any = TryRaycastTop(raycaster, data, out topHit, worldPlane ? canvas : null);
 
         List<Canvas>? nested = UguiPokeSurfaces.NestedOf(canvas);
         if (nested != null)
@@ -260,7 +264,7 @@ internal sealed class UguiPointer
                 GraphicRaycaster? subRaycaster = sub.GetComponent<GraphicRaycaster>();
                 if (subRaycaster == null || !subRaycaster.isActiveAndEnabled)
                     continue;
-                if (TryRaycastTop(subRaycaster, data, out RaycastResult subTop)
+                if (TryRaycastTop(subRaycaster, data, out RaycastResult subTop, worldPlane ? canvas : null)
                     && (!any || Beats(subTop, topHit)))
                 {
                     topHit = subTop;
@@ -307,7 +311,9 @@ internal sealed class UguiPointer
                     || (inputCanvas != canvas && (nested == null || !nested.Contains(inputCanvas)))) continue;
                 GraphicRaycaster original = inputCanvas.GetComponent<GraphicRaycaster>();
                 if (original == null || !original.isActiveAndEnabled) continue;
-                _hits.Clear(); original.Raycast(data, _hits);
+                _hits.Clear();
+                using (UguiRaycastCoordinates.Enter(original, data))
+                    original.Raycast(data, _hits);
                 for (int i = 0; i < _hits.Count; i++)
                     if (_hits[i].gameObject != null && _hits[i].gameObject.transform.IsChildOf(root))
                     {
@@ -317,7 +323,7 @@ internal sealed class UguiPointer
                     }
             }
         }
-        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit);
+        if (!preferSurface && !any) any = TryRaycast(canvas!, screenPos, out topHit, worldPlane: false);
         if (any)
         {
             topHit.worldPosition = physicalPoint; topHit.distance = physicalDistance;
@@ -327,10 +333,11 @@ internal sealed class UguiPointer
     }
 
     /// <summary>Top hit of a single raycaster, if any.</summary>
-    private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top)
+    private bool TryRaycastTop(GraphicRaycaster raycaster, PointerEventData data, out RaycastResult top, Canvas? admittedHost = null)
     {
         _hits.Clear();
-        raycaster.Raycast(data, _hits);
+        using (UguiRaycastCoordinates.Enter(raycaster, data, admittedHost))
+            raycaster.Raycast(data, _hits);
         if (_hits.Count == 0)
         {
             top = default;
@@ -775,6 +782,8 @@ internal sealed class UguiPointer
 
     /// <summary>True if the pointer currently has a pressed target.</summary>
     internal bool IsPressed => _pressed != null;
+    private Component? _sharedScrollDrag;
+    private bool _sharedScrollbarPress;
 
     /// <summary>
     /// THE ONLY WRITER of <see cref="_pressed"/> — so the cross-pointer table in
@@ -828,6 +837,17 @@ internal sealed class UguiPointer
         data.eligibleForClick = true;
         data.button = PointerEventData.InputButton.Left;
 
+        GameObject? nativeDownOwner = ExecuteEvents.GetEventHandler<IPointerDownHandler>(_hovered);
+        Scrollbar? sharedBar = nativeDownOwner != null ? nativeDownOwner.GetComponent<Scrollbar>() : null;
+        if (sharedBar != null && WorldUI.SharedWindowScrollBridge.Pointer(sharedBar,
+            WorldUI.SharedScrollInput.PointerDown, data))
+        {
+            Pressing = sharedBar.gameObject; _pressedClickHandler = null; _dragTarget = sharedBar.gameObject;
+            _sharedScrollDrag = sharedBar; _sharedScrollbarPress = true; _dragging = false;
+            _lastDragPos = screenPos; data.pointerPress = _pressed; data.pointerDrag = _dragTarget;
+            return;
+        }
+
         GameObject pressTarget = ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.pointerDownHandler)
                                  ?? ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered);
         Pressing = pressTarget != null ? pressTarget : _hovered;
@@ -852,7 +872,8 @@ internal sealed class UguiPointer
         // scrollbar or dropdown inside a scroll view still resolves to itself and keeps
         // dragging normally. Only the scroll view loses it.
         if (Plugin.ScrollWithStickOnly.Value && _dragTarget != null &&
-            _dragTarget.GetComponent<ScrollRect>() != null)
+            (_dragTarget.GetComponent<ScrollRect>() != null
+                || _dragTarget.GetComponent<WorldUI.SharedWindowScrollProxy>() is { Control: 1 }))
         {
             _dragTarget = null;
         }
@@ -860,7 +881,12 @@ internal sealed class UguiPointer
         data.pointerDrag = _dragTarget;
         data.useDragThreshold = false; // VR laser: begin dragging on the first move, no pixel threshold
         if (_dragTarget != null)
-            ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.initializePotentialDrag);
+        {
+            ScrollRect? sharedScroll = _dragTarget.GetComponent<ScrollRect>();
+            if (sharedScroll != null && WorldUI.SharedWindowScrollBridge.Pointer(sharedScroll,
+                WorldUI.SharedScrollInput.PointerDown, data)) _sharedScrollDrag = sharedScroll;
+            else ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.initializePotentialDrag);
+        }
     }
 
     /// <summary>
@@ -884,6 +910,11 @@ internal sealed class UguiPointer
         data.position = screenPos;
         _lastDragPos = screenPos;
 
+        if (_sharedScrollDrag != null)
+        {
+            WorldUI.SharedWindowScrollBridge.Pointer(_sharedScrollDrag, WorldUI.SharedScrollInput.PointerDrag, data);
+            _dragging = true; data.dragging = true; return;
+        }
         if (!_dragging)
         {
             _dragging = true;
@@ -908,10 +939,48 @@ internal sealed class UguiPointer
     {
         if (_hovered == null)
             return;
+        GameObject? target = FindScrollTarget(_hovered, _scrollHandlers);
+        if (target == null)
+            return;
+        ScrollRect? sharedScroll = target.GetComponent<ScrollRect>();
+        if (sharedScroll != null && WorldUI.SharedWindowScrollBridge.Wheel(sharedScroll, scrollDelta)) return;
         PointerEventData data = GetData();
         data.scrollDelta = scrollDelta;
-        ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.scrollHandler);
+        ExecuteEvents.Execute(target, data, ExecuteEvents.scrollHandler);
         data.scrollDelta = Vector2.zero;
+    }
+
+    /// <summary>
+    /// Native card hover uses EventTrigger for enter/exit, but that component
+    /// implements every pointer interface even when its Scroll entry is absent.
+    /// ExecuteHierarchy consequently stops on the card without moving its list.
+    /// Keep the nearest real wheel owner; skip only that exact empty adapter.
+    /// Derived adapters and other IScrollHandlers retain their original priority.
+    /// </summary>
+    internal static GameObject? FindScrollTarget(GameObject start, List<Component> handlers)
+    {
+        for (Transform? current = start.transform; current != null; current = current.parent)
+        {
+            handlers.Clear();
+            current.GetComponents(handlers);
+            for (int i = 0; i < handlers.Count; i++)
+            {
+                Component component = handlers[i];
+                if (!(component is IScrollHandler) || component is Behaviour behaviour && !behaviour.isActiveAndEnabled)
+                    continue;
+                if (component.GetType() == typeof(EventTrigger))
+                {
+                    var entries = ((EventTrigger)component).triggers;
+                    bool handlesScroll = false;
+                    for (int e = 0; e < entries.Count; e++)
+                        if (entries[e].eventID == EventTriggerType.Scroll) { handlesScroll = true; break; }
+                    if (!handlesScroll)
+                        continue;
+                }
+                return current.gameObject;
+            }
+        }
+        return null;
     }
 
     /// <summary>Pointer-up (+ click when released over the same handler).</summary>
@@ -933,7 +1002,14 @@ internal sealed class UguiPointer
         PointerEventData data = GetData();
         data.position = screenPos;
 
-        ExecuteEvents.Execute(_pressed, data, ExecuteEvents.pointerUpHandler);
+        bool sharedDrag = _sharedScrollDrag != null;
+        if (sharedDrag)
+        {
+            WorldUI.SharedWindowScrollBridge.Pointer(_sharedScrollDrag!, WorldUI.SharedScrollInput.PointerUp, data);
+            _sharedScrollDrag = null;
+        }
+        if (!_sharedScrollbarPress) ExecuteEvents.Execute(_pressed, data, ExecuteEvents.pointerUpHandler);
+        _sharedScrollbarPress = false;
 
         GameObject? hoveredClickHandler = _hovered != null
             ? ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered)
@@ -1028,7 +1104,7 @@ internal sealed class UguiPointer
 
         // End any active drag (StandaloneInputModule fires endDrag after up+click) and
         // settle the drag fields so the control comes to rest.
-        if (_dragging && _dragTarget != null)
+        if (_dragging && _dragTarget != null && !sharedDrag)
             ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.endDragHandler);
         _dragging = false;
         data.dragging = false;
@@ -1183,8 +1259,15 @@ internal sealed class UguiPointer
         if (_pressed != null)
         {
             PointerEventData data = GetData();
-            ExecuteEvents.Execute(_pressed, data, ExecuteEvents.pointerUpHandler);
-            if (_dragging && _dragTarget != null)
+            bool sharedDrag = _sharedScrollDrag != null;
+            if (sharedDrag)
+            {
+                WorldUI.SharedWindowScrollBridge.Pointer(_sharedScrollDrag!, WorldUI.SharedScrollInput.PointerUp, data);
+                _sharedScrollDrag = null;
+            }
+            if (!_sharedScrollbarPress) ExecuteEvents.Execute(_pressed, data, ExecuteEvents.pointerUpHandler);
+            _sharedScrollbarPress = false;
+            if (_dragging && _dragTarget != null && !sharedDrag)
                 ExecuteEvents.Execute(_dragTarget, data, ExecuteEvents.endDragHandler);
             data.dragging = false;
             data.pointerDrag = null;

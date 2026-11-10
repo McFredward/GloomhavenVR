@@ -107,6 +107,7 @@ internal static class MenuDepthDriver
         }
         MenuDepthCharacters.Tick();
         MenuDepthCards.Maintain();
+        MenuDepthPerksAudit.Tick();
         RefreshRoots();
         FlushArrivals();
         ApplyBindings();
@@ -216,7 +217,9 @@ internal static class MenuDepthDriver
 
     internal static void ObserveOwner(MonoBehaviour owner)
     {
-        if (_running && owner != null) PendingOwners.Add(owner);
+        if (!_running || owner == null) return;
+        if (owner is UIPerksWindow perks) MenuDepthPerksAudit.Observe(perks, perks.IsVisible);
+        PendingOwners.Add(owner);
     }
 
     private static bool HasRoot(Transform value)
@@ -337,6 +340,8 @@ internal static class MenuDepthDriver
                 if (method != null && method.DeclaringType?.Assembly == typeof(StoryImageViewer).Assembly
                     && emitted.Add(method.MethodHandle)) yield return method;
             }
+        MethodInfo showPerks = AccessTools.Method(typeof(UIPerksWindow), nameof(UIPerksWindow.Show));
+        if (showPerks != null && emitted.Add(showPerks.MethodHandle)) yield return showPerks;
     }
 
     private static void BindImage(Binding binding, Image image)
@@ -390,7 +395,13 @@ internal static class MenuDepthDriver
         }
         if (!OwnedImages.TryGetValue(image, out Owned? owned) || owned.Mesh == null)
         {
-            MenuDepthGraphic mesh = image.gameObject.AddComponent<MenuDepthGraphic>();
+            // A typed card plane may already own the same original Image. Its
+            // BaseMeshEffect survives independently of this coordinator's table;
+            // adding another DisallowMultipleComponent effect returns null in
+            // Unity and previously aborted this whole tick on remote clients.
+            MenuDepthGraphic mesh = image.GetComponent<MenuDepthGraphic>()
+                ?? image.gameObject.AddComponent<MenuDepthGraphic>();
+            if (mesh == null) return;
             owned = new Owned(mesh); OwnedImages[image] = owned;
         }
         int priority = binding.Spec.Role != Role.Layer ? 2 : ReferenceEquals(binding.Spec, FrameSpec) ? -1 : binding.Spec.TypeName == "UITab" ? 0 : 1;
@@ -470,7 +481,7 @@ internal static class MenuDepthDriver
         _running = false;
         MenuDepthSources.SetDiscoveryPump(null);
         MenuDepthCharacters.Shutdown();
-        MenuDepthCards.Shutdown();
+        MenuDepthCards.Shutdown(); MenuDepthPerksAudit.Shutdown();
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
             if (item.Value.Mesh != null)
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }

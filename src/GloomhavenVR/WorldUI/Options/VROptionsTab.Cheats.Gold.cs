@@ -39,10 +39,10 @@ internal static partial class VROptionsTab
             {
                 string owner = partyGold ? Loc.Mod("cheat_gold_party")
                     : character?.DisplayCharacterName ?? character?.CharacterName ?? "?";
-                _goldLastResult = string.Format(Loc.Mod("cheat_gold_done"), owner, balance);
+                _goldLastResult = FFSNetwork.IsOnline ? Loc.CheatQueued : string.Format(Loc.Mod("cheat_gold_done"), owner, balance);
                 VRLog.Note("WorldUI", "CHEAT 'grant gold': +100 through native "
                     + (partyGold ? "CMapParty.ModifyPartyGold" : "CMapCharacter.ModifyGold")
-                    + $" to {owner}; balance={balance}, native save requested.");
+                    + $" to {owner}; balance={balance}, native request submitted.");
             }
             else
             {

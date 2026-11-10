@@ -59,6 +59,28 @@ def load_binding(root):
         method(town, "private void SendTownServices()"),
         method(native, "private void TickNativeBoardSend(float now)"),
         method(native, "private void SendNativeBoard(NativeBoardState state)"))) + "\n}\n"
+    # Results shares the same real final entrypoint, but its independent native
+    # capture/send stream is outside this town-only proof. Record those two
+    # calls without altering the extracted publisher or producing Results data;
+    # the dedicated Results fixtures exercise that consumer and transport.
+    bound["ResultsFinalBoundary761.cs"] = """using GloomhavenVR.WorldUI;
+namespace GloomhavenVR.Net;
+internal sealed partial class NetAvatarDriver
+{
+    private readonly ResultsFinalFrameBoundary _resultsPresentation = new();
+    private sealed class ResultsFinalFrameBoundary
+    {
+        internal void Tick() => FinalCaptureState.Trace.Add("Results.Tick");
+    }
+    private void TickResultsSend(float now) => FinalCaptureState.Trace.Add("Results.Send");
+}
+// Shared scrolling is inactive in this Town-only publication proof. Its actual
+// native input and common-author state are exercised by the shared-scroll suite.
+internal static class SharedWindowScrollSync
+{
+    internal static void LateTick(float now) { }
+}
+"""
     # The current driver binds its real cached send helpers and receipt collector
     # above. Compatible peer collection and queue admission remain the declared
     # transport adapters in this publication/cadence fixture; exact request,

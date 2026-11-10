@@ -12,7 +12,9 @@ internal static class ScenarioWinCheat
 
     internal static string UnavailableReason()
     {
-        if (FFSNetwork.IsOnline) return "cheat_win_online";
+        // The original host seam sends DebugWinScenario to every native client.
+        // A guest calling it would only win locally, so preserve host authority.
+        if (FFSNetwork.IsOnline && !FFSNetwork.IsHost) return "cheat_win_online";
         var state = ScenarioManager.CurrentScenarioState;
         var choreographer = Choreographer.s_Choreographer;
         if (state == null || choreographer == null || !choreographer.isActiveAndEnabled

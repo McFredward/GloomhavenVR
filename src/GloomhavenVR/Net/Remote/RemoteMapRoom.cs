@@ -685,6 +685,11 @@ internal static class RemoteMapRoom
         RemoteSharedGaze.Observe(senderId, in p);
     }
 
+    /// <summary>Read the same current participation receipt used by map presentation.
+    /// Scroll election must not enlist a private 2D-map window as a public source.</summary>
+    internal static bool IsPeerInRoom(int playerId) => Peers.TryGetValue(playerId, out PeerRoom peer)
+        && peer.InRoom && Time.unscaledTime - peer.At <= PeerStaleSeconds;
+
     /// <summary>
     /// The character key a peer's 3D-map card fan is built for, 0 when they have none open or their
     /// build does not publish one.

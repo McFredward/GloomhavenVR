@@ -128,6 +128,23 @@ public static partial class MenuDepthProgram
                 PanelSupersample.Visibility(scene.Entry);
                 Check(scene.Entry.Cam.enabled, "an ordinary window regains its original automatic mono capture policy");
                 sampled.Ready = true; scene.Source.Ready = true; scene.Capture(); PanelSupersample.Visibility(scene.Entry);
+                // The ordinary LateTick has already passed with a live source.
+                // A close at this later boundary must paint current plain UI
+                // through the established carrier until the next real service.
+                sampled.Ready=false;scene.Source.Ready=false;scene.Image.color=Color.green;
+                int late=draws;scene.Capture(ordinaryLateTick:false);
+                Check(draws==late+2&&scene.Entry.MenuDepthDisplay!=null,
+                    "post-LateTick source loss captures current native UI in both head targets before retiring its pair");
+                using(TextureOwner current=scene.Eye(false,"764-late-source-current-head"))
+                {
+                    Color pixel=PhysicalPixel(scene,current.Image,new Vector3(-90,0,0));
+                    Check(pixel.g>.7f&&pixel.r<.1f&&pixel.b<.1f,
+                        "late source loss shows current native artwork rather than a stale stereo picture or black head frame");
+                }
+                scene.Capture();
+                Check(scene.Entry.MenuDepthDisplay==null&&PanelSupersample.ExtraBytes==0&&scene.Entry.Cam.enabled,
+                    "the next native service retires a late-loss carrier and resumes ordinary mono ownership");
+                sampled.Ready=true;scene.Source.Ready=true;scene.Capture();PanelSupersample.Visibility(scene.Entry);
                 scene.Source.ThrowRight = true; int failed = draws; scene.Capture();
                 Check(draws == failed + 2 && scene.Entry.MenuDepthDisplay == null && sampled.Ends == sampled.Begins,
                     "a right preparation failure draws the completed left and fresh mono fallback while restoring all begun leases");

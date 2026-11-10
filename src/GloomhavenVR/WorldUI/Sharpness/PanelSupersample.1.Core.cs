@@ -2429,6 +2429,7 @@ internal static partial class PanelSupersample
         // Entry.SubViewChanges for the whole argument and for the ModBuild 202 evidence.
         NoticeSubViewChange(e);
         SyncGeometry(e);
+        RetireEmptyMenuDepth(e);
         SyncVisibility(e);
 
         bool moving = IsMoving(e);

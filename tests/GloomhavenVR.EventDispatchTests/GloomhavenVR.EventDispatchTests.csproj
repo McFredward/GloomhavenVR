@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>annotations</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Production documentation is checked by the strict plugin build; this
+         isolated compilation does not contain every referenced native observer. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs"/><Compile Include="NativeBoundary.cs"/>
+    <Compile Include="$(SourceDir)/EventDispatch.cs"/>
+    <Compile Include="$(SourceDir)/VREvents.cs"/>
+    <Compile Include="$(SourceDir)/VRModeStateMachine.cs"/>
+    <Compile Include="$(SourceDir)/TickGuard.cs"/>
+    <Compile Include="$(SourceDir)/ProgressWaitNotice.cs"/>
+  </ItemGroup>
+</Project>

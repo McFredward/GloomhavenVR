@@ -107,7 +107,7 @@ public sealed class RulesHarness:MonoBehaviour
         Check(collapsedInk.height>30f&&collapsedInk.height<=initialHeight+2f,"actual MR bounds include native preview glyphs without hidden full prose");
         vrPointer=New("GloomhavenVR.Hands.Interact.UguiPointer",Enum.Parse(Type("GloomhavenVR.Hands.HandSide"),"Right"),true);
         object[] picked={host.GetComponent<Canvas>(),eventData.position,new RaycastResult()};
-        Check((bool)vrPointer.GetType().GetMethod("TryRaycast",All).Invoke(vrPointer,picked),"actual VR laser pointer resolves the converted native preview");
+        Check((bool)vrPointer.GetType().GetMethod("TryRaycast",All,null,new[]{typeof(Canvas),typeof(Vector2),typeof(RaycastResult).MakeByRefType()},null).Invoke(vrPointer,picked),"actual VR laser pointer resolves the converted native preview");
         var originalHit=(RaycastResult)picked[2];Check(originalHit.gameObject==button.gameObject,"actual VR laser returns the original inline input target");
         Call(vrPointer,"SetHovered",originalHit.gameObject);
         Check((bool)Get(fold,"Expanded"),"actual pointer hover alone opens the complete inline rules");

@@ -951,6 +951,7 @@ internal static partial class ModalFallback
         if (allowRevival && EmptyHold.Contains(above) && SubViewRevival.ShouldReviveHost(above, child))
         {
             EmptyHold.Remove(above);
+            EmptyHoldProbes.Forget(above);
             // Re-arm the stand-down latch: if this host is ever held out again, that is a NEW event
             // and its falsifier line must print rather than be swallowed by a latch set minutes ago.
             AncestorHeldOutWarned.Remove(above.name);
@@ -1478,7 +1479,9 @@ internal static partial class ModalFallback
         NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
         EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set
+        EmptyRefusedProbes.Reset();
         EmptyHold.Clear();           // ModBuild 230 — the liveness rule's re-float hold
+        EmptyHoldProbes.Reset();
         SubViewRevival.Reset();      // ModBuild 233 — the revival budget and its two edge latches
         // ModBuild 235 — the enchantress composite, and it must run BEFORE anything below destroys a
         // host: Reset() hands the card list back to the character UI first and only then clears its

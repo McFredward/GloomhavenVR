@@ -8,6 +8,7 @@ using MapRuleLibrary.Party;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -942,7 +943,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// graphics ride ZTest-Always clones of their own materials so the banner stops losing the
     /// depth test against the control board's raised rail — see the round-3 doc section above
     /// and <see cref="OnTopUiGraphics"/> for the mechanism, safety belts and restore contract.</summary>
-    private readonly OnTopUiGraphics _enemyInfoOnTop = new();
+    // The current multiplayer ruling requires normal occlusion, including other boards.
+    // The historical Always material was the direct cause of seeing this card through them.
+    private readonly OnTopUiGraphics _enemyInfoOnTop = new(UnityEngine.Rendering.CompareFunction.LessEqual);
+    private readonly InitiativePopupPlacement _enemyPopupSeat = new();
 
     /// <summary>Round 4 ("unverändert"): the shown popups' graphics are detached from ancestor
     /// clippers (RectMask2D clip rect + renderer cull + stencil Mask) — the one occluder family
@@ -960,6 +964,9 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Force every node of a SHOWN enemy-info popup coplanar with the panel: identity
     /// local rotation, zero local z. X/Y are never touched, so the card's own slide/fade-in
     /// animations keep playing — flat. See the doc block above for the full derivation.</summary>
+    // Build756 supersedes the historical Always-depth exception above: all popup
+    // graphics now use LEqual and share a real, portrait-relative seat above their own
+    // board's rim. Another nearer board, hand or figure must remain an occluder.
     private void FlattenEnemyInfo()
     {
         InitiativeTrack track = InitiativeTrack.Instance;
@@ -972,6 +979,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // surfaces from fighting over an "original"), but the on-top materials must NOT
             // follow the holder onto the reveal panel: that surface never asked for ZTest-Always
             // content, and the popups it shows are its own presentation to govern.
+            _enemyPopupSeat.RestoreAll();
             _enemyInfoOnTop.RestoreAll("enemyCardsHolder left the initiative panel");
             // Round 4: nor the unmask — the reveal panel's popups must clip as the game authored.
             _enemyInfoUnmask.RestoreAll("enemyCardsHolder left the initiative panel");
@@ -1006,8 +1014,14 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         {
             Transform popup = holder.GetChild(c);
             if (!popup.gameObject.activeSelf)
+            {
+                _enemyPopupSeat.Restore(popup as RectTransform);
                 continue;
+            }
 
+            // Return the previous late-pass seat before recording native flatten inputs;
+            // otherwise our own proud z would be mistaken for authored game geometry.
+            _enemyPopupSeat.Restore(popup as RectTransform);
             _enemyInfoScratch.Clear();
             popup.GetComponentsInChildren(includeInactive: true, _enemyInfoScratch);
             for (int i = 0; i < _enemyInfoScratch.Count; i++)
@@ -1034,6 +1048,14 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // graphic); new graphics from a card re-generation are picked up on their first
             // shown LateTick, i.e. before their first visible frame ends.
             _enemyInfoOnTop.Apply(popup, "initiative hover popup");
+            // Use the displayed portrait's frame, never the shared holder's origin. This
+            // also keeps the seat correct during native reorder/scroll and board motion.
+            if (popup is RectTransform popupRect && PlayTray.Current?.Root is Transform board && track != null)
+                foreach (InitiativeTrackActorBehaviour entry in track.actorsUI)
+                    if (entry is InitiativeTrackEnemyBehaviour enemy && enemy.monsterBaseUI != null
+                        && ReferenceEquals(enemy.monsterBaseUI.transform, popup)
+                        && InitiativePopupPlacement.Portrait(enemy) is RectTransform portrait)
+                    { _enemyPopupSeat.Place(popupRect, portrait, board); break; }
         }
         _enemyInfoScratch.Clear();
 
@@ -1169,6 +1191,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// the same door (reference-checked — a material the game re-assigned meanwhile is ceded).</summary>
     private void RestoreEnemyInfoFlatten()
     {
+        _enemyPopupSeat.RestoreAll();
         _enemyInfoOnTop.RestoreAll("initiative panel released");
         _enemyInfoUnmask.RestoreAll("initiative panel released"); // round 4 — same lifetime
         _bannerClipDiagLogged = false; // conversions are rare — one diag line per conversion
@@ -1619,6 +1642,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     protected override void OnConverted()
     {
         _convertedTrack = Panel != null ? Panel.Target.GetComponent<InitiativeTrack>() : null;
+        _slide.Prime(_convertedTrack);
         if (Panel != null && InitiativeTrack.Instance != null)
             Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;
 
@@ -1703,6 +1727,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     // ---- per-portrait pick geometry (user #3 follow-up) -------------------------------
     private static readonly Vector3[] PickCorners = new Vector3[4];
+    private readonly List<Graphic> _portraitPickGraphics = new();
 
     /// <summary>
     /// Depth-aware laser pick over the initiative portraits (<see cref="IDepthPortraitPicker"/>).
@@ -1735,18 +1760,33 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         float bestDist = float.PositiveInfinity;
         foreach (Transform child in holder)
         {
-            if (!child.gameObject.activeSelf || child is not RectTransform rect)
+            if (!child.gameObject.activeSelf)
                 continue;
             InitiativeTrackActorBehaviour behaviour = child.GetComponent<InitiativeTrackActorBehaviour>();
             if (behaviour == null || behaviour.avatarButton == null)
                 continue; // not a portrait (hotkey tip / separator) — no click target
             GameObject buttonGo = behaviour.avatarButton.gameObject;
-            if (!buttonGo.activeInHierarchy)
+            if (!buttonGo.activeInHierarchy || !behaviour.avatarButton.isActiveAndEnabled
+                || !((Selectable)behaviour.avatarButton).IsInteractable())
                 continue;
 
-            // Portrait cell world rect (child inherits the stepped z → real depth).
-            if (TryIntersectRect(rect, rayOrigin, rayDirection, bestDist, out float dist, out Vector3 point))
+            // The native Header extends beyond its 130px layout cell. The layout
+            // root is therefore not the native button's hit shape, especially at
+            // its top/side edges. Use its original raycastable child Graphics at
+            // their actual depth and keep their native masks/CanvasGroup filters.
+            child.GetComponentsInChildren(false, _portraitPickGraphics);
+            foreach (Graphic graphic in _portraitPickGraphics)
             {
+                if (graphic == null || !graphic.isActiveAndEnabled || !graphic.raycastTarget
+                    || graphic.canvasRenderer.cull || graphic.depth < 0
+                    || graphic.canvas == null || !graphic.canvas.isActiveAndEnabled
+                    || ExecuteEvents.GetEventHandler<IPointerClickHandler>(graphic.gameObject) != buttonGo
+                    || !TryIntersectRect(graphic.rectTransform, rayOrigin, rayDirection, bestDist,
+                        out float dist, out Vector3 point))
+                    continue;
+                Camera? camera = graphic.canvas.worldCamera;
+                Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, point);
+                if (!graphic.Raycast(screen, camera)) continue;
                 bestDist = dist;
                 target = buttonGo;
                 worldHit = point;

@@ -55,6 +55,8 @@ internal sealed class MapStoryOpeningLedger
 
     internal bool Owns(object? subject) => subject != null && Find(subject) != null;
 
+    internal uint TokenFor(object subject) => Find(subject)?.State.Token ?? 0;
+
     internal bool MatchesPose(object subject, int sender, int localId, uint epoch, uint token)
     {
         Local? local = Find(subject);
@@ -103,6 +105,44 @@ internal sealed class MapStoryOpeningLedger
         if (entry == null || entry.State.Finished) return false;
         entry.State.Finished = true;
         Changed = true;
+        return true;
+    }
+
+    /// <summary>The native host may explicitly enroll a late visitor into one proven
+    /// completed scenario-start occurrence. The caller owns original trigger/current-run
+    /// and native participant authority; ordinary history never gains recipients here.</summary>
+    internal bool EnrollCompletedScenarioStart(uint token, int recipient, int localId,
+        MapStoryOpening request)
+    {
+        // Completed native subjects may be collected after a later story. The
+        // episode-scoped caller retains only this exact original ledger token.
+        Local? entry = _local.Find(candidate => candidate.State.Token == token);
+        if (entry == null || !entry.State.Finished || Has(entry.State.Participants, recipient)
+            || !IsCurrentLiveRequest(recipient, localId, request)
+            || request.SemanticKey != entry.State.SemanticKey || request.ContentKey != entry.State.ContentKey
+            || request.PageCount != entry.State.PageCount || request.Bidirectional != entry.State.Bidirectional) return false;
+        // A delayed request cannot grant the preceding same-text occurrence after
+        // either side has moved to a successor. Keep the existing FIFO binding law.
+        foreach (Local candidate in _local)
+            if (candidate.State.SemanticKey == entry.State.SemanticKey
+                && candidate.State.Token > entry.State.Token) return false;
+        AddParticipant(entry.State, recipient);
+        Changed = _bindingDirty = true;
+        return true;
+    }
+
+    internal bool IsCurrentLiveRequest(int recipient, int localId, MapStoryOpening request)
+    {
+        if (recipient <= 0 || localId <= 0 || recipient == localId || request.Finished
+            || !MapStoryLifecycleCodec.Valid(request) || !Has(request.Participants, localId)
+            || !_peerEpoch.TryGetValue(recipient, out uint epoch) || epoch != request.Epoch
+            || !_peers.TryGetValue(recipient, out var history)
+            || !history.TryGetValue(request.Token, out var current) || current.Finished
+            || current.SemanticKey != request.SemanticKey || current.ContentKey != request.ContentKey
+            || current.PageCount != request.PageCount || current.PreviousToken != request.PreviousToken
+            || current.Bidirectional != request.Bidirectional) return false;
+        foreach (MapStoryOpening candidate in history.Values)
+            if (candidate.SemanticKey == request.SemanticKey && candidate.Token > request.Token) return false;
         return true;
     }
 

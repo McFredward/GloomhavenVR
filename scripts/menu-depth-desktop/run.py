@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
 import native_tmp
+import creation_fit
 _cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
 _cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
 _cleanup_spec.loader.exec_module(_cleanup_module)
@@ -59,7 +60,7 @@ def main():
     signal.signal(signal.SIGTERM, terminated)
     output = ROOT / '.planning/debug/menu-depth-desktop'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); print('Evidence: ' + str(run), flush=True)
-    compiler_temp = Path(tempfile.mkdtemp(prefix='ghmd-', dir='/tmp'))
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghmd-', dir=os.environ.get('TMPDIR','/tmp')))
     env = dict(os.environ, TMPDIR=str(compiler_temp), UseSharedCompilation='false')
     (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
@@ -95,6 +96,24 @@ internal static class MenuDepthCharacterRotation
     sources['CaptureStack.cs'] = body + '}\n'
     sources['PanelDepth.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
     sources['OwnedMembers.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.7.OwnedMembers.cs').read_text()
+    popup_source=source_root/'src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.cs'
+    popup=member(popup_source.read_text(),'private static void Apply(Seat seat)')
+    popup=popup[popup.index('            RectTransform host ='):popup.index('            if (seat.PersistentMember.HostRaycaster')]
+    sources['PopupPlacement759.cs']=('using UnityEngine;namespace GloomhavenVR.WorldUI {internal static class PopupPlacement759 {'
+        'private sealed class Seat {internal ConvertedPanel Panel=null!,PersistentMember=null!;internal RectTransform Mount=null!;}'
+        'internal static void Place(ConvertedPanel owner,ConvertedPanel member,RectTransform mount){var seat=new Seat{Panel=owner,PersistentMember=member,Mount=mount};'+popup+'}}}')
+    blackout_source=source_root/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.11.PreConvertHide.cs'
+    blackout=blackout_source.read_text()
+    start=blackout.index('private static bool HasPreConvertPresentation(')
+    predicate=blackout[start:blackout.index(';',start)+1]
+    sweep=member(blackout,'private static void PreConvertHide(UIWindow window)')
+    gate=sweep[sweep.index('        if (HasPreConvertPresentation(window))'):sweep.index('        // ModBuild 232:')]
+    writes=sweep[sweep.index('        int switched = 0;'):sweep.index('        // Fallback for a window')]
+    sources['PopupBlackout759.cs']=('using System.Collections.Generic;using UnityEngine;using UIWindow=UnityEngine.Component;namespace GloomhavenVR.WorldUI {'
+        'internal static class ConfirmationOnOwner {internal static Component? Owned;internal static bool IsOwned(Component window)=>ReferenceEquals(Owned,window);}'
+        'internal static class PopupBlackout759 {private sealed class PreHiddenWindow {internal readonly List<Canvas> Canvases=new();}'
+        'private static readonly List<Canvas> PreHideScratch=new();private static bool IsConverted(Component window)=>false;'
+        +predicate+'internal static void Sweep(Component window){var entry=new PreHiddenWindow();'+gate+writes+'}}}')
     ownership = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
     sources['PanelOwnership.cs'] = 'namespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + ''.join(
         member(ownership, signature) for signature in ('    internal static bool OwnsPanelLayers(', '    internal static void NoticeRelease(')) + '}\n'
@@ -106,6 +125,38 @@ internal static class MenuDepthCharacterRotation
     assert consider.count(tail) == 1
     sources['PanelConsider.cs'] = 'using System.Collections.Generic;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + consider[:consider.index(tail)] + '    }\n}\n'
     capture = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
+    # Popup760 opts in to the actual mono geometry/hand-back kernels. Existing
+    # fixtures retain their deliberately supplied camera resources and poses.
+    geometry760 = ''.join(member(capture, signature) for signature in (
+        '    private static void ApplyCaptureClear(Camera cam)', '    private static void SyncProjection(Entry e)',
+        '    private static void SyncDisplayPose(Entry e)'))
+    for signature in ('    private static bool SameComponents(Vector3 a, Vector3 b)',
+                      '    private static bool SameComponents(Quaternion a, Quaternion b)'):
+        start=capture.index(signature);geometry760+=capture[start:capture.index(';',start)+1]+'\n'
+    for original in ('ApplyCaptureClear', 'SyncProjection', 'SyncDisplayPose', 'SameComponents'):
+        geometry760 = geometry760.replace(original, original+'760')
+    sources['PopupGeometry760.cs']='using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class PanelSupersample {'+geometry760+'}}'
+    service = member(ownership, '    private static void ServiceEntry(')
+    start = service.index('        SyncGeometry(e);')
+    end = service.index('        SyncVisibility(e);', start) + len('        SyncVisibility(e);')
+    visibility = member(capture, '    private static void SyncVisibility(Entry e)')
+    interval = re.search(r'private const int CaptureIntervalFrames = [^;]+;', ownership)[0]
+    # Execute the actual LateTick caller's geometry -> retirement -> visibility
+    # order. Other allocation/diagnostic service is outside this already-engaged
+    # resource fixture, rather than a synthetic replacement for the handback.
+    sources['CreationLate764.cs'] = ('using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class PanelSupersample {'
+        + interval + visibility + 'internal static void CreationLate764(Entry e){' + service[start:end]
+        + '}private static void SyncGeometry(Entry e)=>ActualGeometry(e);}}')
+    ray_source=source_root/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
+    ray=ray_source.read_text()
+    ray_kernels=[member(ray,signature) for signature in ('private static bool TryIntersect(', 'private static void HitCorners(', 'private static Vector2 ToScreen(')]
+    hit_start=ray.index('private static Rect HitRectOf(');ray_kernels.append(ray[hit_start:ray.index(';',hit_start)+1])
+    sources['PopupRay760.cs']=('using UnityEngine;namespace GloomhavenVR.Hands.Interact {internal static class PopupRay760 {'
+        'private static readonly Vector3[] Corners=new Vector3[4];'
+        'internal static bool Test(Canvas canvas,Vector3 origin,Vector3 direction,float maxDist,out float dist,out Vector3 point)=>TryIntersect(canvas,origin,direction,maxDist,out dist,out point);'
+        +'\n'.join(ray_kernels)+'}}')
+    visible_source=source_root/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs'
+    sources['VisibleUiSurface.cs']=visible_source.read_text()
     dispatch = '            if (cam == Rig.VRRigDriver.HeadCamera)\n                CaptureMenuDepth(cam);'
     assert capture.count(dispatch) == 1
     # The independent generic panel hook survives an idle depth registry. Its
@@ -149,21 +200,108 @@ internal static class MenuDepthCharacterRotation
     sources['ReadyFrame746.cs'] = ('using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI; '
         'namespace GloomhavenVR.WorldUI; internal static partial class PanelSupersample {\n' + frame_body + '\n}')
     sources['ReadyBadge746.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs').read_text()
+    frame_file = source_root / 'src/GloomhavenVR/WorldUI/Conversion/NativeWindowFrame.cs'
+    sources['NativeWindowFrame.cs'] = frame_file.read_text()
+    sources['CharacterCreationFrame.cs'] = (frame_file.parent / 'CharacterCreationFrame.cs').read_text()
+    sources['CharacterFixedFit764.cs'] = creation_fit.bind(source_root, member)
+    native_creator_file = source_root / 'decompiled/GH.Runtime/UICharacterCreatorWindow.cs'
+    sources['NativeCreationLiveness764.cs'] = ('using UnityEngine.UI;public sealed partial class UICharacterCreatorWindow {'
+        'private UIWindow window=null!;private bool isHidding;'
+        'public void SetNativeState764(bool open,bool closing){window=GetComponent<UIWindow>();window.IsOpen=open;isHidding=closing;}'
+        + member(native_creator_file.read_text(), 'public bool IsShown') + '}')
+    sources['NativeUiViewport.cs'] = (frame_file.parent/'NativeUiViewport.cs').read_text()
+    frame_core = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
+    frame_fit = (source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
+    assert frame_core.count('panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);') == 1
+    frame_select = frame_core[frame_core.index('        // Rect size while still under'):frame_core.index('        // Bug #7 (pause-menu height)')]
+    frame_seat = frame_core[frame_core.index('        target.SetParent(hostRect, worldPositionStays: false);'):frame_core.index('        target.localPosition = new Vector3(target.localPosition.x, target.localPosition.y, 0f);')+len('        target.localPosition = new Vector3(target.localPosition.x, target.localPosition.y, 0f);')]
+    assert 'NativeWindowFrame.Repin(t, panel.NativeDesignFrame)' in frame_fit
+    sources['NativeFrameConversion760.cs'] = ('using UnityEngine; namespace GloomhavenVR.WorldUI; internal static class NativeFrameConversion760 {'
+        'private sealed class FrameState { internal Vector2 NativeDesignFrame,SharedDesignFrame=Vector2.zero; }'
+        'private static class SharedWindowSize { internal static bool IsArmed(FrameState panel)=>false; }'
+        'internal static Vector2 Convert(RectTransform target,RectTransform hostRect) {var panel=new FrameState();'
+        +'panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);'+frame_select+frame_seat+'return panel.NativeDesignFrame;}'
+        'internal static void Maintain(RectTransform target,Vector2 design){NativeWindowFrame.Repin(target,design);}}')
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Sharpness' / name for name in
                ('PanelSupersample.1.Core.cs', 'PanelSupersample.2.Capture.cs', 'PanelSupersample.4.Content.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
+    inputs += [flat/'FlatScreen.3.Desktop.cs',flat/'FlatScreen.4.Lifecycle.cs']
+    for allocation in inputs[-2:]:
+        assert 'NativeUiViewport.Raster(Screen.width, Screen.height)' in allocation.read_text(), 'Native viewport allocation binding drift: '+str(allocation)
+    inputs += [popup_source,blackout_source,ray_source,visible_source,frame_file,frame_file.parent/'NativeUiViewport.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs',source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs',ROOT/'scripts/mp760-display/export_creation.py']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
-    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation')) for name in args.case)
+    wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation','head-popup','head-window-viewport','head-window-native','head-creation-layout')) for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
+    wants_popup760 = not args.case or any(name.startswith('head-popup760') for name in args.case)
+    popup_exporter=ROOT/'scripts/levelup-native-runtime/export_inputs.py'
+    if wants_popup760:
+        inputs += [popup_exporter, ROOT/'scripts/menu726-native-profile.py']
+        inputs += [ROOT/'ressources/GH_Data'/name for name in ('level1','level6','level9','resources.assets','resources.assets.resS')]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs']
+    inputs += [frame_file.parent / 'CharacterCreationFrame.cs', ROOT / 'scripts/menu-depth-desktop/creation_fit.py',
+               ROOT / 'scripts/menu-depth-desktop/export_creation764.py',
+               source_root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.9c.SubViewBurst.cs', native_creator_file]
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
+    wants_viewport760 = not args.case or any(name.startswith(('head-window-viewport','head-window-native')) for name in args.case)
+    wants_creation764 = not args.case or any(name.startswith('head-creation-layout') for name in args.case)
+    if wants_viewport760 or wants_creation764:
+        pins.append({'path':str(ROOT/'ressources/GH_Data/level9'),'sha256':hashlib.sha256((ROOT/'ressources/GH_Data/level9').read_bytes()).hexdigest()})
     variants = [
+        ('head-creation-layout764', '', '', '', ''),
+        ('head-creation-layout-old764', 'CharacterFixedFit764.cs',
+         'if (fx.Creation.Update(panel, display)) fx.ReleaseSolution();',
+         '/* injected original collector misses the nested creation opening */',
+         'the complete native creation frame remains beside the party rail'),
+        ('head-creation-layout-crop764', 'CharacterCreationFrame.cs',
+         '=> Active ? 2f * Mathf.Max(0f, seam + _frame.width + padding) : 0f;',
+         '=> 0f;',
+         'the complete native creator and RT aperture fit the physical window'),
+        ('head-creation-layout-ink764', 'CharacterFixedFit764.cs',
+         '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax))',
+         '&& fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax) && false)',
+         'the complete native creation frame remains beside the party rail'),
+        ('head-creation-layout-handback764', 'CreationLate764.cs',
+         'RetireEmptyMenuDepth(e);', '/* injected retirement is delayed until head pre-cull */',
+         'the last character source releases its pair before ordinary native canvas batching'),
+        ('head-creation-layout-late-loss764', 'PanelDepth.cs',
+         'if (!MenuDepthSources.HasContent(e.Panel.HostRect) && e.MenuDepthDisplay == null) continue;',
+         'if (!MenuDepthSources.HasContent(e.Panel.HostRect)) { ReleaseMenuDepth(e); RestoreMenuDepthMono(e); continue; }',
+         'a source closing after LateTick retains CURRENT native pixels in its first head frame'),
+        ('head-window-native760', '', '', '', ''),
+        ('head-window-native-old760', 'NativeUiViewport.cs',
+         'return new Vector2Int(blocks * 16, blocks * 9);', 'return new Vector2Int(Mathf.Max(width,1280),Mathf.Max(height,720));',
+         'native captured Canvas keeps its authored frame across desktop aspect and every match mode'),
+        ('head-window-viewport760', '', '', '', ''),
+        ('head-window-viewport-old760', 'NativeFrameConversion760.cs',
+         'panel.NativeDesignFrame = NativeWindowFrame.Resolve(target);', 'panel.NativeDesignFrame = Vector2.zero;',
+         'both original opposite-edge quest cards fit fully inside the same physical window'),
+        ('head-window-viewport-drift760', 'NativeFrameConversion760.cs',
+         'NativeWindowFrame.Repin(target,design);', '/* injected native viewport writer not repaired */',
+         'both original opposite-edge quest cards fit fully inside the same physical window'),
+        ('head-popup760', '', '', '', ''),
+        ('head-popup760-old-normal', 'MenuDepthDisplay.cs',
+         'Vector3 normal = MenuDepthProjection.PlaneNormal(plane);\n            RectInt region',
+         'Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized;\n            RectInt region',
+         'every owned capture uses a finite unit physical plane normal at native pixel scale'),
+        ('head-popup759', '', '', '', ''),
+        ('head-popup-blackout759', 'PopupBlackout759.cs',
+         'IsConverted(window) || ConfirmationOnOwner.IsOwned(window)', 'IsConverted(window)',
+         'producer-owned original confirmation survives the real blackout sweep in final head pixels'),
+        ('head-popup-root759', 'PopupPlacement759.cs',
+         'Vector3 mountCenter = ReferenceEquals(seat.Mount, seat.Panel.Target)\n                ? seat.Panel.HostRect.position : seat.Mount.position;',
+         'Vector3 mountCenter = seat.Mount.position;',
+         'captured original popup glyphs stay in the expected visible producer region at every world scale'),
         ('head-creation752', '', '', '', ''),
+        ('head-creation-starting-cards-visible756', 'MenuDepthCharacterProjection.cs',
+         'return step != null && Open(CreatorCards?.GetValue(step) as Component);',
+         'return false;',
+         'opening original starting cards hides only the character preview in final head pixels and closing restores it'),
+
         ('head-creation-old752', 'MenuDepthCharacterProjection.cs',
          '        CreationLayout(rectangle, out Rect fit, out float scale, out float ground, out float horizontalSpan);',
          '        Rect fit = rectangle.rect; float scale = 1f, ground = float.NegativeInfinity, horizontalSpan = CommonSpan;',
@@ -428,6 +566,12 @@ internal static class MenuDepthCharacterRotation
          'UIVertex vertex = _stream[i]; /* graphic depth is lost before the real head projection */',
          'original orthographic UI stack carries physical-eye-dependent graphic relief'),
     ]
+    # Explicit research probe only. The absolute.02 GL fixture loses native SDF
+    # glyphs before the subsequent.05/.2/10 witnesses execute. Preserve that
+    # failure for diagnosis; it is not a qualified current-hardware regression
+    # case or part of the default suite's passing consumer inventory.
+    if args.case and 'head-popup-low759' in args.case:
+        variants.append(('head-popup-low759','','','',''))
     if args.case:
         wanted = set(args.case); assert wanted <= {case[0] for case in variants}
         variants = [case for case in variants if case[0] in wanted]
@@ -444,6 +588,27 @@ internal static class MenuDepthCharacterRotation
             for pin in json.loads((run / 'native-tmp-inputs/decoder-pins.json').read_text())['files']:
                 if pin['path'] not in pinned:
                     pins.append(pin); pinned.add(pin['path'])
+        if wants_viewport760:
+            exported=subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),str(ROOT/'scripts/mp760-display/export_creation.py'),str(ROOT),str(run/'native-creation-inputs')],capture_output=True,text=True,timeout=180)
+            (run/'native-creation-export.log').write_text(exported.stdout+exported.stderr)
+            if exported.returncode: raise RuntimeError('Native creation export failed: '+str(run/'native-creation-export.log'))
+        if wants_creation764:
+            exported = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'),
+                str(ROOT / 'scripts/menu-depth-desktop/export_creation764.py'), str(ROOT), str(run / 'native-creation764-inputs')],
+                capture_output=True, text=True, timeout=180)
+            (run / 'native-creation764-export.log').write_text(exported.stdout + exported.stderr)
+            if exported.returncode:
+                raise RuntimeError('Native creation764 export failed: ' + str(run / 'native-creation764-export.log'))
+        if wants_popup760:
+            # Execute the existing read-only exporter through the confirmation
+            # and ESC declarations; unrelated narrative/card-list exports stop here.
+            export_code=popup_exporter.read_text().split('# Closed native card-list opener',1)[0]
+            assert export_code != popup_exporter.read_text(), 'Native popup export boundary drifted'
+            native_popup=run/'native-popup-inputs'
+            exported=subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),'-c',export_code,str(ROOT),str(native_popup)],capture_output=True,text=True,timeout=180)
+            (run/'native-popup-export.log').write_text(exported.stdout+exported.stderr)
+            if exported.returncode: raise RuntimeError('Native popup export failed: '+str(run/'native-popup-export.log'))
+            (native_popup/'pins.json').write_text(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in native_popup.iterdir() if p.is_file()},indent=2)+'\n')
         shutil.copyfile(ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs', editor / 'Runner.cs')
         for shader in fixtures.glob('*.shader'):
             shutil.copyfile(shader, project / 'Assets' / shader.name)
@@ -487,7 +652,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadCreationLayout764' if name.startswith('head-creation-layout') else 'HeadNativeViewport760' if name.startswith('head-window-native') else 'HeadWindowViewport760' if name.startswith(('head-window-viewport','head-window-native')) else 'HeadPopup760' if name.startswith('head-popup760') else 'HeadPopupLow759' if name == 'head-popup-low759' else 'HeadPopup759' if name.startswith('head-popup') else 'HeadCreation752' if name.startswith('head-creation') else 'HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

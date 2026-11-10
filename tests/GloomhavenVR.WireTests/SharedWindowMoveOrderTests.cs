@@ -101,9 +101,9 @@ internal static class SharedWindowMoveOrderTests
         }
         t.True(complete != null && PresenceSerializer.TryRead(complete, complete.Length, out read)
             && read.WindowMoves != null && read.WindowMoves.Entries.Length == 6, "reversed fragment delivery retains atomic six-window pose order");
-        t.True(PresenceSerializer.MaxSize == 12955 && ExtrasFragments.MaxSnapshotBytes == 12800
-            && PresenceSerializer.MaxSize - (12515 + 183) == 257 && ExtrasFragments.MaxSnapshotBytes - (12515 + 183) == 102,
-            "allocation margin and unchanged reassembly cap account for the exact maximum123");
+        t.True(PresenceSerializer.MaxSize == 13001 && ExtrasFragments.MaxSnapshotBytes == 12800
+            && PresenceSerializer.MaxSize - (12515 + 183 + 46) == 257 && ExtrasFragments.MaxSnapshotBytes - (12515 + 183) == 102,
+            "allocation margin and unchanged reassembly cap account for the exact maximum123 plus46-byte public124");
         // Exercise the largest real original writer groups, not only a paper buffer sum:
         // every recent launch and durable completion plus all six new pose-order rows.
         var maximumFactory = typeof(CardDismissOriginVectors).GetMethod("Maximum",
@@ -116,14 +116,17 @@ internal static class SharedWindowMoveOrderTests
             if (!Equals(value, empty)) field.SetValue(saturated, value);
         }
         var largestWriters = (PresenceState)saturated;
+        largestWriters.PublicHandPick = new PublicHandPickState(1, 1, 0, 5, 3, 3,
+            new PublicHandPickState.Seat(1, 0, 12), new PublicHandPickState.Seat(1, 1, 12), 761, 1);
         int largestLength = PresenceSerializer.Write(in largestWriters, bytes);
         t.True(PresenceSerializer.TryRead(bytes, largestLength, out read) && read.WindowMoves?.Entries.Length == 6
-            && read.FlightHistory?.Events.Length == 8 && read.BurnCompletions?.Entries.Length == 128,
-            "actual maximum recent/durable writers coexist with every six-window pose order");
+            && read.FlightHistory?.Events.Length == 8 && read.BurnCompletions?.Entries.Length == 128
+            && read.PublicHandPick?.Named == 3 && read.PublicHandPick.SamePicture(largestWriters.PublicHandPick),
+            "actual maximum recent/durable writers and public124 coexist with every frozen six-window pose order");
         Console.WriteLine("WINDOW123_ACTUAL_WRITER bytes=" + largestLength + " rows=6 recent=8 durable=128");
         // Fill the remaining established upper bound with explicitly unknown, length-delimited
         // records. This is an adversarial full-envelope proof; it does not invent native state.
-        const int completeBound = 12698;
+        const int completeBound = 12744;
         var saturatedBytes = new byte[completeBound]; Array.Copy(bytes, saturatedBytes, largestLength);
         int fill = largestLength;
         while (fill < completeBound)
@@ -143,8 +146,9 @@ internal static class SharedWindowMoveOrderTests
         }
         t.True(complete != null && complete.Length == completeBound
             && PresenceSerializer.TryRead(complete, complete.Length, out read) && read.WindowMoves?.Entries.Length == 6
-            && read.FlightHistory?.Events.Length == 8 && read.BurnCompletions?.Entries.Length == 128,
-            "full12698-byte envelope preserves actual largest writers and six-window order atomically");
+            && read.FlightHistory?.Events.Length == 8 && read.BurnCompletions?.Entries.Length == 128
+            && read.PublicHandPick?.Named == 3,
+            "full12744-byte envelope preserves actual largest writers, public124 and six-window order atomically");
         state = default;
         state.WindowMoves = null; length = PresenceSerializer.Write(in state, bytes);
         t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), bytes, length,

@@ -49,7 +49,8 @@ for mutation in identity filename mode online hold-admission capture-owner repla
         replay-owner) hold="$fixture/$mutation.fixture"; expected='Stale held messages must not replay into either controller after scenario replacement' ;;
     esac
     if dotnet run --project "$fixture/GloomhavenVR.TutorialScopeTests.csproj" --configuration Release \
-        --property:TutorialScopeSource="$scope" --property:TutorialHoldSource="$hold" > "$fixture/$mutation.log" 2>&1; then
+        --property:TutorialScopeSource="$scope" --property:TutorialHoldSource="$hold" \
+        --property:TutorialGrabSource="$root/src/GloomhavenVR/Compat/Tutorial/TutorialGrabStep.cs" > "$fixture/$mutation.log" 2>&1; then
         echo "FAIL: tutorial $mutation regression escaped coverage." >&2; exit 1
     fi
     if ! rg -Fq "Unhandled exception. System.Exception: $expected" "$fixture/$mutation.log"; then
@@ -62,3 +63,36 @@ if python3 "$root/tests/GloomhavenVR.TutorialScopeTests/source_contract.py" "$fi
 fi
 rg -Fq 'RequestForTutorial must reject non-first tutorials before changing lesson state' "$fixture/binding.log"
 echo 'Tutorial scope negative control: commented admission gate rejected.'
+for mutation in grab-off-admission grab-off-pending; do
+python3 - "$root/src/GloomhavenVR/Compat/Tutorial/TutorialGrabStep.cs" "$fixture/$mutation.fixture" "$mutation" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+if sys.argv[3] == 'grab-off-admission':
+    needle = '''        if (!FigureGrabConfig.GrabFigures.Value)
+        {
+            _doneThisScenario = true;
+            return;
+        }'''
+else:
+    needle = '''        if (!FigureGrabConfig.GrabFigures.Value)
+        {
+            Finish("figure grabbing was disabled while its optional lesson was pending");
+            return;
+        }'''
+assert source.count(needle) == 1, 'Grab lesson capability mutation seam changed'
+Path(sys.argv[2]).write_text(source.replace(needle, ''))
+PY
+if dotnet run --project "$project" --configuration Release \
+    --property:TutorialGrabSource="$fixture/$mutation.fixture" > "$fixture/$mutation.log" 2>&1; then
+    echo "FAIL: $mutation escaped executable tutorial coverage." >&2; exit 1
+fi
+case "$mutation" in
+    grab-off-admission) expected='Disabled figure grabbing must not hold the native tutorial for an impossible lesson' ;;
+    grab-off-pending) expected='Disabling figure grabbing while armed immediately restores the withheld native message' ;;
+esac
+if ! rg -Fq "Unhandled exception. System.Exception: $expected" "$fixture/$mutation.log"; then
+    cat "$fixture/$mutation.log"; exit 1
+fi
+echo "Tutorial scope negative control: $mutation reproduced its blocked native chain."
+done

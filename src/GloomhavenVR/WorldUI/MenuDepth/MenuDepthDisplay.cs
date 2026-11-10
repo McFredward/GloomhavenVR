@@ -213,6 +213,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         MenuDepthHeadRaster.FilterLease? filter = null;
         try
         {
+            Vector3 normal = MenuDepthProjection.PlaneNormal(plane);
             RectInt region = MenuDepthSources.HeadRegion(plane, plane.localToWorldMatrix, frame, left, right);
             using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadFilter") : default)
                 filter = MenuDepthHeadRaster.Filter(original.descriptor, size, region, HeadResolveShader);
@@ -221,19 +222,19 @@ internal sealed class MenuDepthDisplay : IDisposable
             MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
             using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadResolve") : default)
                 filter.Value.Resolve(_headLeft!, sampledLeft, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
-                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
+                normal,
                 plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
             CaptureHeadEye(capture, plane, filter.Value.Target, sampledRight, filter.Value.Pixels);
             MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
             using (VRLog.WantsDebug ? PerfMonitor.Scope("MenuDepth.HeadResolve") : default)
                 filter.Value.Resolve(_headRight!, sampledRight, plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
-                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized,
+                normal,
                 plane.worldToLocalMatrix, frame, WindowAnnotations);
             ThrowIfHeadOwnerClosed(_headRight!);
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
-                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized);
+                normal);
             MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
             SetHeadClip(_material, plane.worldToLocalMatrix, frame, WindowAnnotations);
             _headCamera = left.HeadCamera;
@@ -402,7 +403,7 @@ internal sealed class MenuDepthDisplay : IDisposable
             BindCarrier(plane, sampledFrame);
             Rect originalUv = new((frame.xMin - sampledFrame.xMin) / sampledFrame.width,
                 (frame.yMin - sampledFrame.yMin) / sampledFrame.height, frame.width / sampledFrame.width, frame.height / sampledFrame.height);
-            Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
+            Vector3 normal = MenuDepthProjection.PlaneNormal(plane);
             SetCaptureWindow(_material, leftCapture, _rightCapture!, originalUv, new Vector2(leftDepth,rightDepth),
                 new Vector2(leftScale,rightScale), plane.TransformPoint(new Vector3(frame.center.x,frame.center.y)), normal);
             // Bind only after BOTH fresh eyes exist. Native mono capture remains the
@@ -457,7 +458,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         projection.SetRow(1, (originalProjection.GetRow(1) - originalProjection.GetRow(3) * clip.center.y) * (2f / clip.height));
         capture.projectionMatrix = projection;
         Vector3 planePoint = plane.TransformPoint(new Vector3(frame.center.x, frame.center.y));
-        Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
+        Vector3 normal = MenuDepthProjection.PlaneNormal(plane);
         if (Vector3.Dot(eye.WorldPosition - planePoint, normal) > 0f)
         {
             // The carrier is viewed from the rear. Keep the exact native XY

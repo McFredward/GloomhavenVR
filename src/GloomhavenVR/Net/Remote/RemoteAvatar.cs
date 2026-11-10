@@ -1291,6 +1291,8 @@ internal sealed class RemoteAvatar
     /// which is the value for every moment outside a short rest AND for a sender predating the
     /// record, so both draw the anonymous back they always drew.
     /// </summary>
+    private readonly PublicHandPickInbox _publicHandPick = new();
+    internal PublicHandPickState? PublicHandPick => _publicHandPick.Current(ScenarioManager.Scenario);
     public byte SacrificeSeatCode0 { get; private set; }
 
     /// <summary>The length of the list <see cref="SacrificeSeatCode0"/> indexes into. The consumer
@@ -1944,6 +1946,17 @@ internal sealed class RemoteAvatar
         // same reason as the held-card codes above — the ABSENCE of the record is the statement
         // "no sacrifice is lying in either recess", and a latched code would keep a face on a card
         // whose owner has already burnt or re-drawn it.
+        PublicHandPickState? previousPick = _publicHandPick.Current(ScenarioManager.Scenario);
+        _publicHandPick.Observe(p.PublicHandPickSeen, p.PublicHandPick, ScenarioManager.Scenario,
+            ScenarioManager.CurrentScenarioState?.Seed ?? 0,
+            PublicHandPickState.ScenarioFingerprint(ScenarioManager.CurrentScenarioState?.ID));
+        PublicHandPickState? receivedPick = _publicHandPick.Current(ScenarioManager.Scenario);
+        if (RevealGate.IsSecretSelectionPhase || p.PublicHandPickSeen && receivedPick == null)
+            _controlBoard.ClearPublicHandPickFaces();
+        if (p.PublicHandPickSeen && !ReferenceEquals(previousPick, receivedPick))
+            VRLog.Info("Net", receivedPick != null
+                ? $"PUBLIC HAND PICK received from player {PlayerId}: revision={receivedPick.Revision}, actor={receivedPick.ActorId}, round={receivedPick.Round}, phase={receivedPick.Phase}, occupied=0x{receivedPick.Occupied:X1}, named=0x{receivedPick.Named:X1}. Original pool provenance remains phase-gated."
+                : $"PUBLIC HAND PICK from player {PlayerId}: unusable picture cleared; no old original is reused.");
         SacrificeSeatCode0 = p.HasSacrificeSeat ? p.SacrificeSeatCode0 : (byte)0;
         SacrificeSeatCount0 = p.HasSacrificeSeat ? p.SacrificeSeatCount0 : (byte)0;
         // Item 8: absent record == nothing dimmed. The sender omits the record for an empty mask,

@@ -49,6 +49,17 @@ internal static partial class PanelSupersample
         return state.Frame;
     }
 
+    private static void RetireEmptyMenuDepth(Entry entry)
+    {
+        // Hand the private photograph back before Unity batches world canvases.
+        // Re-enabling its Canvas at head pre-cull is too late: closing the last
+        // character source then leaves one empty head frame, even when the mono
+        // RT was refilled. SyncVisibility immediately follows this in LateTick
+        // and resumes the ordinary capture without retaining a stereo pair.
+        if (entry.MenuDepthDisplay != null && !MenuDepthSources.HasContent(entry.Panel.HostRect))
+            ReleaseMenuDepth(entry);
+    }
+
     // Ordinary windows keep their exact mono capture. Deliberately spatial content
     // opts its own containing window in; text and controls at z=0 project to identical
     // pixels in both eye textures. The native UI hierarchy keeps every stencil/mask.
@@ -65,13 +76,11 @@ internal static partial class PanelSupersample
             if (e.Panel.HostRect == null || e.Cam == null || e.Rt == null || e.DisplayImage == null
                 || !e.DisplayImage.isActiveAndEnabled)
             { ReleaseMenuDepth(e); continue; }
-            if (!MenuDepthSources.HasContent(e.Panel.HostRect))
-            {
-                bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;
-                ReleaseMenuDepth(e);
-                if (skippedMono) RestoreMenuDepthMono(e);
-                continue;
-            }
+            // A source can also close after LateTick. Keep the established head
+            // carrier for this one handoff frame and capture CURRENT plain native
+            // content below; the next LateTick retires it before canvas batching.
+            // A window with no established depth route remains its ordinary mono.
+            if (!MenuDepthSources.HasContent(e.Panel.HostRect) && e.MenuDepthDisplay == null) continue;
             try
             {
                 if (!MenuDepthDisplay.TryGetEyePositions(head, out Vector3 left, out Vector3 right))

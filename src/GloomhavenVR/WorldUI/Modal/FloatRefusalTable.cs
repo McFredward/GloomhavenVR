@@ -289,7 +289,10 @@ internal static class FloatRefusalTable
             + "down the moment the game says the toggle is clickable while the board offers nothing",
             heldBy: go => (MapRoom.ReadyToggleParkClaim.Claimed
                            && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, go))
-                          || BoardConfirmStandIn.StandsInFor(go),
+                          || BoardConfirmStandIn.StandsInFor(go)
+                          // Results owns this same pooled control only while the
+                          // original Player/NotSet ready footer is actually seated.
+                          || ScenarioResultsReadyPark.Claims(go),
             // BOTH CLAIMANTS SPEAK, ALWAYS, AND EACH IS NAMED. ModBuild 235 fixed exactly this
             // instrument defect once already: a lapse line that prints one claimant's words for a
             // refusal the OTHER one was holding sends the next round to the wrong file
@@ -297,7 +300,8 @@ internal static class FloatRefusalTable
             // recoverable after the fact — a lapse is by definition the instant they are both
             // silent — so the line carries both rather than guessing.
             whyHeld: () => $"PARK CLAIM (map room / loadout screen): {MapRoom.ReadyToggleParkClaim.Why}"
-                           + $" || BOARD KEYCAP STAND-IN (in a scenario): {BoardConfirmStandIn.Why}"),
+                           + $" || BOARD KEYCAP STAND-IN (in a scenario): {BoardConfirmStandIn.Why}"
+                           + " || RESULTS FOOTER: the exact original Player/NotSet ready control, while its results window is open"),
 
         // -------------------------------------------------------------------------------------
         // ROW 3 — THE CAMPAIGN MAP'S STORY WINDOW, WHILE ITS OWN CONTENT IS BEING DRAWN INSIDE THE

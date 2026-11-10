@@ -9,7 +9,7 @@ import sys
 import UnityPy
 
 
-def verify(bank, manifest):
+def verify(bank, manifest, owned_only=False):
     data = bank.read_bytes()
     checks = 0
     def require(value, label):
@@ -23,6 +23,9 @@ def verify(bank, manifest):
     entries = json.loads(manifest.read_text())['variants']
     names = {'Hidden/GloomhavenVR/SteamLinkSceneCoverage'}
     names.update(entry['variant_shader'] for entry in entries)
+    native = {} if owned_only else {item['name'] + '.SceneCoverage': item for item in json.loads(
+        (Path(__file__).parent / 'native-variants.json').read_text())['variants']}
+    names.update(native)
     require(types.count('AssetBundle') == 1, 'Actual loadable AssetBundle object is required, not shader objects alone')
     require(types.count('Shader') == len(names) and len(types) == len(names) + 1, 'Only the exact owned shader inventory')
     require(len(env.container) == len(names), 'All runtime paths survive in the actual container')
@@ -35,12 +38,21 @@ def verify(bank, manifest):
         name = parsed['m_Name']
         require(name in names and name not in observed, 'Unique expected shader identity: ' + name)
         observed.add(name)
-        require(shader['platforms'] == [4, 15, 18], 'D3D11, GLCore and Vulkan programs: ' + name)
+        require(shader['platforms'] == ([4] if name in native else [4, 15, 18]), 'Exact native/owned program platforms: ' + name)
         require(shader['compressedBlob'] and all(all(v > 0 for v in row) for row in shader['compressedLengths']),
                 'Nonempty actual compiled program banks: ' + name)
         passes = [p['m_State'] for sub in parsed['m_SubShaders'] for p in sub['m_Passes'] if p['m_Type'] == 0]
         states[name] = [{'pass': state['m_Name'], 'zwrite': state['zWrite'], 'ztest': state['zTest'],
             'blend': state['rtBlend0']} for state in passes]
+        if name in native:
+            require(hashlib.sha256(bytes(shader['compressedBlob'])).hexdigest() == native[name]['program_sha256'],
+                    'Original native GPU programs remain byte-identical: ' + name)
+            alpha = ('_GHVRSceneCoverageAdditiveAlpha', 1) if name == 'GUI/AbilityCard_Add_Shd.SceneCoverage' else ('_GHVRSceneCoverageStraightAlpha', 10)
+            require(all(p['rtBlend0']['srcBlendAlpha']['name'] == alpha[0]
+                        and p['rtBlend0']['srcBlendAlpha']['val'] == 0
+                        and p['rtBlend0']['destBlendAlpha']['val'] == alpha[1]
+                        and p['rtSeparateBlend'] is False for p in passes), 'Audited fixed alpha factors and unchanged independent-MRT state: ' + name)
+            require(all(prop['m_Name'] != alpha[0] for prop in parsed['m_PropInfo']['m_Props']), 'Alpha state remains a camera global, not a material default: ' + name)
         if name == 'Hidden/GloomhavenVR/SteamLinkSceneCoverage':
             require([p['m_Name'] for p in passes] == ['RESET', 'STAMP', 'BACKDROP'], 'Actual depth and owned backdrop coverage pass order')
             require([p['zTest']['val'] for p in passes] == [8, 5, 8], 'Always reset, logical Greater depth and exact depthless backdrop')
@@ -58,7 +70,7 @@ def verify(bank, manifest):
 
 
 if __name__ == '__main__':
-    bank, manifest, output = map(Path, sys.argv[1:])
-    result = verify(bank, manifest)
+    bank, manifest, output = map(Path, sys.argv[1:4])
+    result = verify(bank, manifest, owned_only='--owned-only' in sys.argv[4:])
     output.write_text(json.dumps(result, indent=2) + '\n')
     print('PASS actual scene bank: ' + str(result['assertions']) + ' assertions')

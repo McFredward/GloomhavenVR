@@ -211,6 +211,10 @@ internal sealed partial class MapRoomHand
     /// log the next hardware round cannot read.</summary>
     private bool _failed;
 
+    // Config is intent, not capability. The enchantress cannot replace its
+    // original card chooser after this card source has permanently stood down.
+    internal bool HasFailed => _failed;
+
     /// <summary>The capability probe has run (once per session, on the first engage).</summary>
     private bool _probed;
 

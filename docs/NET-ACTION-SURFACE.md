@@ -21,6 +21,8 @@ occurred" dialog, and the session is shut down with a single Main Menu button.
 `check-desync-surface.py` identifies receiver types reachable from the native action
 dispatch and prints the current patch/verdict counts. The table below is the reviewed
 classification; use the checker output for totals as patches are added.
+The dispatch boundaries `GameAction` and `ActionProcessor` are included too: a
+prefix there must preserve the same failure policy and original queue permits.
 
 Frequently reached receivers include `Choreographer`, `CardsHandManager`,
 `NewPartyDisplayUI` and `UIReadyToggle`. `SceneController` is included as of build 516:
@@ -39,7 +41,7 @@ Full analysis, with the evidence:
 | **SELF-GUARDED** | The body carries its own `try/catch` with a stated fallback. |
 | **GUARDED-DEEPER** | The body's only real work is one call that is already guarded one level down (today: `VREvents.Invoke`, whose own doc says a subscriber exception must never propagate into the game's message pump). Wrapping it again would add noise, not safety. |
 | **CANNOT-THROW** | The body is a constant expression or a single field write. There is nothing in it that can throw. |
-| **WAIVED** | Judged exposed but deliberately left unguarded, with the reason in the note. There are none today. |
+| **WAIVED** | Deliberately retains the native failure policy, with the reason in the note. An accepted gameplay failure must not be swallowed into divergent client state. |
 
 ## The table
 
@@ -65,6 +67,8 @@ Full analysis, with the evidence:
 | `MapQuestDepartureValidation.ResetSeam` | UIReadyToggle | **CANNOT-THROW** | `ReferenceEquals` and clearing private mod references/value fields only. Native Reset has already run and its gameplay state remains untouched. |
 | `MapSelectionTransition` | NewPartyDisplayUI | **SELF-GUARDED** | The native map-options prefixes catch game-state lookup errors and fall back to native behavior; the two selection prefixes likewise catch and return `true`. Error reporting cannot throw back into dispatch. Finalizers only decrement the thread-local scope and forward the original exception unchanged. The only skipped callbacks are deselection of the already selected locally owned portrait during a synchronous map-options transition. |
 | `NativeBugFixes_ShowUsableItemsActor` | UIUseItemsBar | **SELF-GUARDED** | A void prefix assigns the same valid inventory owner that the original method already assigns, before its native ownership predicate. Native property reads catch failures; once-only reporting also catches logger failures. The original always runs, with no new action or item/model write. |
+| `MultiplayerCheatActionPatch` | GameAction | **WAIVED** | Only reserved canonical host test actions enter the original model APIs. Bounds, current host identity, exact issued bytes, world/roster and opt-in admission precede mutation; refused actions retire invalid. An accepted model/world failure deliberately reaches native desync handling. Optional host persistence, visual refresh and diagnostic failures are guarded so they cannot split the admitted commit. |
+| `MultiplayerCheatQueueGuard` | ActionProcessor | **SELF-GUARDED** | Probe failures yield to the original processor. Only the exact owned unforwarded host head may be withdrawn before a one-action permit; accepted client heads retain native lock/ready/order and use a finally-cleared reentry guard. Actual model failures invoke native desync handling, never a silent retry; no native phase, readiness, ACK or action-ID rewrite. |
 | `NativeBugFixes_ItemReplayActor` | UIUseItemsBar | **SELF-GUARDED** | A void prefix repairs only a hidden native bar's stale/null local actor using the original action actor ID and exact item membership. Resolution/token/collection reads catch failures, including reflection, with native fallback and protected once-only reporting. Visible slots, invalid tokens and unresolved summons stay native; no summoner substitution or token/action/model/protocol mutation occurs. |
 | `TownWindowMapSwitch` | `UIGuildmasterHUD.UpdateCurrentMode` | **SELF-GUARDED** | Presentation-only map switch; discovery catches before mutation, scoped native map visibility restores the service mode in finally, and failure reporting is bounded. No gameplay action or continuation is suppressed. |
 | `TownServiceTutorialShopExitPatch` | UIShopItemWindow | **CANNOT-THROW** | Prefix saves the previous thread-local shop reference; finalizer restores it through a default-safe value scope. These are field writes only. Native Exit and its exceptions are neither skipped nor replaced. |

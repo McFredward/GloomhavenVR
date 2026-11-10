@@ -1144,13 +1144,15 @@ internal static class LocalRigSampler
     /// <c>RevealGate.InScenario</c> for the same reason the held-card sampler guards it: a presented
     /// actor left standing after a finished scenario must not name a list nobody is holding.</para>
     /// </summary>
-    private static bool OwnedByPresentedCharacter(CardsHandUI hand)
+    internal static bool OwnedByPresentedCharacter(CardsHandUI hand)
     {
-        CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
-        if (shown == null && RevealGate.InScenario)
-            shown = Board.CharacterFocus.PresentedActor;
+        CPlayerActor? shown = PresentedForCardSeats;
         return shown != null && ReferenceEquals(hand.PlayerActor, shown);
     }
+
+    /// <summary>The same presented actor used by the existing record39 seat producer.</summary>
+    internal static CPlayerActor? PresentedForCardSeats => Cards.ItemsPile.Current?.OwnerActor
+        ?? (RevealGate.InScenario ? Board.CharacterFocus.PresentedActor : null);
 
     /// <summary>Seat <paramref name="widget"/> in its owner's DISCARD or BURNT arc —
     /// <c>CardsGameApi.GetPileArcWidgets</c>, the identical call the receiver re-walks — and encode

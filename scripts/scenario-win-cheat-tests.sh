@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
 old, new = {
-    'online': ('if (FFSNetwork.IsOnline) return "cheat_win_online";', ''),
+    'online': ('if (FFSNetwork.IsOnline && !FFSNetwork.IsHost) return "cheat_win_online";', ''),
     'duplicate': ('(_requested != null && _requested.TryGetTarget(out var requested) && ReferenceEquals(requested, state))', 'false'),
 }[sys.argv[3]]
 assert source.count(old) == 1, 'Production mutation target changed'

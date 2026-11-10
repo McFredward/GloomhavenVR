@@ -530,16 +530,6 @@ internal static class VRModeStateMachine
         CurrentMode = effective;
         VRLog.Debug("Mode", $"{from} -> {effective}");
 
-        Action<VRModeChange>? handler = ModeChanged;
-        if (handler == null)
-            return;
-        try
-        {
-            handler(new VRModeChange(from, effective));
-        }
-        catch (Exception ex)
-        {
-            VRLog.Error("Mode", $"ModeChanged subscriber threw: {ex}");
-        }
+        EventDispatch<VRModeChange>.Invoke(ModeChanged, new VRModeChange(from, effective), nameof(ModeChanged));
     }
 }

@@ -2237,7 +2237,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner, IPanelGrabAuthority
         // disagree about how wide the window is, and both of SolveSpan's branches are covered by
         // that one gate rather than by a second one: whichever branch answers, it is this scalar
         // that moves.
-        bool inkUsable = _inkValid && unit > 1e-9f;
+        // Build767: Results already publishes its complete native viewport/header/
+        // footer frame. The source and its inert observer can classify different
+        // hover graphics as ink, even with identical frame and widget poses. Using
+        // those private unions displaced the shared handle in the paired766 test.
+        // Seat this handle on that common frame; retain the ordinary ink policy
+        // for every other window and the existing shared move/resize transform.
+        bool resultsFrame = _shared && _sharedKind == SharedWindowKind.Results;
+        bool inkUsable = !resultsFrame && _inkValid && unit > 1e-9f;
         GrabBarLayout.Span span = GrabBarLayout.SolveSpan(
             frameWidth: width,
             inkValid: inkUsable,

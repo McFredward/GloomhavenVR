@@ -70,6 +70,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    // No native Results owner exists in this isolated quest-window population.
+    // Its actual owner/presentation lifecycle runs in the Results fixtures.
+    internal static class ScenarioResultsNative { internal static UIWindow? Window => null; }
     // Reference-only documentation target when this retained private project inherits strict
     // XML checks. This fixture neither imports nor executes the unrelated HUD controller.
     internal static class WristHud { }

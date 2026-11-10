@@ -111,3 +111,16 @@ namespace GloomhavenVR.Core.SteamLink
         internal static void Close() { if (bank) bank!.Unload(true); bank = null; variants.Clear(); }
     }
 }
+
+// Passive enrollment hooks execute with actual Harmony/UGUI in the native alpha
+// GPU fixture. This owned-menu lifecycle fixture isolates only that observer
+// boundary; the complete production material scope and rig methods stay real.
+namespace GloomhavenVR.Core.SteamLink
+{
+    internal static class SceneMaterialObservers
+    {
+        internal static void Install() { }
+        internal static void Bind(SceneTransparentMaterials materials) { }
+        internal static void Unbind(SceneTransparentMaterials? materials) { }
+    }
+}

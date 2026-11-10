@@ -38,6 +38,7 @@ FILES = {
     'DialogSurface.cs': 'Surfaces/DialogSurface.cs',
     'PanelGraphicMaterial.cs': 'Sharpness/PanelGraphicMaterial.cs',
     'NarrativeBackdrop.cs': 'Modal/NarrativeBackdrop.cs',
+    'SelfUpdateDialog.cs': 'SelfUpdateDialog.cs',
 }
 
 
@@ -49,6 +50,32 @@ def method(source, signature):
     return source[start:end]
 
 
+def editor_batches(cases, batch_size):
+    """Bound loaded variant assemblies while preserving every original case/order."""
+    if batch_size < 1:
+        raise ValueError('Editor batch size must be positive')
+    return [cases[start:start + batch_size] for start in range(0, len(cases), batch_size)]
+
+
+def case_result_coverage(text, cases):
+    """An editor exit alone cannot certify that all selected controls executed."""
+    expected = [case['name'] for case in cases]
+    completed = []
+    for line in text.splitlines():
+        for prefix in ('PASS negative control ', 'PASS ', 'FAIL '):
+            if line.startswith(prefix):
+                completed.append(line[len(prefix):].split(':', 1)[0])
+                break
+    return {
+        'completed': completed,
+        'missing': [name for name in expected if name not in completed],
+        'duplicates': sorted({name for name in completed if completed.count(name) != 1}),
+        'unexpected': [name for name in completed if name not in expected],
+        'failed': any(line.startswith('FAIL ') for line in text.splitlines()),
+        'ordered': completed == expected,
+    }
+
+
 def main():
     def terminated(signum, frame): raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminated)
@@ -57,13 +84,40 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/levelup-native-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--case', action='append')
+    parser.add_argument('--editor-batch-size', type=int, default=12,
+                        help='Maximum compiled variants loaded by one fresh editor process (default: 12).')
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
+    parser.add_argument('--confirmation-placement-only', action='store_true', help='Run only original cropped/root/nested confirmation placement; requires explicit --case selection.')
+    parser.add_argument('--popup-scale-only', action='store_true', help='Run only perspective original confirmation placement/input across world scales; requires explicit --case selection.')
+    parser.add_argument('--update-dialog-only', action='store_true', help='Run only update dialog ordering/pixel coverage; requires explicit --case selection.')
     args = parser.parse_args()
+    if args.editor_batch_size < 1:
+        parser.error('--editor-batch-size must be positive')
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
     root = args.source_root.resolve(); fixture = ROOT / 'scripts/levelup-native-runtime'
     originals = {name: (root / 'src/GloomhavenVR/WorldUI' / relative).read_text() for name, relative in FILES.items()}
+    ray_source=root/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs'
+    ray=ray_source.read_text()
+    ray_kernels=[method(ray,signature) for signature in ('private static bool TryIntersect(', 'private static void HitCorners(', 'private static Vector2 ToScreen(')]
+    hit_start=ray.index('private static Rect HitRectOf(');ray_kernels.append(ray[hit_start:ray.index(';',hit_start)+1])
+    originals['PopupRay759.cs']=('using UnityEngine;namespace GloomhavenVR.Hands.Interact {internal static class PopupRay759 {'
+        'private static readonly Vector3[] Corners=new Vector3[4];'
+        'internal static bool Test(Canvas canvas,Vector3 origin,Vector3 direction,float maxDist,out float dist,out Vector3 point)=>TryIntersect(canvas,origin,direction,maxDist,out dist,out point);'
+        +'\n'.join(ray_kernels)+'}}')
+    visible_source=root/'src/GloomhavenVR/Hands/Interact/VisibleUiSurface.cs'
+    originals['VisibleUiSurface.cs']=visible_source.read_text()
+    blackout_source=root/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.11.PreConvertHide.cs'
+    blackout=blackout_source.read_text();start=blackout.index('private static bool HasPreConvertPresentation(')
+    predicate=blackout[start:blackout.index(';',start)+1]
+    hide=method(blackout,'private static void PreConvertHide(UIWindow window)')
+    gate=hide[hide.index('        if (HasPreConvertPresentation(window))'):hide.index('        // ModBuild 232:')]
+    writes=hide[hide.index('        int switched = 0;'):hide.index('        // Fallback for a window')]
+    originals['PopupBlackout759.cs']=('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.WorldUI {internal static class PopupBlackout759 {'
+        'private sealed class PreHiddenWindow {internal readonly List<Canvas> Canvases=new();}'
+        'private static readonly List<Canvas> PreHideScratch=new();private static bool IsConverted(UIWindow window)=>false;'
+        +predicate+'internal static void Sweep(UIWindow window){var entry=new PreHiddenWindow();'+gate+writes+'}}}')
     originals['Loc.CardList.cs'] = (root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs').read_text()
     modal = root / 'src/GloomhavenVR/WorldUI/Modal'
     screen = (modal / 'ModalFallback.12.ScreenBind.cs').read_text()
@@ -92,6 +146,8 @@ def main():
     originals['SupersampleKernel.cs'] = ('using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {'
         'internal static partial class PanelSupersample {\n' + '\n'.join(kernels) + '\n}}\n')
     converter_core=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
+    originals['NativeHostPlacement758.cs'] = ('using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {'
+        + method(converter_core, 'internal static void PlaceHost(').replace('void PlaceHost(', 'void PlaceHostNative758(', 1) + '}}')
     centering=converter_core[converter_core.index('        target.SetParent(hostRect, worldPositionStays: false);'):converter_core.index('        AdoptNestedCanvases(panel);')]
     originals['NativeTargetFrame739.cs']='using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {internal static void NormalizeTarget739(RectTransform target,RectTransform hostRect,Vector2 size){'+centering+'}}}'
     adopt = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.2.Adopt.cs').read_text()
@@ -114,6 +170,7 @@ def main():
     spec=importlib.util.spec_from_file_location('first_fit_bindings748',fixture/'first_fit_bindings748.py')
     fit_bindings=importlib.util.module_from_spec(spec);spec.loader.exec_module(fit_bindings)
     originals['NativeFirstFit748.cs']=fit_bindings.bind(root,method)
+    originals['NativeWindowFrame.cs']=(root/'src/GloomhavenVR/WorldUI/Conversion/NativeWindowFrame.cs').read_text()
     story_commitment=re.findall(r'internal static bool PointOfNoReturn\s*=>[^;]+;',story_source)
     if len(story_commitment)!=1:raise RuntimeError('Native story commitment binding drift')
     originals['NativeStoryCommitment748.cs']='namespace GloomhavenVR.WorldUI {internal static partial class StoryComposite {'+story_commitment[0]+'}}'
@@ -140,7 +197,7 @@ def main():
         'internal static void TickOriginal(RectTransform host)=>ApplyPose(host);internal static void UnparkOriginal()=>Unpark("native test hand-back");'
         + '\n'.join(story_methods)+painted+'}}')
     order_source=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.8.Order.cs').read_text()
-    order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)')]
+    order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)', 'internal static void RegisterStandalonePanelOrder(', 'internal static void UnregisterStandalonePanelOrder(')]
     for name in ('PanelOrderBase','PanelOrderStep','PanelOrderMaxRank','OrderSwapMarginMeters','OrderSwapStableFrames'):
         declaration=re.findall(r'(?:private|internal) const (?:int|float) '+name+r'\s*=\s*[^;]+;',order_source)
         if len(declaration)!=1:raise RuntimeError('Ordering constant binding drift: '+name)
@@ -152,8 +209,11 @@ def main():
         'private static void TickFurnitureOrder(Vector3 eye){}private static void BuildSeenThroughLadder(Vector3 eye){}private static void LogPanelOrder(){}'
         'private static void CheckFollowerOffset(int offset,string name,bool allowBehind){}'
         'internal static void ResetOrder739(){foreach(var p in ActivePanels){p.OrderListed=false;p.OrderSwapPeer=null;p.OrderSwapStreak=0;}OrderedPanels.Clear();}'
+        'internal static int StandaloneCount755=>StandaloneOrderPanels.Count;'
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
+    cases.append(('dialog-placement-production', {}, ''))
+    cases.append(('update-dialog-production', {}, ''))
     cases.append(('narrative-production', {}, ''))
     cases.append(('narrative-early-production', {}, ''))
     narrative_controls = [
@@ -277,6 +337,22 @@ def main():
         if originals[key].count(before)!=1:raise RuntimeError('Early narrative mutation binding drift: '+name)
         cases.append((name,{key:originals[key].replace(before,after)},expected))
     changes = [
+        ('confirmation-cropped-owner-blackout', 'PopupBlackout759.cs',
+         'IsConverted(window) || ConfirmationOnOwner.IsOwned(window)', 'IsConverted(window)',
+         'actual native owner lease prevents the original blackout sweep from disabling its pooled canvas'),
+        ('update-dialog-order-omitted', 'SelfUpdateDialog.cs',
+         'CanvasConversion.RegisterStandalonePanelOrder(_orderPanel);', '/* original order-zero dialog */',
+         'nearer update dialog conceals the farther overlay rod in final pixels'),
+        ('update-dialog-release-omitted', 'SelfUpdateDialog.cs',
+         'CanvasConversion.UnregisterStandalonePanelOrder(_orderPanel);', '/* stale standalone registration */',
+         'closing update prompt removes its exact standalone ordering lease'),
+        ('confirmation-cropped-owner-root', 'ConfirmationOnOwner.cs',
+         'Vector3 mountCenter = ReferenceEquals(seat.Mount, seat.Panel.Target)\n                ? seat.Panel.HostRect.position : seat.Mount.position;',
+         'Vector3 mountCenter = seat.Mount.position;',
+         'whole-window confirmation final pixels stay on fitted visible owner'),
+        ('confirmation-cropped-owner-scale', 'ConfirmationOnOwner.cs',
+         'host.localScale = seat.Mount.lossyScale;', 'host.localScale = seat.Panel.HostRect.lossyScale;',
+         'root and nested confirmations preserve exact accepted visible owner pose through drag and resize'),
         ('card-list-opener-waits-for-open', 'CardListEntry.cs', '&& button.gameObject.activeSelf && reset != null', '&& button.gameObject.activeSelf && reset != null && reset.inventory.GetComponent<UIWindow>().IsOpen', 'native closed-list opener is reachable inside converted character Cards tab before list opens'),
         ('card-list-caption-not-clickable', 'CardListEntry.cs', '_caption.raycastTarget = true;', '_caption.raycastTarget = false;', 'native graphic raycast hits More Cards caption'),
         ('card-list-caption-language-stale', 'CardListEntry.cs', 'Loc.OnChanged += RefreshCaption;', '/* language change subscription omitted */', 'native card-list caption follows German language switch'),
@@ -343,12 +419,26 @@ def main():
              '        if (!StoryComposite.PointOfNoReturn && BrowseOwnerAvailable(reset) && !ReferenceEquals(_retiredBrowse, inventory))',
              'fresh native Cards owner recovers browsing after commitment ends'),
         ])
+    changes.extend([
+        ('dialog-placement-late-camera-retry-lost', 'DialogSurface.cs',
+         'if (_pendingShow || _panel == null || !_placed)', 'if (_pendingShow || _panel == null)',
+         'late head places the already-open native confirmation at its original first-opening pose'),
+        ('dialog-placement-settled-pose-repeated', 'DialogSurface.cs',
+         '_placed = true;', '_placed = false;',
+         'settled or manually moved native confirmation never reacquires head-follow placement'),
+    ])
     for name, file, before, after, expected in changes:
         if originals[file].count(before) != 1:
             raise SystemExit('Mutation binding drift: ' + name)
         cases.append((name, {file: originals[file].replace(before, after)}, expected))
     if args.card_list_only and (not args.case or any(name != 'production' and not name.startswith('card-list-') for name in args.case)):
         parser.error('--card-list-only requires explicit production/card-list case selection')
+    if (args.confirmation_placement_only or args.popup_scale_only) and (args.card_list_only or args.narrative_only or not args.case
+            or any(name != 'production' and not name.startswith('confirmation-cropped-owner-') for name in args.case)):
+        parser.error('--confirmation-placement-only requires explicit production/confirmation-cropped-owner case selection')
+    if args.update_dialog_only and (args.card_list_only or args.narrative_only or args.confirmation_placement_only or not args.case
+            or any(not name.startswith('update-dialog-') for name in args.case)):
+        parser.error('--update-dialog-only requires explicit update-dialog case selection')
     if args.narrative_only:
         if args.card_list_only: parser.error('Narrative and card-list subsets are separate scopes')
         cases = [case for case in cases if case[0].startswith('narrative-')]
@@ -361,7 +451,7 @@ def main():
     print('Evidence: ' + str(run), flush=True)
     log = run / 'completion.log'; log.write_text('Evidence: ' + str(run) + '\n')
     code = 1; reaped = True; project = run / 'unity'; process = None
-    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-levelup-', dir='/tmp'))
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-levelup-', dir=os.environ.get('TMPDIR','/tmp')))
     (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     spec = importlib.util.spec_from_file_location('project_compilers', ROOT / 'scripts/menu-depth-character/project_compilers.py')
     compilers = importlib.util.module_from_spec(spec); spec.loader.exec_module(compilers)
@@ -373,10 +463,11 @@ def main():
         result = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(fixture / 'export_inputs.py'), str(root), str(inputs)], capture_output=True, text=True)
         (run / 'native-export.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunPopupScale759' if args.popup_scale_only else 'RunCroppedConfirmation754' if args.confirmation_placement_only else 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs', root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs', root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs','NativeWindowFrame.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in (ray_source,visible_source,blackout_source):hashes[str(file)]=hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case or args.narrative_only or args.card_list_only else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0', TMPDIR=str(compiler_temp))
         assemblies = run / 'executed-assemblies'; assemblies.mkdir()
@@ -391,6 +482,9 @@ def main():
             case_fixture = build / 'fixture'; case_fixture.mkdir()
             for original in fixture.glob('*.cs'): shutil.copyfile(original, case_fixture / original.name)
             boundary = (case_fixture / 'Boundary.cs').read_text()
+            # Extend only the declared fixture's no-nested-canvas input port;
+            # production pointer/surface bodies remain byte-exact below.
+            boundary=boundary.replace('internal static class UguiPokeSurfaces {','internal static partial class UguiPokeSurfaces {')
             namespace = 'NativeBoundary742_' + name.replace('-', '_')
             start = boundary.index('internal static class FFSNetwork')
             end = boundary.index('\nnamespace UnityEngine.UI', start)
@@ -419,10 +513,14 @@ def main():
                     if item.name != dll.name: shutil.copyfile(item, runtime / item.name)
                 manifest['harmony'] = str(runtime / '0Harmony.dll')
             manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected,
-                'entry': 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
+                'entry': 'RunStandaloneConfirmation758' if name.startswith('dialog-placement-') else 'RunUpdateDialog755' if name.startswith('update-dialog-') else 'RunBackdropOwnership748' if name.startswith('narrative-ownership-') else 'RunEarlyLoadout748' if name.startswith('narrative-early-') else 'RunNarrative746' if name.startswith('narrative-') else ''})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
         for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)
+        overlay = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
+        shutil.copyfile(overlay, project / 'Assets/Resources/Overlay755.shader')
+        hashes[str(overlay)] = hashlib.sha256(overlay.read_bytes()).hexdigest()
+        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case or args.narrative_only or args.card_list_only else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         for name in ('Unity.TextMeshPro.dll', 'UnityEngine.UI.dll'): shutil.copyfile(managed / name, project / 'Assets/Plugins' / name)
         shaders = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars'
         source = (shaders / 'ActorBarSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarSDF"', 'Shader "TextMeshPro/Distance Field"', 1)
@@ -446,40 +544,75 @@ def main():
         for name in ('TMPro.cginc', 'TMPro_Properties.cginc'): shutil.copyfile(shaders / name, project / 'Assets/Resources/OriginalShaders' / name)
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {name: '1.0.0' for name in ('com.unity.modules.ui', 'com.unity.modules.imgui', 'com.unity.modules.jsonserialize', 'com.unity.modules.physics', 'com.unity.modules.imageconversion')}}))
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-        path = run / 'manifest.json'; path.write_text(json.dumps(manifest, indent=2) + '\n')
-        command = [str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'LevelUpRunner.Start', '-levelUpManifest', str(path), '-logFile', str(run / 'unity.log')]
-        if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', *command]
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=env); reaped = False
-        # Preserve the original14-case budget of30 seconds per variant as the
-        # ownership/foreground control inventory grows. This is only the editor
-        # completion limit; every pixel/callback/control oracle remains intact.
-        editor_timeout = max(420, 30 * len(cases))
+        (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        batches = editor_batches(manifest['cases'], args.editor_batch_size)
+        if not batches:
+            raise RuntimeError('No selected native variants; an empty execution cannot pass')
+        # Compilation, variant bodies, original editor runner and case order stay
+        # unchanged. Mono cannot unload the 94 distinct variant assemblies inside
+        # one editor domain; restarting between bounded groups releases that RSS.
+        plans = [{'index': index + 1, 'cases': [case['name'] for case in batch],
+                  'seconds': max(420, 30 * len(batch))} for index, batch in enumerate(batches)]
         (run / 'editor-budget.json').write_text(json.dumps({
-            'cases': len(cases), 'seconds': editor_timeout,
-            'formula': 'max(420,30*case_count)',
-            'reason': 'The old420s limit cut off an active32/39-case pass before the remaining controls.'}, indent=2) + '\n')
-        editor_timed_out=False
-        try: result = process.wait(timeout=editor_timeout)
-        except subprocess.TimeoutExpired:
-            editor_timed_out=True
-            raise
-        finally:
-            try: os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError: pass
-            process.wait(); reaped = True
-            (run/'editor-exit.json').write_text(json.dumps({'returncode':process.returncode,'timed_out':editor_timed_out,'budget_seconds':editor_timeout},indent=2)+'\n')
-            editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
-            if editor_dll.exists(): shutil.copyfile(editor_dll, assemblies / 'Assembly-CSharp-Editor.dll')
-            (run / 'executed-pins.json').write_text(json.dumps({str(p.relative_to(run)): hashlib.sha256(p.read_bytes()).hexdigest() for folder in (assemblies, run / 'harmony-runtime') for p in folder.glob('*.dll')}, indent=2) + '\n')
-            editor = compilers.cleanup_project_editors(project, args.unity, launcher_reaped=True)
-            (run / 'editor-cleanup.json').write_text(json.dumps(editor, indent=2) + '\n')
-            if editor['remaining']: raise RuntimeError('Exact private editor failed to stop')
-            compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=True)
-            (run / 'compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
-            if compiler['remaining'] or compiler['refused']: raise RuntimeError('Exact private compiler failed to stop safely')
-        report = Path(manifest['result'])
-        if report.is_file(): print(report.read_text(), end='')
-        if result or not report.is_file(): raise RuntimeError('Unity failed: ' + str(run / 'unity.log'))
+            'cases': len(cases), 'batch_size': args.editor_batch_size,
+            'seconds': sum(plan['seconds'] for plan in plans),
+            'formula': 'per batch: max(420,30*case_count)', 'batches': plans,
+            'reason': 'Fresh editor domains bound retained variant assemblies; all original case oracles remain unchanged.'}, indent=2) + '\n')
+        report = Path(manifest['result']); report.write_text('')
+        exits = []
+        for plan, batch_cases in zip(plans, batches):
+            batch = run / 'batches' / ('batch-' + str(plan['index']).zfill(3)); batch.mkdir(parents=True)
+            batch_manifest = dict(manifest, result=str(batch / 'results.txt'), evidence=str(batch), cases=batch_cases)
+            path = batch / 'manifest.json'; path.write_text(json.dumps(batch_manifest, indent=2) + '\n')
+            command = [str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'LevelUpRunner.Start', '-levelUpManifest', str(path), '-logFile', str(batch / 'unity.log')]
+            if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', *command]
+            process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=env); reaped = False
+            editor_timeout = plan['seconds']; editor_timed_out = False
+            try:
+                process.wait(timeout=editor_timeout)
+            except subprocess.TimeoutExpired:
+                editor_timed_out = True
+                raise
+            finally:
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait(); reaped = True
+                batch_report = Path(batch_manifest['result'])
+                text = batch_report.read_text() if batch_report.is_file() else ''
+                coverage = case_result_coverage(text, batch_cases)
+                verdict = dict(plan, returncode=process.returncode, timed_out=editor_timed_out,
+                               budget_seconds=editor_timeout, report_present=batch_report.is_file(), **coverage)
+                verdict['passed'] = process.returncode == 0 and not editor_timed_out and not coverage['failed'] and coverage['ordered']
+                exits.append(verdict)
+                (batch / 'editor-exit.json').write_text(json.dumps(verdict, indent=2) + '\n')
+                with report.open('a') as combined:
+                    combined.write(text)
+                    if text and not text.endswith('\n'): combined.write('\n')
+                    if not verdict['passed']:
+                        combined.write('FAIL batch-' + str(plan['index']).zfill(3) + ': ' + json.dumps(verdict, sort_keys=True) + '\n')
+                # Root fields retain the previous receipt contract; details are
+                # per batch and survive even timeout, interruption or later failure.
+                (run / 'editor-exit.json').write_text(json.dumps({
+                    'returncode': next((item['returncode'] or 1 for item in exits if not item['passed']), 0),
+                    'timed_out': any(item['timed_out'] for item in exits),
+                    'budget_seconds': sum(plan['seconds'] for plan in plans),
+                    'batch_size': args.editor_batch_size,
+                    'complete': len(exits) == len(batches) and all(item['ordered'] for item in exits),
+                    'batches': exits}, indent=2) + '\n')
+                editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
+                if editor_dll.exists():
+                    shutil.copyfile(editor_dll, batch / 'Assembly-CSharp-Editor.dll')
+                    shutil.copyfile(editor_dll, assemblies / 'Assembly-CSharp-Editor.dll')
+                (run / 'executed-pins.json').write_text(json.dumps({str(p.relative_to(run)): hashlib.sha256(p.read_bytes()).hexdigest() for folder in (assemblies, run / 'harmony-runtime') for p in folder.glob('*.dll')}, indent=2) + '\n')
+                editor = compilers.cleanup_project_editors(project, args.unity, launcher_reaped=True)
+                (batch / 'editor-cleanup.json').write_text(json.dumps(editor, indent=2) + '\n')
+                if editor['remaining']: raise RuntimeError('Exact private editor failed to stop')
+                compiler = run_compilers.cleanup_run_compilers(run, editor_reaped=True)
+                (batch / 'compiler-cleanup.json').write_text(json.dumps(compiler, indent=2) + '\n')
+                if compiler['remaining'] or compiler['refused']: raise RuntimeError('Exact private compiler failed to stop safely')
+            if text: print(text, end='', flush=True)
+        if any(not item['passed'] for item in exits):
+            raise RuntimeError('Unity batch failed; all completed results retained: ' + str(run / 'batches'))
         code = 0
         print(('PARTIAL PASS' if args.case or args.narrative_only or args.card_list_only else 'PASS') + ': ' + str(len(cases)) + ' actual native/Unity variants; ' + str(run))
     finally:

@@ -51,6 +51,9 @@ internal sealed class Choreographer
     internal static Choreographer s_Choreographer = null!;
     internal CMessageData? LastMessage;
     internal int OnSwitchHandCalls;
+    internal int UpdateBlockers;
+    internal void AddUpdateBlocker() => UpdateBlockers++;
+    internal void RemoveUpdateBlocker() => UpdateBlockers--;
 }
 internal static class Singleton<T> where T : new()
 {
@@ -74,6 +77,7 @@ namespace GloomhavenVR.Core
         internal static readonly List<string> Lines = new();
         internal static void Warn(string area, string text) => Lines.Add(text);
         internal static void Note(string area, string text) => Lines.Add(text);
+        internal static void Info(string area, string text) => Lines.Add(text);
     }
 }
 namespace GloomhavenVR.WorldUI
@@ -94,6 +98,16 @@ namespace GloomhavenVR.Cards
     {
         internal static CActor? Selected;
         internal static CardsHandUI? Decision;
+#if NATIVE_STORY_PROOF
+        private static float _storyDelayFirstSeen;
+        private static bool StoryDisplayDelayIsAlive(StoryController? story)
+        {
+            // Display-delay scheduling is separately qualified; retain its live
+            // refusal here. This reproduction has no delayed native message.
+            _storyDelayFirstSeen = Math.Max(1f, _storyDelayFirstSeen);
+            return true;
+        }
+#endif
         internal static bool InScenario = true;
         internal static CActor? SelectedActor() => Selected;
         internal static bool ControlsActor(CPlayerActor? actor) => actor != null && actor.ListedMine;
@@ -112,8 +126,11 @@ namespace GloomhavenVR.Cards
     }
     internal static class CardActionQueue
     {
-        internal static readonly Queue<(Action action, Action done)> Actions = new();
-        internal static void Enqueue(Action action, Action done) => Actions.Enqueue((action, done));
+        // This port drives ordinary native hand switches; the separate lifecycle
+        // suite executes cancellation against the actual production queue.
+        internal static readonly Queue<(Action action, Action done, Action? cancelled)> Actions = new();
+        internal static void Enqueue(Action action, Action done, Action? onCancelled = null) =>
+            Actions.Enqueue((action, done, onCancelled));
         internal static void Pump() { var work = Actions.Dequeue(); work.action(); work.done(); }
     }
     internal sealed class VRCard { internal bool IsHeld => false; }
@@ -133,6 +150,9 @@ namespace GloomhavenVR.Cards
         private int _selSwitchDriftFrame = -1;
         private bool _dirty;
         private bool _overlayGateBlocked = false;
+#if NATIVE_STORY_PROOF
+        private float _overlayGateNextLogAt;
+#endif
         private float _overlayExitHeldSince;
         private (int holds, int flights)? _loggedOverlayExit;
         private int _pickLockedCount = 0;
@@ -147,6 +167,12 @@ namespace GloomhavenVR.Cards
         internal bool Queued => _selSwitchQueued;
         internal float ExitHeldSince => _overlayExitHeldSince;
         internal (int holds, int flights)? LoggedExit => _loggedOverlayExit;
-        internal void Tick() { PumpSelectionHandSwitch(); UpdateWantedSlots(CurrentHand()); }
+        internal void Tick()
+        {
+#if NATIVE_STORY_PROOF
+            UpdateOverlayGate();
+#endif
+            PumpSelectionHandSwitch(); UpdateWantedSlots(CurrentHand());
+        }
     }
 }

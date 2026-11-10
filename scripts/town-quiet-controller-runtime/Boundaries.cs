@@ -33,7 +33,7 @@ namespace FFSNet
         public static void Emit() => _changed?.Invoke();
     }
 }
-namespace GloomhavenVR.Core { public static class VRLog { public static bool WantsDebug;public static int Warnings; public static void Info(string scope,string message) {} public static void Warn(string scope,string message){Warnings++;} } }
+namespace GloomhavenVR.Core { public static class VRLog { public static bool WantsDebug;public static int Warnings; public static void Info(string scope,string message) {} public static void Warn(string scope,string message){Warnings++;} public static void Alert(string scope,string message){} } }
 namespace ScenarioRuleLibrary
 {
     public sealed class CAbilityCard { public int ID; public CAbilityCard(int id) { ID=id; } }
@@ -74,7 +74,7 @@ namespace MapRuleLibrary.Adventure
 }
 public enum EGuildmasterMode { None,Merchant,Enchantress,Temple,Other }
 public enum PartySlotState { Empty,Assigned }
-public class UIWindow : MonoBehaviour { public bool IsOpen,IsVisible; public int Shows; public void Show(){IsOpen=IsVisible=true;Shows++;} }
+public class UIWindow : MonoBehaviour { public bool IsOpen,IsVisible; public int Shows; public readonly UnityEngine.Events.UnityEvent onHidden=new(); public void Show(){IsOpen=IsVisible=true;Shows++;} }
 public class UIItemConfirmationBox : MonoBehaviour {}
 public class UIEnhancementConfirmationBox : MonoBehaviour {}
 public sealed class NewPartyCharacterUI { public PartySlotState State=PartySlotState.Assigned; public CMapCharacter? Service; public int Clicks; public void OnClick(){Clicks++;} }
@@ -157,6 +157,7 @@ public class UINewEnhancementWindow : MonoBehaviour
     public NativeBuyTab buyButton=new();
     public NativeBuyTab sellButton=new();
     public AbilityCardUI? selectedCard;
+    public bool _isConfirmationBoxOpened;
     public int Selections,OwnershipChanges,Refreshes,Payments;public bool BuyMode;
     public void SetOldShown(AbilityCardUI card){lastShowedCard=previousSelectedCard=selectedCard=card;}
     public void ShowBuyOptions(){BuyMode=true;if(lastShowedCard!=null)OnSelectedCardToEnhance(lastShowedCard);}
@@ -179,9 +180,9 @@ public static class AudioControllerUtils { public static readonly List<string> P
 namespace GloomhavenVR.Net.TownServices { public static class TownServiceGrantSync { public static bool CanUseImmersive=true; } }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    public static class MapRoomDriver { public static bool Active=true; public static int Presses; public static bool PressGuildmasterMode(EGuildmasterMode mode,string reason){Presses++;GuildmasterDestinations.Mode=mode;return true;} }
+    public static class MapRoomDriver { public static bool Active=true,AbilityHandFailed; public static int Presses; public static bool PressGuildmasterMode(EGuildmasterMode mode,string reason){Presses++;GuildmasterDestinations.Mode=mode;return true;} }
     public static class MapRoomHand { public static CMapCharacter? Owned;public static CMapCharacter? OwnedMerchantCharacter()=>Owned; }
-    public static class GuildmasterDestinations { public static EGuildmasterMode Mode;public static EGuildmasterMode CurrentDestinationMode()=>Mode; }
+    public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static UIWindow? Source;public static EGuildmasterMode CurrentDestinationMode()=>Mode; public static UIWindow? ModeWindow(EGuildmasterMode mode)=>Source; }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -190,13 +191,25 @@ namespace GloomhavenVR.WorldUI
     public static class TownServiceEnhancementHandoff { public static bool Enabled=true,HasCurrentOffering,KeepsQuietVisit; }
     public static class TownServiceMerchantHandoff { public static bool Active=true,HasParkedOffer; }
     public sealed class TownServiceRitual { public bool HasTemplePurseInHand,HasParkedTempleOffer; }
-    public static class TownServicePresentation
+    public static partial class TownServicePresentation
     {
         public static UIWindow? Window;public static byte Service;
         public static TownServiceRitual? Ritual;
         public static bool IsQuietController(UIWindow? window,byte service)=>ReferenceEquals(window,Window)&&service==Service;
         public static bool IsQuietTemple(UIWindow window)=>IsQuietController(window,2);
+        private static UIWindow? _window=>Window;
+        private static UIWindow? _failedWindow;
+        public static int PriorFallbacks,NewFallbacks;
+        public static bool Recover(UIWindow window,byte service)=>RestoreFailedAbilityHand(window,service);
+        public static bool Preclaims(UIWindow window)=>WantsNativeController(window);
+        public static void ResetCapabilityFixture(){Window=null;_failedWindow=null;PriorFallbacks=NewFallbacks=0;ModalFallback.Restores=0;}
+        private static void RestoreNativeForOpening(string reason){PriorFallbacks++;Window!.Show();}
+        private static void OpenOriginalWindow(UIWindow original,byte service,string reason){NewFallbacks++;original.Show();}
+        private static void OnFallbackHidden(){_failedWindow=null;}
     }
+    internal static class ModalFallback { public static int Restores;internal static void RestoreClassicTownService(UIWindow window){Restores++;} }
+    internal static class TownServiceAvailability { internal static bool NativeUnlocked(byte service)=>true; }
+    internal static class TownServiceVisitTarget { internal static byte ServiceOf(EGuildmasterMode mode)=>mode==EGuildmasterMode.Merchant?(byte)1:mode==EGuildmasterMode.Temple?(byte)2:mode==EGuildmasterMode.Enchantress?(byte)3:(byte)0; }
     public sealed class TownServiceStation { public bool Near=true;public bool IsLocalVisitorNear(bool previous)=>Near; }
     public static class TownServicePopulation { public static TownServiceStation Station=new();public static bool Available(byte service)=>true;public static TownServiceStation? Acquire(byte service)=>Station; }
 }

@@ -2658,11 +2658,12 @@ internal static class CardsGameApi
     /// <c>public bool AnimatingLostCards { get; private set; }</c> (CardsHandUI.cs:226), set true
     /// at the coroutine's head (:1012) and cleared as its last statement (:1115).
     ///
-    /// <para><b>IT CAN LATCH TRUE FOR EVER AND EVERY CALLER MUST BOUND IT.</b>
+    /// <para><b>FAILED OR REPLACED CANCELLATIONS STILL REQUIRE A BOUNDED CALLER.</b>
     /// <c>CancelAnimateCardLost</c> (CardsHandUI.cs:1154-1178, reached from <c>OnDisable</c>) runs
-    /// <c>StopAllCoroutines()</c> and never clears this flag, so a hand deactivated mid-animation
-    /// leaves it standing. It is therefore a HOLD signal with no end of its own — good for "do not
-    /// act yet", useless as "the animation finished".</para>
+    /// <c>StopAllCoroutines()</c> and originally never cleared this flag. The successful native
+    /// cleanup endpoint is now completed by <c>NativeCardAnimationLifetime</c>; an exception or
+    /// a reentrant replacement deliberately prevents that repair. Read it as a HOLD signal,
+    /// never as permission to answer a native decision again.</para>
     /// </summary>
     internal static bool AnimatingLostCards(CardsHandUI? hand)
     {
@@ -2751,7 +2752,12 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool MustRestInsteadOfPlay(CardsHandUI hand)
     {
-        CPlayerActor? actor = hand.PlayerActor;
+        return MustRestInsteadOfPlay(hand.PlayerActor);
+    }
+
+    /// <summary>The same synchronized actor rule for a peer's mirrored forced-rest cue.</summary>
+    internal static bool MustRestInsteadOfPlay(CPlayerActor? actor)
+    {
         if (actor == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
             return false;
         if (actor.SelectingCardsForExtraTurnOfType != CAbilityExtraTurn.EExtraTurnType.None)

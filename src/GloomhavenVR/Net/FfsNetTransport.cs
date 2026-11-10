@@ -49,8 +49,11 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _installed;
     private bool _resolved;
     private bool _degraded;
+    internal bool ReceiveHookInstalled => _installed && !_degraded;
     private readonly ExtrasFragments _fragments = new();
     private readonly TownServices.TownServiceFragments _townFragments = new();
+    private readonly ExtrasFragments _resultsFragments = new(ScenarioResultsCodec.MessageType,
+        ScenarioResultsCodec.FragmentType, ScenarioResultsCodec.MaxBytes, 180);
     private readonly ExtrasFragments _animationFragments = new(NetProtocol.MsgUseBarAnimation,
         NetProtocol.MsgUseBarAnimationFragments, assemblyLifetime: ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
@@ -87,7 +90,7 @@ internal sealed class FfsNetTransport : INetTransport
     {
         _fragments.Forget(senderId);
         _animationFragments.Forget(senderId);
-        _townFragments.Forget(senderId);
+        _townFragments.Forget(senderId); _resultsFragments.Forget(senderId);
         _plumeFragments.Forget(senderId);
         _boardFragments.Forget(senderId);
         _appearanceFragments.Forget(senderId);
@@ -100,21 +103,25 @@ internal sealed class FfsNetTransport : INetTransport
     {
         _fragments.Clear();
         _animationFragments.Clear();
-        _townFragments.Clear();
+        _townFragments.Clear(); _resultsFragments.Clear();
         _plumeFragments.Clear();
         _boardFragments.Clear();
         _appearanceFragments.Clear(); _itemAppearanceFragments.Clear(); _mapTooltipFragments.Clear();
         _promptFragments.Clear();
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Clear();
-        _extrasQueue.Clear();
+        _extrasQueue.Clear(); _failedResultsPage = null;
+        _resultsRetryBudget = _nextResultsRetryReport = 0;
         _nextVersionAnnouncement = 0;
         _nextFragmentReport = 0;
         _sentFragments = _receivedFragments = _completedSnapshots = _fragmentBytes = 0;
     }
 
+    private byte[]? _failedResultsPage;
+    private float _resultsRetryBudget, _nextResultsRetryReport;
+
     internal void TickFragments(float now)
     {
-        if (_degraded || !_installed || NetSession.FlatNetMode || !IsOnline) return;
+        if (_degraded || !_installed || NetSession.FlatNetMode || !IsOnline || now < _resultsRetryBudget) return;
         using var timing = PerfMonitor.Scope("Net.Presentation.Transport");
         try
         {
@@ -125,11 +132,22 @@ internal sealed class FfsNetTransport : INetTransport
             }
             // The handshake shares the same event budget; it must not accompany a fragment
             // in a catch-up burst. Presence and native motion retain independent snapshots.
-            byte[]? page = _extrasQueue.NextBatch(now,
+            bool retry = _failedResultsPage != null;
+            byte[]? page = _failedResultsPage ?? _extrasQueue.NextBatch(now,
                 now >= _nextVersionAnnouncement ? _versionAnnouncement : null);
             if (page != null)
             {
-                SendToken(page);
+                try { SendToken(page); }
+                catch
+                {
+                    // Preserve this exact reliable dependency if native admission
+                    // throws before emission. Never advance to its sparse update.
+                    if (PresentationBatch.HasResultsPage(page, page.Length))
+                    { _failedResultsPage = page; _resultsRetryBudget = now + .05f; }
+                    throw;
+                }
+                _failedResultsPage = null;
+                if (retry) _resultsRetryBudget = now + .05f;
                 if (ReferenceEquals(page, _versionAnnouncement))
                     _nextVersionAnnouncement = now + 1;
                 _sentFragments++;
@@ -145,7 +163,14 @@ internal sealed class FfsNetTransport : INetTransport
                 _sentFragments = _receivedFragments = _completedSnapshots = _fragmentBytes = 0;
             }
         }
-        catch (Exception e) { VRLog.Error("Net", $"Extras transport tick failed (suppressed): {e.Message}"); }
+        catch (Exception e)
+        {
+            if (_failedResultsPage == null || now >= _nextResultsRetryReport)
+            {
+                _nextResultsRetryReport = now + 10f;
+                VRLog.Error("Net", $"Extras transport tick failed (suppressed): {e.Message}");
+            }
+        }
     }
 
     // Reusable send-arg array (avoids a per-send allocation for the reflection invoke).
@@ -267,6 +292,37 @@ internal sealed class FfsNetTransport : INetTransport
         catch { return false; } // The caller retains its baseline and reports one bounded capture failure.
     }
 
+    internal bool TrySendResults(byte[] payload, int length, ScenarioResultsState state)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline
+            || NetPacket.PeekType(payload, length) != ScenarioResultsCodec.MessageType) return false;
+        try { _extrasQueue.Enqueue(payload, length, identity: state); return true; }
+        catch { return false; } // The caller retains its last admitted complete basis.
+    }
+
+    internal bool TrySendResultsMotion(byte[] payload, int length)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
+            || !IsOnline || NetSession.FlatNetMode || length > ExtrasFragments.MaxDatagramBytes
+            || !ScenarioResultsCodec.TryRead(payload, length, out ScenarioResultsState? state)
+            || state == null || state.HasPresentation || !state.Visible || state.BaseRevision != 0
+            || state.Parts.Length != 0) return false;
+        try
+        {
+            // Results artwork keeps its reliable, fragmented scheduler. Its small
+            // live grab sample uses the same lossy native side action as rig motion,
+            // so a missing artwork fragment cannot stall a hand-driven window.
+            var bytes = new byte[length];
+            Buffer.BlockCopy(payload, 0, bytes, 0, length);
+            object token = _customDataCtor.Invoke(new object[] { bytes, false });
+            _sendArgs[1] = token; _sendArgs[2] = true; _sendArgs[3] = false;
+            try { _sendSideAction.Invoke(null, _sendArgs); }
+            finally { _sendArgs[2] = true; _sendArgs[3] = false; }
+            return true;
+        }
+        catch { return false; } // A newer sample retries at the ordinary bounded cadence.
+    }
+
     internal bool TrySendTownOriginalReceipt(byte[] payload, int length)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline
@@ -291,7 +347,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgTownOriginalReceipt || type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip || type == TownServices.TownServiceCodec.MessageType)
+            if (type == ScenarioResultsCodec.MessageType || type == NetProtocol.MsgTownOriginalReceipt || type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip || type == TownServices.TownServiceCodec.MessageType)
             {
                 // Native writers already hold the immutable snapshot which produced these bytes.
                 // Re-decoding it here allocated a second complete card/widget graph per send.
@@ -338,6 +394,14 @@ internal sealed class FfsNetTransport : INetTransport
             && SendReliableTownPacket(payload, length, hostOnly);
     }
 
+    /// <summary>Original shared-window input cannot use the lossy presentation queue.
+    /// Reuse the existing reliable ordered native side action without images or new RPCs.</summary>
+    internal bool SendSharedWindowScroll(byte[] payload, int length, bool hostOnly)
+    {
+        return SharedWindowScrollCodec.TryRead(payload, length, out _)
+            && SendReliableTownPacket(payload, length, hostOnly);
+    }
+
     private bool SendReliableTownPacket(byte[] payload, int length, bool hostOnly)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
@@ -380,7 +444,8 @@ internal sealed class FfsNetTransport : INetTransport
         // VR guests of a flat host must discover the same compatible coordinator.
         // It keeps the original one-second cadence and shared bounded event budget.
         _sendArgs[2] = !ReferenceEquals(bytes, _versionAnnouncement)
-            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);
+            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length)
+            && !PresentationBatch.HasResultsPage(bytes, bytes.Length);
         try { _sendSideAction!.Invoke(null, _sendArgs); }
         finally { _sendArgs[2] = true; }
     }
@@ -461,6 +526,11 @@ internal sealed class FfsNetTransport : INetTransport
             if (AssignmentChoice.TryHandleSideAction(action))
                 return false;
 
+            // Results observer controls share this reliable native host-request
+            // seam. Owned stale/refused presses are consumed before payload decode.
+            if (ScenarioResultsControlRequests.TryHandleSideAction(action))
+                return false;
+
             // Ours: pull the payload out of the CustomDataToken and hand it up. Consume it.
             object? tokenObj = self._gaSupplementaryToken?.GetValue(action);
             if (tokenObj != null && self._customDataProp?.GetValue(tokenObj) is byte[] bytes && bytes.Length > 0)
@@ -496,6 +566,9 @@ internal sealed class FfsNetTransport : INetTransport
             {
                 VersionGuard.NotePacket(senderId);
                 VersionGuard.NoteExtras(senderId, in version);
+                // Version-only announcements end here instead of reaching the driver.
+                // Bind the same explicit advertisement to its current native peer too.
+                WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, version.ModBuild);
                 return;
             }
             int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
@@ -504,6 +577,7 @@ internal sealed class FfsNetTransport : INetTransport
             if (type == NetProtocol.MsgPresentationCompression && compressedType < 0) return;
             int routedType = type == NetProtocol.MsgPresentationCompression ? compressedType switch
             {
+                ScenarioResultsCodec.MessageType => ScenarioResultsCodec.FragmentType,
                 NetProtocol.MsgExtras => NetProtocol.MsgExtrasFragments,
                 NetProtocol.MsgUseBarAnimation => NetProtocol.MsgUseBarAnimationFragments,
                 NetProtocol.MsgCardPlume => NetProtocol.MsgCardPlumeFragments,
@@ -529,14 +603,15 @@ internal sealed class FfsNetTransport : INetTransport
                 }
                 return;
             }
-            if (routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments
+            if (routedType == ScenarioResultsCodec.FragmentType || routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments
                 || routedType == NetProtocol.MsgCardPlumeFragments || routedType == NetProtocol.MsgNativeUseBarFragments
                 || routedType == NetProtocol.MsgNativeBoardFragments || routedType == NetProtocol.MsgCardAppearanceFragments || routedType == NetProtocol.MsgNativeDecisionPromptFragments || routedType == NetProtocol.MsgItemAppearanceFragments || routedType == NetProtocol.MsgMapButtonTooltipFragments)
             {
                 _receivedFragments++;
                 int slot = routedType == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
                 if (routedType == NetProtocol.MsgNativeUseBarFragments && (slot < 8 || slot >= 32)) return;
-                ExtrasFragments assembler = routedType == NetProtocol.MsgExtrasFragments ? _fragments
+                ExtrasFragments assembler = routedType == ScenarioResultsCodec.FragmentType ? _resultsFragments
+                    : routedType == NetProtocol.MsgExtrasFragments ? _fragments
                     : routedType == NetProtocol.MsgUseBarAnimationFragments ? _animationFragments
                     : routedType == NetProtocol.MsgCardPlumeFragments ? _plumeFragments
                     : routedType == NetProtocol.MsgNativeBoardFragments ? _boardFragments

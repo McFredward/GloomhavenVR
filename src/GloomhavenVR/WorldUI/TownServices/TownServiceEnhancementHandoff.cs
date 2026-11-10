@@ -253,6 +253,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && (!_shop._isConfirmationBoxOpened || TownServicePalmConfirmation.OwnsCurrent(
             Singleton<UIEnhancementConfirmationBox>.Instance?.GetComponent<UIWindow>()));
     private bool Ready => !_disposed && _shop != null && _window != null && TownServiceQuietController.IsOpen(_window, 3)
+        && !MapRoomDriver.AbilityHandFailed
         && TownServiceGrantSync.CanUseImmersive
         && !_shop._isConfirmationBoxOpened && _alive() && _input()
         && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)
@@ -383,9 +384,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // item fan still exists: a purchase/cancel refresh otherwise stacks both.
         // The immutable owned loadout is sufficient to decide whether a visit is
         // possible; the actual successful destination edge owns fan replacement.
-        bool hasCard = magePreferred && (destination == EGuildmasterMode.Merchant
+        bool hasCard = MapRoomDriver.AbilityHandFailed || (magePreferred && (destination == EGuildmasterMode.Merchant
             || destination == EGuildmasterMode.Temple)
-            ? MapRoomHand.HasOwnedTownAbilityCards() : HasOwnedMapCard();
+            ? MapRoomHand.HasOwnedTownAbilityCards() : HasOwnedMapCard());
         bool canVisit = hasCard && MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress);
         if (!hasCard || !canVisit)
         {

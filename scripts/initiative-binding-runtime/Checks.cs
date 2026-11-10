@@ -21,6 +21,8 @@ public static class InitiativeBindingChecks
     private static string _output = "";
     private static int _checks;
     private static readonly List<GameObject> Owned = new();
+    private static Camera? _submissionCamera;
+    private static RenderTexture? _submissionTarget;
     private static void Check(bool condition, string message) { _checks++; if (!condition) throw new InvalidOperationException(message); }
     private static GameObject Go(string name, bool rect = false)
     { var g = rect ? new GameObject(name, typeof(RectTransform)) : new GameObject(name); Owned.Add(g); return g; }
@@ -48,8 +50,35 @@ public static class InitiativeBindingChecks
         return track;
     }
     private static Vector3 Center(Transform t) => t.TransformPoint(Vector3.zero);
+    private static void SubmitNativeUi(InitiativeTrackSurface surface)
+    {
+        // The fixture calls the coordinator synchronously before any ordinary
+        // frame. Submit its actual world canvas to a real camera so Unity assigns
+        // Graphic.depth/culling, exactly the native inputs the picker now uses.
+        if (_submissionCamera == null)
+        {
+            _submissionCamera = Go("native initiative UI submission").AddComponent<Camera>();
+            _submissionCamera.enabled = false; _submissionCamera.orthographic = true;
+            _submissionCamera.stereoTargetEye = StereoTargetEyeMask.None;
+            _submissionTarget = new RenderTexture(256, 128, 24);
+            _submissionTarget.Create(); _submissionCamera.targetTexture = _submissionTarget;
+        }
+        var holder = (RectTransform)InitiativeTrack.Instance!.initiativeTrackHolder!;
+        var corners = new Vector3[4]; holder.GetWorldCorners(corners);
+        Vector3 center = (corners[0] + corners[2]) * .5f;
+        float width = (corners[3] - corners[0]).magnitude, height = (corners[1] - corners[0]).magnitude;
+        float distance = Mathf.Max(2f, Mathf.Max(width, height) * 2f);
+        _submissionCamera.transform.SetPositionAndRotation(center - holder.forward * distance, holder.rotation);
+        _submissionCamera.nearClipPlane = .0001f; _submissionCamera.farClipPlane = distance * 4f + 10f;
+        _submissionCamera.orthographicSize = Mathf.Max(.0001f, Mathf.Max(height * .5f, width * .25f) * 1.1f);
+        surface.Current!.HostCanvas.worldCamera = _submissionCamera;
+        RenderTexture? previous = RenderTexture.active;
+        try { Canvas.ForceUpdateCanvases(); _submissionCamera.Render(); }
+        finally { RenderTexture.active = previous; }
+    }
     private static bool Pick(InitiativeTrackSurface surface, int index)
     {
+        SubmitNativeUi(surface);
         var track = InitiativeTrack.Instance!;
         Transform actor = track.initiativeTrackHolder!.GetChild(index);
         Vector3 center = Center(actor), direction = actor.forward;
@@ -221,6 +250,10 @@ public static class InitiativeBindingChecks
         }
         finally
         {
+            if (_submissionCamera != null) _submissionCamera.targetTexture = null;
+            if (_submissionTarget != null)
+            { _submissionTarget.Release(); UnityEngine.Object.DestroyImmediate(_submissionTarget); }
+            _submissionCamera = null; _submissionTarget = null;
             foreach (var p in new List<ConvertedPanel>(CanvasConversion.Active)) CanvasConversion.Release(p);
             for(int i=Owned.Count-1;i>=0;i--) if(Owned[i]!=null) UnityEngine.Object.DestroyImmediate(Owned[i]);
             Owned.Clear(); DepthPortraitPicks.Entries.Clear(); PlayTray.Current=null; InitiativeTrack.Instance=null;

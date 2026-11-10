@@ -225,6 +225,12 @@ internal static partial class ModalFallback
     /// <summary>Census scratch (only used on a window open, never per frame).</summary>
     private static readonly System.Text.StringBuilder PreHideCensusSb = new(320);
 
+    /// <summary>An owned persistent confirmation is already presented by its native producer.
+    /// It deliberately has no generic Converted entry, so treating only that list as ownership
+    /// would black out the member again immediately after its own reveal.</summary>
+    private static bool HasPreConvertPresentation(UIWindow window) =>
+        IsConverted(window) || ConfirmationOnOwner.IsOwned(window);
+
     /// <summary>
     /// Suppress a just-opened game window's 2D rendering until the mod floats it (file header).
     /// Called from <see cref="OnWindow"/>, i.e. from the game's own Show() before this frame
@@ -248,7 +254,7 @@ internal static partial class ModalFallback
         // toggle, or ESCMenu.OnControllerAreaFocused) fires this transition while its subtree
         // lives inside a REVEALED mod host: switching those canvases off would blink the visible
         // window out for a frame, which is the exact artifact this guard exists to prevent.
-        if (IsConverted(window))
+        if (HasPreConvertPresentation(window))
             return;
         // ModBuild 232: a window the refusal table refuses is NEVER converted, so a blackout started
         // for it could only ever end on the outer safety with the "was still un-floated after N
@@ -828,7 +834,7 @@ internal static partial class ModalFallback
             // SUPPRESSING X BECAUSE Y HANDLES IT REQUIRES Y TO ACTUALLY HANDLE IT.
             bool failedElsewhere = ContainsWindow(Failed, window) && !OverlayPathStands(entry);
             string? hold = globallyOff || !VRModeStateMachine.TableInFrontOfPlayer || !window.IsOpen
-                           || IsConverted(window) || failedElsewhere
+                           || HasPreConvertPresentation(window) || failedElsewhere
                 ? null
                 : PreConvertHideHold(entry, window);
             // The outer safety is a DEFECT DETECTOR for a bounded intent that overran its own bound.
@@ -847,7 +853,7 @@ internal static partial class ModalFallback
                 : !VRModeStateMachine.TableInFrontOfPlayer
                     ? "no room to float in yet — the floated-window path does not run here"
                 : !window.IsOpen ? "the game closed it again before it was ever floated"
-                : IsConverted(window) ? "it is already floated"
+                : HasPreConvertPresentation(window) ? "its world presentation already owns the native window"
                 : failedElsewhere ? "its conversion failed — it belongs to the flat screen now"
                 // THE ModBuild 419 RULE. No named bounded intent to float this window stands any
                 // more, so the mod is not waiting for anything and the 2D rendering goes back. This
@@ -1093,7 +1099,7 @@ internal static partial class ModalFallback
             // belongs to the flat screen now. TickPreConvertHide hands each of them back by name in
             // the next Update; reporting them here would be an instrument measuring one term
             // ([[instrument-measures-one-term]]) and re-hiding them would be a second writer.
-            if (IsConverted(window) || !window.IsOpen || ContainsWindow(Failed, window))
+            if (HasPreConvertPresentation(window) || !window.IsOpen || ContainsWindow(Failed, window))
                 continue;
             Canvas? live = FirstLiveCanvas(window);
             if (live == null)
@@ -1111,7 +1117,7 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
-            if (window == null || !window.IsOpen || IsConverted(window) || ContainsWindow(Failed, window))
+            if (window == null || !window.IsOpen || HasPreConvertPresentation(window) || ContainsWindow(Failed, window))
                 continue;
             if (FindPreHidden(window) != null || ContainsWindow(PreHideGuardStoodDown, window))
                 continue;
@@ -1161,7 +1167,7 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
-            if (window == null || !window.IsOpen || IsConverted(window))
+            if (window == null || !window.IsOpen || HasPreConvertPresentation(window))
                 continue;
             PreHiddenWindow? standing = FindPreHidden(window);
             if (standing != null)
@@ -1275,7 +1281,7 @@ internal static partial class ModalFallback
         for (int i = PreHideGuardStoodDown.Count - 1; i >= 0; i--)
         {
             UIWindow w = PreHideGuardStoodDown[i];
-            if (w == null || !w.IsOpen || IsConverted(w))
+            if (w == null || !w.IsOpen || HasPreConvertPresentation(w))
                 PreHideGuardStoodDown.RemoveAt(i);
         }
         // ModBuild 422: the overlay rule's diagnostic latch is per open-cycle too, and by the same
@@ -1283,7 +1289,7 @@ internal static partial class ModalFallback
         for (int i = OverlayRefusalNoted.Count - 1; i >= 0; i--)
         {
             UIWindow w = OverlayRefusalNoted[i];
-            if (w == null || !w.IsOpen || IsConverted(w))
+            if (w == null || !w.IsOpen || HasPreConvertPresentation(w))
                 OverlayRefusalNoted.RemoveAt(i);
         }
     }
@@ -1617,7 +1623,8 @@ internal static partial class ModalFallback
 
         PreHiddenWindow? entry = FindPreHidden(window);
         WindowPanel? panel = FindPanel(window);
-        string state = $"tracked={ContainsWindow(OpenWindows, window)}, floated={IsConverted(window)}"
+        string state = $"tracked={ContainsWindow(OpenWindows, window)}, floated={IsConverted(window)}, "
+            + $"ownedConfirmation={ConfirmationOnOwner.IsOwned(window)}"
                        + $", sticky={(panel != null && panel.Sticky)}"
                        + $", conversionFailed={ContainsWindow(Failed, window)}"
                        + $", blackout={(entry == null ? "none" : $"standing since frame {entry.HiddenAtFrame} (overlayRule={entry.OverlayRule})")}"

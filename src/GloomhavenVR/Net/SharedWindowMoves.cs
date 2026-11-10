@@ -11,12 +11,12 @@ internal static class SharedWindowMoves
 {
     private static Func<bool>? _transport;
     private static int _local;
-    private static readonly SharedWindowMoveRegister?[] Registers = new SharedWindowMoveRegister?[7];
+    private static readonly SharedWindowMoveRegister?[] Registers = new SharedWindowMoveRegister?[8];
     private sealed class Incoming
     {
-        internal readonly SharedWindowMoveEntry?[] Rows = new SharedWindowMoveEntry?[7];
-        internal readonly float[] At = new float[7];
-        internal readonly bool[] Accepted = new bool[7];
+        internal readonly SharedWindowMoveEntry?[] Rows = new SharedWindowMoveEntry?[8];
+        internal readonly float[] At = new float[8];
+        internal readonly bool[] Accepted = new bool[8];
         internal bool RewardRelayPose;
     }
     private static readonly Dictionary<int, Incoming> Peers = new();
@@ -44,7 +44,9 @@ internal static class SharedWindowMoves
         int local = NetPlayerActors.LocalPlayerId();
         if (_local != local) { Reset(); _local = local; }
         SharedWindowMoveRegister register = Registers[(int)kind] ??= new SharedWindowMoveRegister(local, (byte)kind);
-        if (kind is SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
+        if (kind is SharedWindowKind.ScenarioStory or SharedWindowKind.Results)
+            register.SetAutomaticAuthor(SharedWindowSpawnAuthority.AuthorId, Time.unscaledTime);
+        else if (kind is SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
             register.SetAutomaticAuthor(RemoteMapStory.SharedReflowAuthor(), Time.unscaledTime);
         return register;
     }
@@ -140,7 +142,9 @@ internal static class SharedWindowMoves
         foreach (SharedWindowMoveEntry row in order.Entries)
         {
             var kind = (SharedWindowKind)row.Kind;
-            if (row.Phase == SharedWindowMovePhase.Automatic && sender != RemoteMapStory.SharedReflowAuthor()) continue;
+            if (row.Phase == SharedWindowMovePhase.Automatic && sender !=
+                (kind == SharedWindowKind.ScenarioStory ? SharedWindowSpawnAuthority.AuthorId
+                    : RemoteMapStory.SharedReflowAuthor())) continue;
             if (!HasMatchingPose(in presence, kind, row.ContentKey)) continue;
             SharedWindowMoveEntry? previous = peer.Rows[row.Kind];
             if (previous.HasValue && previous.Value.SameOpening(in row)
@@ -156,6 +160,35 @@ internal static class SharedWindowMoves
             if (kind == SharedWindowKind.RewardShowcase) peer.RewardRelayPose = readyReward;
             peer.Accepted[row.Kind] = true;
         }
+    }
+
+    // Results uses its own atomic message, never the frozen six-kind record123.
+    // Keep the exact same opening/gesture arbitration as every existing shared grab.
+    internal static bool SampleResults(uint key, out SharedWindowMoveEntry row)
+    {
+        row = default;
+        if (!Enabled || key == 0) return false;
+        var kind = SharedWindowKind.Results;
+        if (Register(kind).ContentKey != key) Open(kind, key);
+        return Register(kind).Sample(out row);
+    }
+
+    internal static bool ObserveResults(int sender, in SharedWindowMoveEntry row)
+    {
+        if (!Enabled || sender <= 0 || row.Kind != (byte)SharedWindowKind.Results || !row.Valid)
+            return false;
+        if (row.Phase == SharedWindowMovePhase.Automatic && sender != SharedWindowSpawnAuthority.AuthorId)
+            return false;
+        if (!Peers.TryGetValue(sender, out Incoming? peer)) Peers.Add(sender, peer = new Incoming());
+        SharedWindowMoveEntry? previous = peer.Rows[row.Kind];
+        if (previous.HasValue && previous.Value.SameOpening(in row)
+            && !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)) return false;
+        var register = Register(SharedWindowKind.Results);
+        bool accepted = register.Observe(sender, in row, OpeningAuthor(SharedWindowKind.Results, row.ContentKey),
+            Time.unscaledTime);
+        if (register.ContentKey != 0 && !accepted) return false;
+        peer.Rows[row.Kind] = row; peer.At[row.Kind] = Time.unscaledTime; peer.Accepted[row.Kind] = true;
+        return true;
     }
 
     internal static bool Accepted(int sender, SharedWindowKind kind, uint key)

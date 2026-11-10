@@ -1,3 +1,454 @@
+**Release 1.2.4 readiness, Build770, 2026-11-10.**
+
+The maintainer reports the paired multiplayer test successful and authorizes
+publication. Preserve the tested335215e70 runtime, assets and ModBuild770; release
+preparation changes only English highlights and this state record. Issue27's
+historical End Turn stall remains explicitly unresolved in the player notes.
+
+Class R audit qualifies complete applicable coverage through the input-bound
+Build769 aggregate297 local scopes/307,211 goldens plus Build770 affected
+2,666 assertions/21 controls, fresh strict0W0E and16 source suites. Independently
+verified328 log hashes,11,653 baseline inputs,9,831 final runtime inputs and both
+worker archives. No new local test is required; this is aggregate coverage, not a
+new successful complete invocation. Original failures and fixture limits remain.
+Audit: `.planning/validation/release124/proof-lane/audit.json`.
+
+Hosted full CI42893353601 succeeds for the exact tested source, including all four
+runtime shards, source/build and completion marker. Final allowed Markdown-only
+descendants must pass the normal trusted proof verifier. The authorized dev-to-main
+merge triggers a fresh release-flag build, package/version checks, verified upload,
+publication and the normal subsequent dev version bump. No local ZIP is built.
+
+**Responsive shared Results scrolling and motion, Build770, 2026-11-10.**
+
+Paired769/726634d5c now shows the complete common picture. Only the guest sees
+its own scrolling late; the host sees that guest's action promptly. Small ordered
+scroll state previously updated hidden native components, leaving the visible
+inert copy waiting for graph snapshots. Project accepted state onto exact common
+content/handle geometry each frame and after graph paint. Keep native authority,
+ordering and permissions; no local prediction or clone callbacks.
+
+Shared frame motion now uses the existing small Results pose grammar independently
+of reliable picture fragments, with bounded native unreliable delivery and the
+existing common move register/interpolation. Separate queues and pose watermarks
+retain full content progress and reject delayed pose rewind. No new wire fields,
+global scheduler changes, asset changes or gameplay actions. Original opening
+animations/audio, shared absolute geometry and native continuation are retained.
+
+Class B, affected checks only as requested. Final strict Release has zero warnings
+and errors; all16 source suites pass. Independent motion review found no blocker.
+Compiled boundary: four behavior types plus one new internal projection helper,
+eight inlined build stamps, no type removal and32 byte-identical resources. All
+config/Harmony/log surfaces unchanged. Unchanged Build769 full aggregate and wire
+proof are reused; no fresh complete gate or HMD/Photon latency claim. See
+MP770-INTEGRATION/SCROLL/MOTION/REVIEW for targeted counts, controls, failed fixture
+attempts, actual source bindings and explicit ports. Dev-only delivery, both peers
+need770, no ZIP/release/device change. Clean owned runs/worktrees after preservation.
+
+**Shared Results starvation repair, Build769, 2026-11-09.**
+
+Both current hardware logs are768/d18f3cb7c; missing-original warnings are gone.
+Actual native Graphic enable transitions can require new full pictures. The
+Results queue cancelled every unfinished older full of the SAME opening, leaving
+only the completed Victory heading indefinitely. Finish the active visible full;
+coalesce only waiting full/delta data. New opening/author and close still supersede.
+Native controllers, opening animations/audio, inputs, wire layout and other stream
+policies are unchanged. Bounded queued/assembled/displayed receipts distinguish
+future failures. Independent runtime/compiled reviews find no further blocker.
+
+Final integrated Results consumer2416/24controls, actual-sample transport961/5,
+actual built-DLL head55/1 and default transport2176/10 pass. ClassC checkpoint:
+source16/16 and297local scopes qualify in aggregate. Initial282pass/15private-ADB
+startup refusals are preserved; only the15refused scopes were rerun and pass.
+Actualwire307211, strictRelease0W/0E, bundles/docs/surface pass. No successful
+scope was repeated. No fresh HMD acceptance; dev-only delivery, unchanged assets.
+See MP769-INTEGRATION/REVIEW/TRANSPORT/PICTURE/CAPTURE for actual scope, source
+bindings, all failures, ports and the explicitly unmerged frame-growth experiment.
+
+**Build768 independent post-review,2026-11-09.**
+
+The next supplied run is still767/5dff1344c on both peers, with seven repeated
+noise_01 warnings. Matching768logs were requested; no new768hardware cause is
+established. Independent asset/picture reviews identify latent canonical-retirement,
+material-context and conditional font-atlas gaps plus the prior same-shape rollback
+boundary. See MP768-POSTREVIEW/REVIEW-ASSETS/REVIEW-PICTURE for concrete proofs and
+reachability limits. Review-only classA; no new runtime/fixture input or ModBuild.
+
+**Complete Results native asset identity, Build768,2026-11-09.**
+
+Paired767/5dff1344c proves working scroll input but another blocked runtime GUI
+texture(noise_01). Prior four-prefab fixtures omitted runtime material assignment.
+Results alone now uses the full audited1375-key native catalogue; five conflicting
+or mutable groups stay strict. Exact native root sprite904 bypasses ambiguous
+same-name background textures via immutable widget provenance, including late
+same-shape binding. Default registries, callbacks and wire layouts are unchanged.
+
+ClassB affected consumer2407 assertions/22 compiling controls(204.555s), exact
+hardware-warning counterfactual and actual195texture uploads. Independent4183
+catalogue assertions/2 controls; final Release0W/0E10.19s/source16/16 35.956s.
+Compiled13 changed(two behavior), one addeddata-onlytype,32 exact resources.
+No full/golden repeat; proof reuse, all failures, original-data scope, render/input
+ports, archives and cleanup are in MP768-INTEGRATION/ASSETS/RESULTS. No new HMD/
+Photon acceptance; both peers need768. Dev only, no ZIP/release/device changes.
+
+**Persistent Results observer updates and common handle, Build767,2026-11-09.**
+
+Paired766/ad6031530 logs show guest input reaches the author but a duplicate
+original DXT5 flow-map identity blocks every subsequent observer picture. Admit
+only the audited resources.assets/265 descriptor. Preserve its actual compressed
+mips in the fixture and reproduce late discovery after the first valid picture.
+Shared Results handles use their existing common native frame rather than local
+hover/ink classification; other windows retain the original rule.
+
+ClassB affected consumer588 assertions/20 compiling controls with bounded
+three-marker repair and input-bound reuse; independent1396-texture census gives
+1404 assertions plus2 controls. Strict Release0W/0E16.77s, source16/16 37.461s;
+compiled13 changed(two behavior), no types added/removed,32 exact resources.
+No full/golden repetition. Exact scopes, failures, times, visual/port limitations,
+receipts and storage cleanup are in MP767-INTEGRATION/RESULTS. No new HMD/Photon
+acceptance; both players need767. Dev only, no ZIP/release/device change.
+
+**Modular Results laser input and stable footer, Build766,2026-11-08.**
+
+Paired765/1c61941fd logs distinguish working guest Continue from missing scroll
+inputs. Exact modular Build reproduces Unity Clone suffixes breaking native paths;
+inert header groups also blocked real surface hover. Preserve original module
+names and add bounded visible-header hover inputs through the existing common
+scroll path. Original native source geometry reserves an unclipped Ready/Return/
+Retry footer and a stable frame; detached Ready draw order is preserved. Frame
+ownership/takeover restores only exact own writes, preserving shared manual moves.
+
+ClassB affected-only aggregate734 assertions/23 compiling controls with explicit
+consumer reuse; fresh strict Release0W0E17.07s and source16/16. No full local gate
+or golden repetition. Source11518/archive11485 members verified; compiled16changed/
+1added/no removal,32resources exact. Source/header/pointer/producer ports, all
+failures, measured times and hardware limits are in MP766-INTEGRATION/INPUT/FOOTER.
+No new HMD/Photon acceptance; both players need766. Dev only, no ZIP/release/device
+change; own completed caches/worktrees retire after verified preservation/push.
+
+**Shared Results input and continuation repair, Build765,2026-11-08.**
+
+Paired764 evidence reproduces inactive-picture canvas admission missing for guest
+scrolling and the native Participant-count visibility latch hiding Player-mode
+Continue after an unassigned guest ACK. Correct scoped visibility, admit the exact
+nested canvas, retain common ordered scroll/takeover and add metadata-only observer
+presses to the original permitted host callbacks. No synthetic vote/ACK/phase,
+serializer or gameplay-authority rewrite. Awaited hosts without characters retain
+their original manual Continue; rejected and stale requests cannot consume it.
+
+ClassB affected-only:775 assertions/38 compiling controls132.17s, strict Release
+0W0E17.05s, source16/16 36.879s. No full repetition; qualified764 and ten unchanged
+presentation controls have explicit input/projection reuse. Root verifies7232
+archived members/11518 frozen inputs; compiled18changed/2added/no removal and32
+exact resources. Config672/Harmony289 unchanged. All prior fixture failures,
+timings, declared ports and hardware limits are in MP765-INTEGRATION and its three
+owned reports. No new HMD/Photon acceptance; both players need765. Dev only,
+no ZIP/release/device write; own post-push cache/worktree cleanup preserves proof.
+
+**Late-join progression and native window repair, Build764,2026-11-08.**
+
+Paired763 logs expose a hidden native scenario intro on the guest: its original
+story locks block both card placement and queued scenario-win/result production.
+Retain only exact successful current-episode start provenance across hosting,
+enroll a reciprocal live visitor through existing native continuation, and retire
+session/player-ID bindings correctly. Original authority, hand admission and
+native Win/Results producers remain intact. Compact combat-log frame/range and
+nested creator envelope/cancel seating are repaired; early source-empty stereo
+retirement preserves the first ordinary UI head frame.
+
+ClassC complete unique296-ID aggregate:288 unchanged central passes, two fresh
+complete repaired containing scopes, six independently input-bound owned scopes.
+Original290-ID run remains FAILED(two fixture-port issues),117.85min; bounded
+capture454+42 passes94.20s, desktop5327+84 passes907.99s in parallel. No full repeat.
+Source16/16; strict Release/Debug0W0E10.47/11.24s; metadata0W0E15.08s;307211 actual
+wire assertions. Compiled23 changed/one added/no removal,32resources exact;
+config672/Harmony289 unchanged.11512 frozen inputs exact; only two test adapters
+change after runtime freeze. See MP764-INTEGRATION and owned reports for causes,
+all original failures, source/native/pixel bindings, timings and hardware limits.
+No new HMD/Photon/Windows-D3D11 acceptance. Dev only; no ZIP/release/device writes.
+Verified archives preserve owned evidence before post-push worker/cache cleanup.
+
+**Paired Results/video presentation repair, Build763,2026-11-06.**
+
+The paired762 logs identify an exact original3DNoise material dependency that
+blocked complete observer Results after Continue. Admit only its audited native
+descriptor and prepare structural replacements before releasing the old image.
+Video mirror initialization now yields to ordinary shared move/resize after
+initial physical reveal; it previously consumed each later pose as a baseline.
+
+ClassB: affected complete containers/controls, source16/16, strict Release/Debug
+0W0E10.23/10.38s and307211 actual wire assertions. Compiled3 behavior/14 metadata
+forms,32resources exact; baseline762 supplies explicitly bounded unchanged proof.
+New actual-Unity video regression raises local inventory to293. Results391+12
+is an input-bound13-case aggregate with one focused expected-marker repair,
+not a relabeled all-green invocation. See MP763-INTEGRATION/RESULTS/VIDEO/REVIEW
+for native census, causal tests, all failures, final source/archive bindings,
+cleanup and explicit GL/bootstrap/decoder/headset limits. Dev only; no ZIP.
+
+**Shared multiplayer scrolling and test cheats, Build762,2026-11-06.**
+
+Every visitor can scroll an actual shared multiplayer window; one common
+original executes input and publishes position/motion. Results input targets
+the visible common viewport, including differing private row counts. Private
+windows/loadout lists stay local. Existing readiness, native choices, placement
+authority and masks remain; mixed2D-host/3D-visitor scroll election is per kind.
+
+Default-off host cheats now work online. Native scenario win includes unmodded
+peers; gold/unlock/reveal/requirements use the original reliable gameplay queue
+and require every actual native player on the current build. Exact weak native
+identity, joins, world/recipient and one-action permits are preserved. Final
+ingress review fixes version-only early returns and sparse version omission.
+
+ClassC final unique aggregate:292 local IDs (269 frozen fresh, one updated full
+worker container,22 audited prior),16sources,307211 actual wire assertions.
+Original central270/270 PASS85.6min; updated cheats268assertions/18controls once.
+Final Release/Debug0W0E10.11/10.28s; metadata0W0E14.55s. Compiled23changed/15added/
+0removed;32resources exact. The bounded final repair changes only two callbacks
+and retains explicitly audited unchanged proof instead of repeating the full
+gate. Original setup failures remain recorded. See MP762-INTEGRATION.md and
+owned Scroll/Cheats/Independent/Capability-Ingress reviews for source bindings,
+native metadata, timings and hardware limits. No new HMD/Photon/WindowsD3D11
+acceptance. Dev only; no ZIP/release or Frame writes. Own worktrees/caches retire
+after verified proof preservation and push.
+
+**Paired multiplayer presentation, Build761,2026-11-06.**
+
+Options closure includes its exact native player chooser. Public forced HAND
+losses carry exact original provenance/occupancy without leaking private cards;
+native flights retain their public source. Rest guidance uses the original
+silhouette glow, and portrait-edge hits reach the original native callback.
+Detached figure loops follow their exact native model/actor generation without
+replay or changes to their original spatial settings. Duplicate confirmation
+audio remains unproven; bounded Debug correlation replaces speculative dedup.
+
+Native Steam Link MR excludes world-symbol background plates and corrects
+original GUI/VFX scene alpha while retaining original RGB/program/depth/stencil.
+Actual head/foreign-camera pixels cover uGUI batching and generation transitions.
+Victory uses independent original-widget Results presentation/pose with exact
+ready callbacks and native gameplay authority intact; cumulative deltas and
+bounded reliable scheduling preserve complete pictures and existing bandwidth.
+
+ClassC complete unique aggregate:290 local IDs (269 fresh/continued,16 audited
+prior,5 frozen-worker),16 sources,307099 actual wire assertions; strict final
+Release/Debug0W0E9.90/16.10s. The central265-ID run took72.3min and remains FAILED
+with15 recorded failures; all affected containing suites have bounded complete
+repairs. All94 native level-up variants pass in eight fresh editor domains.
+Compiled37 changed/23 added/0 removed forms; scene bank changes,31otherresources
+exact. See MP761-INTEGRATION.md and the three owned reviews for causes, final
+source bindings, failures, timings and hardware limits. Paired759 logs are inputs;
+no761 Photon, Windows D3D11 or headset acceptance is claimed. Dev only; no ZIP.
+Own caches/worktrees retire after verified evidence capture and push.
+
+**Window/input integration, Build760,2026-11-06.**
+
+Starting-card overview scrolling now reaches the native list over pointer-only
+card EventTriggers. Native full-screen windows keep their authored frame and
+canonical16:9 capture domain independently of desktop aspect/window mode; quality
+preserves both prior raster axes. Exact synthetic/captured input leases and
+physical world-panel bounds remove desktop mouse/mono-viewport gating. Original
+native callbacks, permissions, shared placement/resize and actor authority stay
+intact. Scale-free window-plane normalization repairs the remaining maximum-zoom
+confirmation depth failure. Two existing progress-help settings gain EN/DE help.
+
+ClassC complete unique aggregate:280 local IDs (93 audited prior,3 frozen-worker,
+184 fresh/continued),16 sources,306740 actual wire assertions; final strict
+Release/Debug0W0E10.00/10.04s. Six central failures are retained with their bounded
+successful repairs/continuation. Native level-up94 variants are80 completed plus
+14 source-identical passes after kernel-confirmed OOM, not a fabricated fresh
+complete invocation. Compiled20 changed/6 added,32 resources unchanged, no surface
+removals. See MP760-INTEGRATION.md and the owned display/input/popup reviews.
+Hardware759 is the cause/evidence input, not HMD/Photon acceptance of760. The
+maintainer deleted debug; current compressed proof is retained outside it under
+ignored `.planning/validation/build760`. Dev only; no ZIP/release.
+
+**Confirmation and progression presentation, Build759, 2026-11-05.**
+
+The new758 hardware replay identifies the real remaining popup failure: the
+same-frame generic blackout disables an already producer-owned confirmation.
+The eight ownership/admission/retirement checks now recognize that exact lease.
+Actual source-bound sweep and final-head pixels, original native geometry and
+laser/graphic input expose the old defect and pass its focused correction.
+Historical753 origin placement alone was not a complete explanation.
+
+Critical lost-story recovery now uses a fixed-target0.62s flight, yielding to
+native lifetime, grips, authority/transport changes and room making. Its existing
+shared sender receives a finite15Hz pulse and endpoint tail, then returns to5Hz.
+Extra board explanations have Always/Never/AfterDelay modes, a final default
+**150s (2.5 minutes)** and owner-authored remote visibility on the existing banner.
+Native choices/important instructions and the20s attention arrow remain intact.
+
+ClassB: qualified affected runtime/pixel/control evidence plus final strict
+Release/Debug0W0E9.66/9.96s, sources16/16,306740 wire assertions, compiled review
+and no surface removals. Nine behavior types/nine metadata types/three additions;
+existing32 resources unchanged. The default-only follow-up replays462 assertions
+and its affected control; unchanged controls and unrelated local IDs reuse the
+qualified758 checkpoint. This is not a fresh complete-local invocation. See
+POPUP-SCALE-759-REVIEW.md, DECISION-HELP-759.md and STORY-759-ANIMATION.md.
+No new HMD/Photon claim. The tiny absolute0.02 capture-glyph diagnostic remains
+explicitly unqualified, separate from the recorded1.15-scale blackout repair.
+Dev only, no release/local ZIP; owned caches/worktrees retire after proof capture.
+
+**Progression safety review, Build758, 2026-11-05.**
+
+The full SP/MP review inventories1170 production C# sources and traces critical
+input, choice, native UI lifecycle, cancellation, session/peer and startup paths.
+Twelve concrete failure/guidance classes are recorded in DEADLOCK-758-REVIEW.md;
+the three owned reviews retain precise causes, callback authority and proof
+boundaries. New independently reproduced failures do not establish Issue27's
+historical cause. No fake ACK, forced choice/phase, private-card disclosure or
+save rewrite is introduced. Existing owner-authored status transport mirrors
+the new ordinary-choice and delayed automatic-wait guidance.
+
+ClassC qualification covers all276 local IDs,16 sources,306739 byte-exact wire
+assertions, bundle and bilingual guides. Disk guards interrupted two invocations;
+unchanged passing evidence is retained and only unfinished/affected groups are
+continued. Four fixture repairs and one .NET environment correction have full
+containing-suite passes. All276 selected logs match their original SHA256.
+Final strict Release/Debug0W0E16.0/16.0s; final sources32.7s. Compiled scope is21
+existing runtime/diagnostic types, nine identity-only types, seven new types and
+one decompiler HintPath-depth artifact; no lost type,32resources exact.
+Surface670/274→278/4846→4849 has no removals. A final bounded diagnostic-literal
+repair retains the old search marker without asserting a cause; runtime/codec
+proof for unchanged inputs survives. Detailed timings, failures and source pins
+are in DEADLOCK-758-REVIEW.md and ignored debug/deadlock758/integration/.
+
+Own caches are cleared and evidence archived with verified restoration indexes;
+shared inputs/other agents are untouched. No new headset/Photon acceptance or
+Issue27 cause is claimed. Dev only, no release or local ZIP.
+
+**Initiative planes / inert held-info copies, Build757, 2026-11-04.**
+
+After756 delivery, inspected current GitHub#24/#27 original media and shared753
+client logs. The real production coordinator plus original LeanTween IL exposes
+foreign world-X writes before the first adopted LateTick and a changed-row latch
+which preserves corruptedZ after Unity's XY-only layout. Capture native origins
+at conversion, preserve a clean latch when a batch already exists, use original
+layout destinations/entry planes and apply the plan in its first visible frame.
+Ordinary rising-edge and Abort-before-batch paths are covered; actor order,
+native slide curve, board pose and nested portrait depth remain unchanged.
+
+Independently, held figure/prop static copies previously removed singleton
+controllers but could retain ordinary Popup→UIWindow dependencies. Remove clone
+logic in dependency order while inactive; reject remaining unknown logic before
+conversion and latch refusal to the held/source generation. Original UI,
+singletons, registry, scroll offset, text/image/material identities and final
+witness pixels remain. No gameplay, network ACK or rule-engine change.
+
+ClassB inherits fresh qualified756 checkpoint271/306739. New row1029/7,
+binding146/7 and static-copy64/5 actual Unity assertions/controls pass; final
+inputs bind to the merged source and immutable native exports. Earlier fixture
+setup/order/black-render failures remain recorded. Strict Release/Debug0W0E
+15.39/13.38s, source16/16PASS64.22s, scheduler19PASS/two expected skips2.07s.
+Compiled scope: four behavior types, nine exact build literals only; no new/lost
+types,32resources exact. Surface670/274/4846 unchanged. No repeated full gate or
+new golden claim. See ISSUES-24-27-757-REVIEW.md and both worker reviews.
+
+Issue27 has no demonstrated turn cause: all52 recorded ready callbacks and
+83ability/36turn/3round barriers complete. VideoRound11 is not matched to logs
+Resume14/new1–4 or to the reported leave/rejoin recoveries. The separate static
+copy hole does not establish a fix for that stall. Matching affected-run evidence
+is still needed; no headset/Photon result is inferred. Own worktrees/caches are
+retired only after SHA-verified archival; hardware inputs/pins and other agents'
+trees remain. Dev only, no release or local ZIP.
+
+**Paired753 creation and multiplayer progression review, Build756, 2026-11-03.**
+
+The repeated new-character command reused a provisional local actor outside the
+native party on its creator but skipped it on observers; their personal-quest
+RNG consequently diverged. Reuse is now bounded to the exact original provisional
+actor and native command owner. No RNG, command serialization or native exception
+is replaced. Starter cards hide only the presentation figure; readiness heraldry
+tracks the native eligible page. Pooled MenuDepth helpers are reused rather than
+duplicated. Only exact native perk-summary cells wholly outside their own list
+frame are clipped during capture; live hover and partially visible cells remain.
+
+Enemy initiative popups retain physical depth, portrait-relative placement and
+the current board's ordering band. Remote active-card arrival waits for the
+original burn interval and occupied source. Fresh extreme saved zoom is normalized
+without changing ordinary/live zoom or Retry's captured pose. A lost mandatory
+story window recovers after three seconds far outside the measured playfield,
+using one common author and yielding to manual grips. Forced-rest buttons receive
+a quiet pulse; a single known pending player receives an overhead cue after20s.
+No native decision is forced. Review: MP756-REVIEW.md and CREATION-756-AUDIT.md.
+
+ClassC checkpoint: qualified coverage of all271 local suite IDs,16 source suites,
+306739 wire assertions, bundle and bilingual-guide checks. The original complete
+invocations remain failed: inventory drift, then resource exhaustion. Exact
+unchanged-input passes are retained; only failed/missing groups are continued.
+Level-up's87 original passes plus its three disk-full tail controls cover all90
+cases. Two fixture-only repairs are explicitly recorded. Strict Release/Debug
+pass0W0E9.62/5.21s. Compiled review accounts for22 existing behavior/diagnostic
+types and nine new types; ten further differences are exact build/tool stamps.
+All32 resources are byte-identical; config670 unchanged, patches267→274 and
+tokens4839→4846 with none removed. Final reports and exact timings are retained
+under ignored debug/mp756/integration/final-qualified-coverage.json.
+
+No headset/Photon acceptance is claimed. The perk cell's original layout cause
+is not established; the reported visible overflow is bounded at presentation.
+Own completed caches/worktrees are cleaned; logs/source/capture proof is retained
+with verified lossless solid-zstd recovery indexes. Worker archives are untouched.
+Next work is GitHub#24/#27: original media and shared753 client logs are preserved.
+VideoRound11 is not yet matched to logsResume14/new1–4; no turn repair is inferred
+from unrelated successful ACK records or from the separate confirmation fix.
+
+**Update prompt depth against main-menu chrome, Build755, 2026-11-01.**
+
+The update canvas stayed at sorting order zero while the main-menu rod uses
+its owner's foreground offset. The farther depth-writing rod could therefore
+overpaint the nearer prompt. SelfUpdateDialog now registers its actual physical
+frame with the existing standalone panel-order ladder after placement and
+unregisters on close/replacement. Geometry, authored transparency, materials,
+native input, callbacks and shared ordering code stay unchanged. No fixed top tier.
+
+ClassB, one behavior type. Focused actual Unity/uGUI/TMP and original Overlay
+shader proof passes23 assertions and2 compiling controls: nearer prompt covers
+far rod in Choice/Progress/Done; nearer rod/solid hand remain visible; real button
+hit/click, close/replacement/reopen and exact lease retirement work. The original
+96% background alpha remains; this does not make a translucent panel opaque.
+Native menu bootstrap, real hand geometry and headset/D3D11 are not certified.
+Two initial fixture failures selected a deferred-destroy old root or raycast an
+undrawn replacement; exact opening identity and first actual draw repair only
+the fixture. Passing old-order control is reused, not repeated.
+
+Portable lifecycle15 assertions/2 controls pass; strict actual Debug/Release
+0W0E18.19/18.08s and source16/16PASS19.8s. Compiled scope is only SelfUpdateDialog
+plus11 exact build/branch identities;32 resources exact754. Private comparison's
+adjacent XML docs and short commit display mismatches are retained tooling
+attempts, corrected without assembly changes. All1768 strict inputs bind; only
+dialog/stamp differ from754. Inherit754/753 and qualified750 full268/306739 for
+unchanged systems; no complete-gate rerun or new golden/headset claim. Evidence
+under ignored update-depth755; canonical cleanup and verified proof archives
+precede worktree retirement. Push dev755 only; no local ZIP or release.
+
+**Reported four-player turn stall / fitted confirmations, Build754, 2026-11-01.**
+
+Compared tagged1.2.1/721 through1.2.3/753 and current dev.97 relevant turn,
+board/card/transport files are exact across four revisions; three fresh native
+decompilations match the installed references. Yellow initiative can persist at
+local animation/effect/queue readiness or host participant-ACK barriers. No user
+logs/save were supplied: no source-proven turn cause, gameplay repair, synthetic
+ACK or forced continuation. See END-TURN-123-AUDIT.md for exact sources and the
+host/all-peer log evidence needed to distinguish these states.
+
+Found a separate post1.2.1 confirmation-placement regression: ESC's original
+368px left column is fitted into a compact VR frame, shifting its full1920px
+root776px away from that frame. Whole-window confirmations used that hidden
+origin. Center them on the fitted physical host while retaining native depth,
+scale, rotation, nested origins, callbacks and persistent restoration.
+
+ClassB, one behavior type. Actual Unity/native-widget/final-pixel61 assertions
+and2 compiling controls; containing portable383/29 and native228/29 pass.
+Strict actual Debug/Release0W0E18.35/19.93s. Source15PASS plus enum-onlyPASS
+after an obj-read/build-cleanup race; the failed invocation remains failed.
+Portable containing rerun repairs only a missing vector-transform boundary port;
+native worker repeats only a mismatched control failure marker. No full repeated
+gate. Compiled scope is one behavior type plus explicit existing build/version/
+branch identities;32 embedded resources exact753. Inherit qualified750 full268/
+306739 and753 unchanged input-bound closures. Product config/log/patch surfaces
+remain670/4839/267; bilingual guides pass. Proof and failed attempts retained in
+ignored debug/report123*; own generated caches cleaned and worker proof archived.
+Push dev754 only; no ZIP/release or historical incident/headset acceptance claim.
+
 **Hotfix release 1.2.3, 2026-10-30 — publication candidate.**
 
 The maintainer requests a hotfix and a link to the 1.2.2 release notes. The initially

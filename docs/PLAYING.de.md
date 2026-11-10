@@ -113,6 +113,12 @@ Fenster losgelassen hat. Unter **VR Optionen ▸ Tafeln ▸ Beim Loslassen zu di
 stellst du das Verhalten ein; bei einem geteilten Fenster gilt die Einstellung
 des loslassenden Spielers.
 
+Zeige auf eine Liste und bewege den Stick dieser Hand nach oben oder unten,
+um zu scrollen. Eine Scrollleiste kannst du auch mit dem Trigger greifen.
+In einem Fenster mit dem blauen Teilen-Symbol kann jeder Spieler scrollen;
+alle sehen dieselbe Bewegung und Position, auch im Siegesfenster.
+Das Scrollen eines lokalen Fensters verändert nur deine eigene Ansicht.
+
 **Weitere Charakterkarten:** Öffne die **Kartenansicht** im Charakterfenster und zeige
 auf **Weitere Karten** oder das Kartensymbol oben rechts. Mit dem Trigger öffnest du
 die Liste freigeschalteter Karten auch außerhalb eines Auflevelns; erneut drücken

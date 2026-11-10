@@ -12,7 +12,9 @@ def send_binding(source):
     queued = source.index('_extrasQueue.Enqueue(payload, length, identity: presentationIdentity);', start)
     # The shared presentation guard may begin with another registered message
     # (e.g. original receipts). Bind its current conditional, not a fixed leader.
-    guard = source[source.index('if (type == NetProtocol.', start):queued]
+    guards = list(re.finditer(r'if\s*\(\s*type\s*==', source[start:queued]))
+    assert guards, 'The queued branch must have an explicit message-type guard'
+    guard = source[start + guards[-1].start():queued]
     assert 'type == NetProtocol.MsgItemAppearance' in guard, 'Native item packets must use the bounded presentation scheduler'
     assert queued < source.index('SendToken(bytes);', start), 'Item snapshots must not bypass fragmentation'
 

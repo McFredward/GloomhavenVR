@@ -31,6 +31,18 @@ if native.exists():
         end = original.index('\n\t}', start) + len('\n\t}')
         assert original[start:end] in fixture, 'Native travel continuation fixture differs from game source: ' + signature
     print('Native travel fixture: entry and completion match the read-only game source.')
+sale = common.parent / 'decompiled/GH.Runtime/UINewEnhancementWindow.cs'
+if sale.exists():
+    original = sale.read_text()
+    start = original.index('\tprivate void ConfirmSell(EnhancementSlot enhancement)')
+    end = original.index('\n\t}', start) + len('\n\t}')
+    fixture = (root / 'tests/GloomhavenVR.MapFlowTests/NativeEnhancementSale.cs').read_text()
+    assert original[start:end] in fixture, 'Native enhancement sale fixture differs from game source'
+    permission = (common.parent / 'decompiled/GH.Runtime/UINewEnhancementShopSlot.cs').read_text()
+    start = permission.index('\tpublic void DetermineInteractability()')
+    end = permission.index('\n\t}', start) + len('\n\t}')
+    assert permission[start:end] in fixture, 'Native enhancement slot ownership fixture differs from game source'
+    print('Native enhancement sale fixture: complete handler matches the read-only game source.')
 NATIVE
 dotnet run --project "$project" --configuration Release \
     --property:LoadoutSource="$loadout_source" --property:StorySource="$story_source" \
@@ -73,7 +85,8 @@ elif dotnet run --project "$mutation_dir/GloomhavenVR.MapFlowTests.csproj" --con
     --property:LoadoutSource="$mutation_dir/Loadout.fixture" --property:StorySource="$mutation_dir/Story.fixture" \
     --property:MapGateSource="$mutation_dir/Gate.fixture" --property:InteractorSource="$mutation_dir/Interactor.fixture" \
     --property:TravelSource="$mutation_dir/Travel.fixture" --property:ModalSource="$modal_source" \
-    --property:SelectionSource="$selection_source" > "$mutation_dir/mutant.log" 2>&1; then
+        --property:SelectionSource="$selection_source" \
+        --property:EnhancementJoinSource="$repo_root/src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementJoinGuard.cs" > "$mutation_dir/mutant.log" 2>&1; then
     cat "$mutation_dir/mutant.log"
     echo "FAIL: $mutation escaped the map-flow regression test." >&2
     exit 1
@@ -119,3 +132,29 @@ if ! grep -Fq "$expected" "$mutation_dir/mutant.log"; then
     exit 1
 fi
 echo 'Map flow negative control: selection scope leak failed as expected.'
+python3 - "$repo_root/src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementJoinGuard.cs" "$mutation_dir/EnhancementJoin.fixture" <<'MUTATION'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+needle = '''return !(FFSNetwork.IsHost && JoiningPlayers?.GetValue(null) is ICollection joining && joining.Count > 0
+            || FFSNetwork.IsClient && PlayerRegistry.OtherClientsAreJoining);'''
+assert source.count(needle) == 1, 'Enhancement join guard mutation seam changed'
+Path(sys.argv[2]).write_text(source.replace(needle, 'return true;'))
+MUTATION
+if dotnet run --project "$project" --configuration Release \
+    --property:LoadoutSource="$loadout_source" --property:StorySource="$story_source" \
+    --property:MapGateSource="$gate_source" --property:InteractorSource="$interactor_source" \
+    --property:TravelSource="$travel_source" --property:ModalSource="$modal_source" \
+    --property:SelectionSource="$selection_source" \
+    --property:EnhancementJoinSource="$mutation_dir/EnhancementJoin.fixture" > "$mutation_dir/mutant.log" 2>&1; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: enhancement joining negative control passed unexpectedly.' >&2
+    exit 1
+fi
+expected='Unhandled exception. System.InvalidOperationException: Joining host must not retain a confirmation latch without any dialog'
+if ! grep -Fq "$expected" "$mutation_dir/mutant.log"; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: enhancement joining control did not reach the native latch defect.' >&2
+    exit 1
+fi
+echo 'Map flow negative control: original enhancement joining deadlock reproduced.'

@@ -138,6 +138,7 @@ internal sealed class NetModule : IVRModule
     private GameObject? _watchGo;
     private INetTransport? _transport;
     private NetAvatarDriver? _driver;
+    private readonly System.Func<byte, uint, bool> _resultsContinuation = new(ScenarioResultsControlRequests.Request);
 
     /// <summary>
     /// Bind the [Net] config entries (bind-once). Separated from <see cref="Init"/> so the mask
@@ -237,8 +238,11 @@ internal sealed class NetModule : IVRModule
             return;
         }
 
-        _transport = new FfsNetTransport(VRSession.Harmony);
+        var nativeTransport = new FfsNetTransport(VRSession.Harmony);
+        _transport = nativeTransport;
         _transport.Install();
+        if (nativeTransport.ReceiveHookInstalled)
+            WorldUI.ScenarioResultsNative.SubmitContinuation = _resultsContinuation;
 
         // ANY PLAYER MAY ANSWER AN ENCOUNTER (user request 2026-09-05) — see EncounterChoice for
         // the whole argument, including why the client's press travels on the game's SIDE-ACTION
@@ -285,6 +289,8 @@ internal sealed class NetModule : IVRModule
 
     public void Shutdown()
     {
+        if (ReferenceEquals(WorldUI.ScenarioResultsNative.SubmitContinuation, _resultsContinuation))
+            WorldUI.ScenarioResultsNative.SubmitContinuation = null;
         Desync.DesyncWatch.Uninstall();
         if (_watchGo != null)
         {

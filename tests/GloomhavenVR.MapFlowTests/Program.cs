@@ -19,7 +19,88 @@ internal static class Program
         NativePartyContainerTransitions();
         NativeMapLocks();
         FailedTravelParking();
+        EnhancementJoiningRefusal();
         Console.WriteLine($"Map flow production regression harness: {_assertions:N0} assertions passed.");
+    }
+
+    private static void EnhancementJoiningRefusal()
+    {
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        WorldUIConfig.ConversionActive = true;
+        var box = new UIEnhancementConfirmationBox();
+        Singleton<UIEnhancementConfirmationBox>.Instance = box;
+        var shop = new UINewEnhancementWindow();
+        var option = new EnhancementSlot();
+        FFSNetwork.IsOnline = FFSNetwork.IsHost = true;
+        FFSNet.PlayerRegistry.JoiningPlayers.Add(new object());
+        shop.RequestSale(option);
+        Check(!shop.ConfirmationOpened && box.Shown == 0,
+            "Joining host must not retain a confirmation latch without any dialog");
+        Check(shop.NativeEntries == 0 && FFSNet.Synchronizer.Requests == 0,
+            "Joining refusal must precede native mutation without sending any transaction");
+        FFSNet.PlayerRegistry.JoiningPlayers.Clear();
+        shop.RequestSale(option);
+        Check(shop.ConfirmationOpened && box.Shown == 1 && shop.NativeEntries == 1,
+            "The same enhancement sale can be retried immediately after joining completes");
+        Action? existingConfirm = box.Confirm;
+        FFSNet.PlayerRegistry.JoiningPlayers.Add(new object());
+        shop.RequestSale(option);
+        Check(shop.ConfirmationOpened && box.Shown == 1 && shop.NativeEntries == 1
+              && ReferenceEquals(box.Confirm, existingConfirm),
+            "Joining cannot clear or replace an already existing native confirmation");
+        FFSNet.PlayerRegistry.JoiningPlayers.Clear();
+        box.Cancel!();
+        Check(!shop.ConfirmationOpened && shop.Removals == 0,
+            "Original cancellation clears the flag without selling an enhancement");
+
+        FFSNetwork.IsHost = false;
+        FFSNetwork.IsClient = true;
+        FFSNet.PlayerRegistry.OtherClientsAreJoining = true;
+        shop.RequestSale(option);
+        Check(!shop.ConfirmationOpened && box.Shown == 1 && shop.NativeEntries == 1,
+            "Joining client must keep the same usable cancellation and retry state");
+        FFSNet.PlayerRegistry.OtherClientsAreJoining = false;
+        shop.RequestSale(option);
+        box.Confirm!();
+        Check(!shop.ConfirmationOpened && FFSNet.Synchronizer.Requests == 1 && shop.Removals == 0,
+            "Original client confirmation requests the native sale exactly once without local payment");
+
+        FFSNetwork.IsClient = false;
+        FFSNetwork.IsOnline = false;
+        shop.RequestSale(option);
+        box.Confirm!();
+        Check(!shop.ConfirmationOpened && shop.Removals == 1 && shop.Refreshes == 1,
+            "Single-player enhancement sale retains the entire original confirmation callback");
+        Check(FfsSaleBoundary.Focused == 1,
+            "Original post-sale navigation remains responsible for focus");
+
+        FFSNetwork.IsOnline = FFSNetwork.IsHost = true;
+        FFSNet.PlayerRegistry.JoiningPlayers.Add(new object());
+        GloomhavenVR.Core.VRSession.IsRunning = false;
+        Check(TownServiceEnhancementJoinGuard.Prefix(),
+            "An inactive VR session must leave native flat admission unchanged");
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        WorldUIConfig.ConversionActive = false;
+        Check(TownServiceEnhancementJoinGuard.Prefix(),
+            "Disabled window conversion must leave native flat admission unchanged");
+        WorldUIConfig.ConversionActive = true;
+        var unchanged = new UINewEnhancementWindow();
+        unchanged.RequestSale(option, originalOnly: true);
+        Check(unchanged.ConfirmationOpened && box.Shown == 3,
+            "Unmodified native handler reproduces the no-dialog joining deadlock");
+        FFSNet.PlayerRegistry.JoiningPlayers.Clear();
+        var permittedShop = new UINewEnhancementWindow();
+        var slot = new UINewEnhancementShopSlot();
+        FFSNet.PlayerRegistry.MyPlayer.Owns = false;
+        Check(!slot.Click(permittedShop) && permittedShop.NativeEntries == 0
+              && !permittedShop.ConfirmationOpened && box.Shown == 3,
+            "Original slot ownership refuses a foreign player's enhancement before the new guard");
+        FFSNet.PlayerRegistry.MyPlayer.Owns = true;
+        Check(slot.Click(permittedShop) && permittedShop.NativeEntries == 1
+              && permittedShop.ConfirmationOpened && box.Shown == 4,
+            "The owned original slot keeps its normal explicit sale and confirmation path");
+        box.Cancel!();
+        FFSNetwork.IsOnline = FFSNetwork.IsHost = FFSNetwork.IsClient = false;
     }
 
     private static void MapSelectionTransitions()

@@ -396,6 +396,23 @@ internal sealed partial class FlatScreen
     /// <summary>True while the FlatScreen has redirected this camera into one of its RTs.</summary>
     internal static bool IsCaptured(Camera cam) => CapturedSet.ContainsKey(cam);
 
+    /// <summary>Whether this exact native canvas currently uses our captured pixel domain.</summary>
+    internal static bool OwnsNativeUiPixels(Canvas? canvas, Camera? camera)
+    {
+        FlatScreen? owner = _coverageOwner;
+        Canvas? root = canvas != null ? canvas.rootCanvas : null;
+        if (!VRSession.IsRunning || owner == null || root == null || camera == null
+            || root.renderMode != RenderMode.ScreenSpaceCamera
+            || !ReferenceEquals(root.worldCamera, camera)) return false;
+        RenderTexture? target = camera.targetTexture;
+        if (target == null) return false;
+        if (owner._visible && CapturedSet.TryGetValue(camera, out CapturedCamera captured)
+            && captured.IsUi && (target == owner._rt || target == owner._uiRt)) return true;
+        return owner._scrubActive && target == owner._scrubRt
+            && owner._scrubbed.Contains(camera) && IsUiCamera(camera);
+    }
+
+
     // Base-clear rationale (hardware test #4, P3b): the game's menu cameras ship
     // clearFlags=Depth — rendering that into a fresh RT leaves the COLOR buffer
     // (incl. alpha ≈ 0) undefined, so an alpha-blended quad shows nothing in the

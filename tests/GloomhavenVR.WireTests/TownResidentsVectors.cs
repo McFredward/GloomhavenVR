@@ -274,8 +274,8 @@ internal static class TownResidentsVectors
         t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7016,
             "extended resident record adds147 bytes including30 cloth-control bytes");
         int completeWorst = offset + 96 + 55 + 3 + 510 + 20 + 9 + 24 + 14 + 27 + 4741 + 183;
-        t.True(completeWorst == 12698 && PresenceSerializer.MaxSize == 12955
-            && PresenceSerializer.MaxSize - completeWorst == 257
+        t.True(completeWorst == 12698 && PresenceSerializer.MaxSize == 13001
+            && PresenceSerializer.MaxSize - (completeWorst + 46) == 257
             && ExtrasFragments.MaxSnapshotBytes - completeWorst == 102,
             "merchant cloth, actor118, author-frame119, quest120 and captured references121 retain allocation and transport margins");
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.LegacyPayload == 115

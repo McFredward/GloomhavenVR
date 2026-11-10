@@ -25,11 +25,13 @@ internal static class CardActionQueue
     {
         public readonly Action Action;
         public readonly Action? OnDone;
+        public readonly Action? OnCancelled;
 
-        public Entry(Action action, Action? onDone)
+        public Entry(Action action, Action? onDone, Action? onCancelled)
         {
             Action = action;
             OnDone = onDone;
+            OnCancelled = onCancelled;
         }
     }
 
@@ -37,11 +39,11 @@ internal static class CardActionQueue
 
     internal static int Pending => Queue.Count;
 
-    internal static void Enqueue(Action action, Action? onDone = null)
+    internal static void Enqueue(Action action, Action? onDone = null, Action? onCancelled = null)
     {
         if (action == null)
             return;
-        Queue.Enqueue(new Entry(action, onDone));
+        Queue.Enqueue(new Entry(action, onDone, onCancelled));
     }
 
     /// <summary>Called once per frame by <see cref="CardsDriver"/>. Executes at most one entry.</summary>
@@ -71,5 +73,22 @@ internal static class CardActionQueue
         }
     }
 
-    internal static void Clear() => Queue.Clear();
+    /// <summary>
+    /// Cancel work which has not entered the game. A failed scene transition can keep the
+    /// driver alive, so its in-flight admission flags must be released even though neither
+    /// the native action nor its ordinary success/completion callback may run. Snapshot before
+    /// notifying: a cancellation may enqueue new work, which belongs to a later pump, and a
+    /// throwing owner must not strand the other canceled owners.
+    /// </summary>
+    internal static void Clear()
+    {
+        if (Queue.Count == 0) return;
+        Entry[] cancelled = Queue.ToArray();
+        Queue.Clear();
+        for (int i = 0; i < cancelled.Length; i++)
+        {
+            try { cancelled[i].OnCancelled?.Invoke(); }
+            catch (Exception ex) { VRLog.Error("Cards", $"Card action cancellation callback threw: {ex}"); }
+        }
+    }
 }

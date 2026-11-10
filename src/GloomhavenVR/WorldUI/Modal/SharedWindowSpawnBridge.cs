@@ -17,7 +17,7 @@ internal static class SharedWindowSpawnBridge
     internal static bool Handles(ConvertedPanel? panel) =>
         SharedWindowSize.UsesSharedWorldFrame(panel)
         && panel!.SharedDesignKind is SharedWindowKind.ScenarioStory or SharedWindowKind.MapStory
-            or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter;
+            or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter or SharedWindowKind.Results;
 
     /// <summary>An absent transport never grants a second local placement author.</summary>
     internal static bool IsInitialAuthor => InitialAuthor?.Invoke() == true;

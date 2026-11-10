@@ -18,8 +18,16 @@ internal sealed partial class TownServiceAssets
     private readonly Dictionary<int, string> _keys = new();
     private readonly Dictionary<int, string> _originalKeys = new();
     private readonly HashSet<string> _discoveryFailures = new(StringComparer.Ordinal);
+    private readonly Func<string, bool>? _verifiedTextureIdentity;
     private float _nextScan;
     internal uint Generation { get; private set; }
+
+    // Results traverses native runtime GUI materials beyond its serialized
+    // prefab dependencies. Its original-data catalogue is an explicit opt-in;
+    // other registries retain their existing collision/refusal contract.
+    public TownServiceAssets() { }
+    internal TownServiceAssets(Func<string, bool> verifiedTextureIdentity)
+    { _verifiedTextureIdentity = verifiedTextureIdentity ?? throw new ArgumentNullException(nameof(verifiedTextureIdentity)); }
 
     internal void Clear()
     { ClearPackedSprites(); _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _discoveryFailures.Clear(); _nextScan = 0; Generation++; }
@@ -94,7 +102,8 @@ internal sealed partial class TownServiceAssets
                 throw new InvalidDataException("Unsupported town-service asset: " + asset.GetType().Name + " " + asset.name);
         }
         if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset)
-            && asset is Texture2D && !SameKnownNativeIdentity((Texture2D)asset))
+            && asset is Texture2D && !SameKnownNativeIdentity((Texture2D)asset)
+            && !(_verifiedTextureIdentity?.Invoke(key) ?? false))
         { _ambiguous.Add(key); throw new InvalidDataException("Ambiguous native town-service texture requires an explicit binding: " + asset.name); }
         Register(key, asset); return key;
     }
@@ -222,6 +231,20 @@ internal sealed partial class TownServiceAssets
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 7
             || texture.name == "T_sphere_norm" && texture.width == 512 && texture.height == 512
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 10
+            // Build762 Results exposed duplicate runtime wrappers for this GUI noise.
+            // Read-only census of all28 original scene/*.assets files finds exactly
+            // one serialized source: sharedassets1.assets/801. Only its complete
+            // native descriptor is canonical; arbitrary same-name textures refuse.
+            || texture.name == "3DNoise" && texture.width == 256 && texture.height == 256
+               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 9
+            // Build766's observer accepted scroll input but retained its last picture
+            // after discovery saw another wrapper for this dormant button-effect map.
+            // Read-only census of all28 original scene/*.assets files (1396 textures,
+            // 339 materials) verifies one source: resources.assets/265, referenced
+            // by eight native materials. Preserve its exact DXT5/nine-mip identity;
+            // other same-name formats, mip counts and unverified assets still refuse.
+            || texture.name == "T_flowmap_outwards_blur" && texture.width == 256 && texture.height == 256
+               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 9
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

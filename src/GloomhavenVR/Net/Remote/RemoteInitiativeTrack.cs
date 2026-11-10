@@ -1568,13 +1568,16 @@ internal sealed class RemoteInitiativeTrack
                 // its own layout. See LayoutMirroredPopup: the source is off, so nothing else ever
                 // will. The latch is per CLONE REBUILD (EnsureHoverCache rebuilds the list), and it
                 // is only taken when the rebuild could really run.
+                // A visible popup stays inside its owner's LIVE draw band even when
+                // boards exchange depth ranks. One-time seeding could outlive that band.
+                if (wantPopup && node.Popup.activeInHierarchy)
+                    SeatPopupOverlay(node.ActorId, node.Popup);
                 if (wantPopup && !node.PopupLaidOut && node.Popup.activeInHierarchy)
                 {
                     // ...and out of the board FACE's draw tier, before it is ever presented. Seated
                     // first so the popup's first frame is already in front of the recess cards —
                     // the layout call below can refuse and be retried, and a retry must not mean a
                     // frame of the reported picture. See SeatPopupOverlay.
-                    SeatPopupOverlay(node.ActorId, node.Popup);
                     // ...and out of the board's OPAQUE DEPTH, which the seat above cannot reach:
                     // the rim writes depth in the opaque pass and no sortingOrder is consulted
                     // against it. Same two passes the owner's own popup gets. See LiftPopupDepth.
@@ -1622,6 +1625,12 @@ internal sealed class RemoteInitiativeTrack
                 Vector2 sd = node.Entry.sizeDelta;
                 if (!Mathf.Approximately(sd.x, w))
                     node.Entry.sizeDelta = new Vector2(w, sd.y);
+            }
+            if (node.Popup != null && node.Popup.transform is RectTransform popupRect)
+            {
+                if (hovered && _peerHoverPopup && node.Portrait != null)
+                    _popupSeat.Place(popupRect, node.Portrait, _boardRoot);
+                else _popupSeat.Restore(popupRect);
             }
         }
     }
@@ -1751,17 +1760,12 @@ internal sealed class RemoteInitiativeTrack
             int bandBase = host.sortingOrder - hostTier;
             int want = bandBase + BoardVisual.PopupOverlayTier;
 
-            var overlay = popup.GetComponent<Canvas>();
-            if (overlay == null)
-                overlay = popup.AddComponent<Canvas>();
-            if (!overlay.overrideSorting)
-                overlay.overrideSorting = true;
-            if (overlay.sortingLayerID != host.sortingLayerID)
-                overlay.sortingLayerID = host.sortingLayerID;
-            if (overlay.sortingOrder != want)
-                overlay.sortingOrder = want;
+            Canvas overlay = WorldUI.InitiativePopupPlacement.Order(popup, host, hostTier, BoardVisual.PopupOverlayTier);
             _popupOrderSeated++;
 
+            // The visual update above remains live; only the expensive census stops.
+            if (_popupOrderLogged >= PopupOrderLogCap)
+                return;
             // WHAT IT IS COMPETING WITH, MEASURED rather than assumed: the other canvases this
             // board draws, their highest order and their deepest board-local seat. The recess card
             // faces are in this population, and the reported picture IS this comparison.
@@ -1779,8 +1783,6 @@ internal sealed class RemoteInitiativeTrack
                     rivalDeepestZ = z;
             }
 
-            if (_popupOrderLogged >= PopupOrderLogCap)
-                return;
             _popupOrderLogged++;
             float popupZ = _boardRoot.InverseTransformPoint(popup.transform.position).z;
 
@@ -1843,7 +1845,8 @@ internal sealed class RemoteInitiativeTrack
 
     /// <summary>The ZTest-Always material clones of the SHOWN mirrored popups — the exact class the
     /// owner's own popup rides (<c>WorldUI.Surfaces.TablePanelSurfaces</c> round 3).</summary>
-    private readonly WorldUI.OnTopUiGraphics _popupOnTop = new();
+    private readonly WorldUI.OnTopUiGraphics _popupOnTop = new(UnityEngine.Rendering.CompareFunction.LessEqual);
+    private readonly WorldUI.InitiativePopupPlacement _popupSeat = new();
 
     /// <summary>The ancestor-clipper detach of the SHOWN mirrored popups — the owner's own popup's
     /// round 4, mirrored (<c>Mask</c>/<c>RectMask2D</c> survive <c>Neutralize</c> on a clone, so the
@@ -1921,6 +1924,9 @@ internal sealed class RemoteInitiativeTrack
     /// which on destroyed components is a pure record prune, and on a surviving one is
     /// reference-checked and therefore safe either way.</para>
     /// </summary>
+    // Build756 supersedes the historical Always-depth exception documented above.
+    // The maintainer requires real occlusion by nearer boards. LEqual plus the shared
+    // portrait-relative physical seat preserves readability without drawing through them.
     private void LiftPopupDepth(int actorId, GameObject popup)
     {
         try
@@ -1931,6 +1937,7 @@ internal sealed class RemoteInitiativeTrack
                 // The graphics these two held belong to the PREVIOUS clone and are destroyed;
                 // reference-checked restore turns that into a record prune and clears the
                 // instance-id sets, so the fresh clone is judged from scratch.
+                _popupSeat.RestoreAll();
                 _popupOnTop.RestoreAll("the mirrored track's clone was rebuilt");
                 _popupUnmask.RestoreAll("the mirrored track's clone was rebuilt");
                 _popupDepthOnTop = 0;
@@ -1938,6 +1945,8 @@ internal sealed class RemoteInitiativeTrack
                 _popupDepthLogged = 0;
             }
 
+            // World-depth correction: the material now uses LEqual. The physical seat
+            // clears only this board's rim; another nearer board remains an occluder.
             // UNMASK FIRST, THEN ON-TOP — the order FlattenEnemyInfo runs the same two passes in
             // on the owner's board (TablePanelSurfaces: _enemyInfoUnmask.Apply then
             // _enemyInfoOnTop.Apply). No claim is made here about whether the order is
@@ -1981,31 +1990,16 @@ internal sealed class RemoteInitiativeTrack
             //   this board root (the scenario floor, a wall, another peer's board), or a clip that
             //   survived (this line's unmask count 0 while the popup is visibly cut on a straight
             //   RECT edge rather than along the rail's silhouette).
-            VRLog.Note("Net", $"MIRRORED ENEMY INFO DEPTH: actor {actorId}'s info popup on board "
-                            + $"'{_boardRoot.name}' — {onTop} graphic(s) swapped onto ZTest-Always "
-                            + $"clones and {unmasked} detached from ancestor clippers this pass "
-                            + $"({_popupDepthOnTop} / {_popupDepthUnmasked} under this clone). This "
-                            + "is the SAME machinery the owner's own popup rides every LateTick "
-                            + "(WorldUI.Surfaces.TablePanelSurfaces.FlattenEnemyInfo → "
-                            + "OnTopUiGraphics + UnmaskedUiGraphics), not a second set of numbers; "
-                            + "renderQueue, ZWrite, plane, scale and seat are untouched, so the "
-                            + "draw ORDER this popup holds is still exactly the one MIRRORED ENEMY "
-                            + "INFO ORDER wrote. COMPARED AGAINST, measured on this board this "
-                            + $"frame: the popup plane sits at board-local z {popupZ:F4} while the "
-                            + $"most PROUD opaque depth-writing surface of this board's {opaque} "
-                            + $"opaque renderer(s) — '{rimName}', renderQueue {rimQueue} — reaches "
-                            + $"board-local z {rimZ:F4}. +z points away from the viewer, so that "
-                            + $"stone stands {standoffMm:F1} mm in FRONT of the popup plane and its "
-                            + "ZTest LEqual was rejecting every fragment behind it. A POSITIVE "
-                            + "standoff with a ZERO on-top count is the ModBuild-470 picture "
-                            + "verbatim. Draw order could never have answered it: "
-                            + "BoardVisual.AdoptBoardOrder skips renderQueue <= 2500 by design, so "
-                            + "that stone holds no cluster slot and no sortingOrder of ours was "
-                            + $"ever compared with it. {_popupDepthLogged} popup(s) reported under "
-                            + "this clone"
-                            + (_popupDepthLogged >= PopupDepthLogCap
-                                ? " (line cap reached — the totals still count every one)"
-                                : string.Empty) + ".");
+            VRLog.Note("Net", $"MIRRORED ENEMY INFO DEPTH: actor {actorId}'s popup on "
+                            + $"'{_boardRoot.name}' uses normal LEqual depth on {onTop} new graphic(s), "
+                            + $"{unmasked} detached from ancestor clipping "
+                            + $"({_popupDepthOnTop}/{_popupDepthUnmasked} this clone). "
+                            + $"COMPARED AGAINST: own opaque rim '{rimName}' at z={rimZ:F4}, "
+                            + $"popup before its portrait-relative seat z={popupZ:F4}, "
+                            + $"standoff={standoffMm:F1}mm, {opaque} opaque renderer(s), queue={rimQueue}. "
+                            + "The shared physical seat clears this board's rim; nearer world geometry "
+                            + "still occludes every popup graphic. MIRRORED ENEMY" + " INFO ORDER "
+                            + "follows the live owner band on each visible tick. No viewer-dependent placement.");
         }
         catch (System.Exception e)
         {
@@ -2337,7 +2331,7 @@ internal sealed class RemoteInitiativeTrack
         Count = 0;
     }
 
-    public void Destroy() { _selectionOrder.Reset(); _mirror.Destroy(); }
+    public void Destroy() { _popupSeat.RestoreAll(); _popupOnTop.RestoreAll("mirrored track teardown"); _popupUnmask.RestoreAll("mirrored track teardown"); _selectionOrder.Reset(); _mirror.Destroy(); }
 
     /// <summary>Entry count of the LIVE game track (the number the mirrored picture is showing) —
     /// diagnostics only, and null-safe for the frames where the track is mid-rebuild.</summary>

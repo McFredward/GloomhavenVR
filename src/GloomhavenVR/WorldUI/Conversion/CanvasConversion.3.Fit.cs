@@ -2713,6 +2713,8 @@ internal static partial class CanvasConversion
 
         /// <summary>The last outcome printed, so an identical one stays quiet.</summary>
         internal int WatchLastReported;
+
+        internal readonly CharacterCreationFrame Creation = new();
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -2886,10 +2888,13 @@ internal static partial class CanvasConversion
             fx.SizeCaptured = true;
         }
 
+        CollectActiveSubViews(panel, fx);
+
         // Build728: preserve native font/card scale while the level-up's three
         // original columns need more width. This changes the frame, never the
         // accepted host pose or a viewer-specific zoom metric.
         float levelUpWidth = FixedFitWidthPx + LevelUpComposite.ExtraFrameWidth(panel);
+        if (fx.Creation.Active) levelUpWidth = Mathf.Max(levelUpWidth, fx.Size.x);
         bool levelUpFrameChanged = Mathf.Abs(fx.Size.x - levelUpWidth) > FitNoWriteEpsilonPx;
         if (levelUpFrameChanged)
         {
@@ -2903,7 +2908,6 @@ internal static partial class CanvasConversion
         // and the window furniture around it — what is on screen no matter which tab is open) from
         // the SUB-VIEW GROUP (what the game just opened). ModBuild 198 did not make this distinction
         // and scaled their union; that is why the column shrank to 59.5 % whenever perks opened.
-        CollectActiveSubViews(panel, fx);
         MeasureFixedFitParts(panel, root, fx);
         // Part 9c: while a burst is running this pass lands ON the frames the whole sub-view tree
         // is painting, so it is the one place that can count it. Reads what the walk above already
@@ -2939,6 +2943,18 @@ internal static partial class CanvasConversion
 
         // ---- 2b. THE COLUMN SEAM, captured once, on a pass with the column ALONE ----------------
         EnsureColumnSeam(fx);
+
+        float creationWidth = Mathf.Max(levelUpWidth, fx.Creation.RequiredWidth(fx.ColumnSeamX, FitContentPaddingPx));
+        if (Mathf.Abs(fx.Size.x - creationWidth) > FitNoWriteEpsilonPx)
+        {
+            fx.Size.x = creationWidth;
+            fx.ReleaseSolution();
+            // As with the level-up extension, an already accepted world window
+            // keeps its pose; this is native-pixel frame room, not a new opening.
+            levelUpFrameChanged = true;
+        }
+        hostWrong = Mathf.Abs(host.width - fx.Size.x) > FitNoWriteEpsilonPx
+                    || Mathf.Abs(host.height - fx.Size.y) > FitNoWriteEpsilonPx;
 
         // ---- 3. THE SUB-VIEW GROUP -------------------------------------------------------------
         bool havePlacement = SolveSubViewPlacement(fx, out float wantScale, out Vector2 groupShift);
@@ -3224,6 +3240,8 @@ internal static partial class CanvasConversion
         }
         if (display == null)
             return;
+
+        if (fx.Creation.Update(panel, display)) fx.ReleaseSolution();
 
         SubViewCandidates.Clear();
         try
@@ -3651,6 +3669,9 @@ internal static partial class CanvasConversion
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
+            if (v.Visible && v.Graphics > 0 && v.View != null
+                && fx.Creation.Measure(v.View, panel.HostRect, out Vector2 frameMin, out Vector2 frameMax))
+            { v.Min = frameMin; v.Max = frameMax; }
             if (!v.Visible || v.Graphics == 0 || v.View == null || v.Max.x <= v.Min.x)
             {
                 v.Visible = false;
@@ -3795,7 +3816,7 @@ internal static partial class CanvasConversion
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
         int members = 0;
-        int signature = 0;
+        int signature = fx.Creation.Key;
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
@@ -4776,6 +4797,11 @@ internal static partial class CanvasConversion
             && SharedWindowSize.Repin(panel, t, out string sharedNote))
         {
             sb.Append(sb.Length > 0 ? "; " : string.Empty).Append(sharedNote);
+        }
+        else if (!SharedWindowSize.IsArmed(panel)
+            && NativeWindowFrame.Repin(t, panel.NativeDesignFrame))
+        {
+            sb.Append(sb.Length > 0 ? "; " : string.Empty).Append("native design frame restored");
         }
 
         if (sb.Length == 0)

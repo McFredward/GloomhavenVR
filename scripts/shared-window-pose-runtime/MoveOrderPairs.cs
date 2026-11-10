@@ -106,6 +106,7 @@ internal static class MoveOrderPairs
     }
     internal static void Run()
     {
+        ScenarioRecovery();
         InitialClockGuards();
         for(int schedule=0;schedule<6;schedule++)
         {
@@ -202,7 +203,7 @@ internal static class MoveOrderPairs
             else if(_kind==SharedWindowKind.Video)
             {
                 var entry=new SharedWindowEntry{Flags=NetProtocol.SharedOpenBit};RemoteMapStory.SampleVideoPose(ContentKey,_id==1,ref entry);
-                result.HasVideoWindow=true;result.VideoWindow=new FixtureVideo{Window=entry};
+                result.HasVideoWindow=true;result.VideoWindow=new VideoWindowState{Window=entry};
             }
             else if(_kind==SharedWindowKind.RewardShowcase)RemoteMapStory.SampleReward(ref result,_id);
             else
@@ -253,6 +254,14 @@ internal static class MoveOrderPairs
         internal void Grab(RigPose pose)
         {Do(()=>{Proof.Check(SharedWindowMoves.Active&&SharedWindowInteractionBridge.CanBegin!(_kind),"active "+_kind+" admits its actual local claim");
             SharedWindowInteractionBridge.Began!(_kind);var grab=SharedWindows.Grabs[_kind];grab.IsGrabbed=true;grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;});}
+        internal bool Recover(RigPose pose)
+        {
+            bool allowed=false;
+            Do(()=>{allowed=SharedWindowMoves.BeginAutomatic(_kind);if(!allowed)return;
+                var grab=SharedWindows.Grabs[_kind];grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;
+                SharedWindowInteractionBridge.Released!(_kind);});
+            return allowed;
+        }
         internal void Move(RigPose pose){Do(()=>{var grab=SharedWindows.Grabs[_kind];grab.Root.position=pose.Position;grab.Root.rotation=pose.Rotation;});}
         internal void Drop(){Do(()=>{SharedWindows.Grabs[_kind].IsGrabbed=false;SharedWindowInteractionBridge.Released!(_kind);});}
         internal void Settle(){Do(()=>{Time.unscaledTime+=.3f;Time.frameCount+=3;Apply();});}
@@ -269,11 +278,35 @@ internal static class MoveOrderPairs
 
 
     }
+    private static void ScenarioRecovery()
+    {
+        var host=new ActiveNode(1,SharedWindowKind.ScenarioStory);
+        var peer=new ActiveNode(2,SharedWindowKind.ScenarioStory);
+        var initial=host.Publish();peer.Receive(1,initial);peer.Settle();
+        var seat=new RigPose{Position=new Vector3(4,9,-3),Rotation=Quaternion.Euler(0,47,0)};
+        Proof.Check(!peer.Recover(seat),"scenario recovery has only the elected initial author");
+        peer.Grab(Proof.HandPose);host.Receive(2,peer.Publish());
+        Proof.Check(!host.Recover(seat),"scenario recovery yields to the actual remote held claim");
+        peer.Drop();var oldRelease=peer.Publish();host.Receive(2,oldRelease);
+        Proof.Check(host.Recover(seat),"scenario recovery author can claim after the actual peer release");
+        var rescue=host.Publish();
+        Proof.Check(rescue.WindowMoves!.TryGet(1,RemoteStorySync.HashDialog(RemoteStorySync.CurrentBox!.dialogs),out var row)
+            &&row.Phase==SharedWindowMovePhase.Automatic,"scenario rescue emits an actual automatic companion");
+        peer.Receive(1,rescue);peer.Settle();host.Settle();
+        Proof.Check(Proof.Same(host.Pose().Position,peer.Pose().Position)&&Proof.Same(seat.Position,peer.Pose().Position)
+            &&Proof.Same(seat.Rotation,peer.Pose().Rotation),"scenario recovery automatic pose reaches every original resolver");
+        peer.Receive(2,oldRelease);peer.Settle();
+        Proof.Check(Proof.Same(seat.Position,peer.Pose().Position),"an earlier release cannot undo shared story recovery");
+        peer.Grab(Proof.HostPose);host.Receive(2,peer.Publish());host.Settle();peer.Settle();
+        Proof.Check(Proof.Same(host.Pose().Position,peer.Pose().Position),"genuine manual movement remains available after rescue");
+    }
     private static void ActiveAllKinds()
     {
         foreach(SharedWindowKind kind in Enum.GetValues<SharedWindowKind>())
         {
-            if(kind==SharedWindowKind.None)continue;
+            // These paired nodes publish legacy presence19/21/73/119/121/123.
+            // Results uses independent125 and has its own actual coordinator cases.
+            if(kind==SharedWindowKind.None || kind==SharedWindowKind.Results)continue;
             var a=new ActiveNode(1,kind);var b=new ActiveNode(2,kind);var initial=a.Publish();b.Receive(1,initial);b.Settle();
             Proof.Check(Proof.Same(a.Pose().Position,b.Pose().Position)&&MathF.Abs(b.Reference()-198.12f)<.001f,
                 "active "+kind+" initial producer/observer agrees on world pose and captured reference");

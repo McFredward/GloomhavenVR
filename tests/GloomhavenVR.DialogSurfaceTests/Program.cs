@@ -99,8 +99,38 @@ internal static class Program
         Check(CanvasConversion.Releases == 1 && DialogSurface.FallbackWindow == manager.CurrentBox.Window,
             "retry restores original subtree before fallback publication");
         surface.Shutdown();
+        LateCameraCases();
         OwnerCases.Run();
         CaptureBoundaryCases745.Run();
         Console.WriteLine($"Dialog surface: {_checks} assertions passed.");
+    }
+
+    private static void LateCameraCases()
+    {
+        var (surface, manager) = Start();
+        CanvasConversion.WorldCamera = null;
+        manager.Show(); surface.Tick();
+        Check(CanvasConversion.Converts == 1 && CanvasConversion.Placements == 0 && manager.CurrentBox.IsOpen,
+            "camera-less native request retains its original conversion without completing the choice");
+        for (int i = 0; i < 6; i++) surface.Tick();
+        Check(CanvasConversion.Converts == 1 && CanvasConversion.Placements == 0,
+            "camera-less opening does not allocate repeated hosts");
+        var head = new UnityEngine.Camera(); head.transform.position = new UnityEngine.Vector3(4,5,6);
+        CanvasConversion.WorldCamera = head; surface.Tick();
+        var panel = CanvasConversion.Last!;
+        Check(CanvasConversion.Placements == 1 && panel.HostRect.position.x == 4
+            && panel.HostRect.position.y == 5 && panel.HostRect.position.z == 6.75f,
+            "late head availability places the pending original confirmation exactly once");
+        panel.HostRect.position = new UnityEngine.Vector3(9,8,7);
+        head.transform.position = new UnityEngine.Vector3(1,2,3);
+        for (int i = 0; i < 6; i++) surface.Tick();
+        Check(CanvasConversion.Placements == 1 && panel.HostRect.position.x == 9
+            && panel.HostRect.position.y == 8 && panel.HostRect.position.z == 7,
+            "settled or manually moved confirmation never follows later head motion");
+        manager.Hide(); surface.Tick(); CanvasConversion.WorldCamera = null;
+        manager.Show(); surface.Tick(); CanvasConversion.WorldCamera = head; surface.Tick();
+        Check(CanvasConversion.Placements == 2 && CanvasConversion.Converts == 2,
+            "a fresh pooled opening gets its own late-camera placement");
+        surface.Shutdown();
     }
 }

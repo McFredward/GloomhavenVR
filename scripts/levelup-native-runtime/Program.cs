@@ -296,6 +296,8 @@ public static partial class LevelUpNativeProgram
         while(direct739.MoveNext())yield return direct739.Current;
         var producerProof=ConfirmationProducers742(camera,root,owner,output,harmony);
         while(producerProof.MoveNext())yield return producerProof.Current;
+        var croppedProof=CroppedConfirmation754(output,harmony);
+        while(croppedProof.MoveNext())yield return croppedProof.Current;
         var interopProof=ConfirmationOwnershipInterop742(root,output);
         while(interopProof.MoveNext())yield return interopProof.Current;
         var itemProof=ItemConfirmationGeometry742(camera,root,output);

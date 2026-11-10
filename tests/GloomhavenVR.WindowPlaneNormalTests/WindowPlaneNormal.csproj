@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>$(CaseName)</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/Program.cs" />
+    <Compile Include="$(FixtureDir)/Boundary.cs" />
+    <Compile Include="$(ProjectionSource)" />
+    <Reference Include="$(UnityManaged)/UnityEngine/UnityEngine.CoreModule.dll"><Private>false</Private></Reference>
+    <Reference Include="$(UnityManaged)/UnityEngine/UnityEngine.XRModule.dll"><Private>false</Private></Reference>
+    <Reference Include="$(UnityManaged)/UnityEngine/UnityEngine.VRModule.dll"><Private>false</Private></Reference>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

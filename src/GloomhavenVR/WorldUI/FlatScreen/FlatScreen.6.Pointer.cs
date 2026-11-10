@@ -520,6 +520,7 @@ internal sealed partial class FlatScreen
 
     private static readonly System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>
         s_raycastResults = new(16);
+    private static readonly System.Collections.Generic.List<Component> s_scrollHandlers = new(4);
 
     /// <summary>
     /// Delivers a latched click directly through uGUI ExecuteEvents at the given RT
@@ -547,7 +548,8 @@ internal sealed partial class FlatScreen
             eligibleForClick = true,
         };
         s_raycastResults.Clear();
-        es.RaycastAll(data, s_raycastResults);
+        using (UguiRaycastCoordinates.EnterCaptured(data))
+            es.RaycastAll(data, s_raycastResults);
         if (s_raycastResults.Count == 0)
         {
             VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): nothing under the pointer.");
@@ -694,7 +696,8 @@ internal sealed partial class FlatScreen
         UnityEngine.EventSystems.PointerEventData data = _hitTestData;
         data.position = pixel;
         s_raycastResults.Clear();
-        es.RaycastAll(data, s_raycastResults);
+        using (UguiRaycastCoordinates.EnterCaptured(data))
+            es.RaycastAll(data, s_raycastResults);
         if (s_raycastResults.Count == 0)
             return false;
         return UnityEngine.EventSystems.ExecuteEvents.GetEventHandler<T>(
@@ -738,14 +741,14 @@ internal sealed partial class FlatScreen
         UnityEngine.EventSystems.PointerEventData data = _stickScrollData;
         data.position = pixel;
         s_raycastResults.Clear();
-        es.RaycastAll(data, s_raycastResults);
+        using (UguiRaycastCoordinates.EnterCaptured(data))
+            es.RaycastAll(data, s_raycastResults);
         if (s_raycastResults.Count == 0)
             return;
 
         UnityEngine.EventSystems.RaycastResult top = s_raycastResults[0];
         data.pointerCurrentRaycast = top;
-        GameObject? target = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler
-            <UnityEngine.EventSystems.IScrollHandler>(top.gameObject);
+        GameObject? target = UguiPointer.FindScrollTarget(top.gameObject, s_scrollHandlers);
         if (target == null)
         {
             // Nothing scrollable under the laser — the stick keeps its other meanings, and on the
@@ -770,8 +773,8 @@ internal sealed partial class FlatScreen
         float response = (Mathf.Abs(y) - StickScrollDeadzone) / (1f - StickScrollDeadzone);
         float notches = Mathf.Sign(y) * response * StickScrollNotchesPerSecond * Time.unscaledDeltaTime;
         data.scrollDelta = new Vector2(0f, notches);
-        UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
-            top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.scrollHandler);
+        UnityEngine.EventSystems.ExecuteEvents.Execute(
+            target, data, UnityEngine.EventSystems.ExecuteEvents.scrollHandler);
         data.scrollDelta = Vector2.zero; // never leak a stale wheel into a later event
         // SCROLL BEATS FLIGHT (Hands.Interact.UiScrollFocus). Mostly belt-and-braces here:
         // Flight already stands down in VRMode.Menu2D outright, so the only rig this line
@@ -829,7 +832,8 @@ internal sealed partial class FlatScreen
             useDragThreshold = false,  // VR: begin dragging on the first move, no pixel threshold
         };
         s_raycastResults.Clear();
-        es.RaycastAll(data, s_raycastResults);
+        using (UguiRaycastCoordinates.EnterCaptured(data))
+            es.RaycastAll(data, s_raycastResults);
         if (s_raycastResults.Count == 0)
         {
             VRLog.Info("WorldUI", $"Flat-menu drag: nothing under the pointer at ({pixel.x:F0},{pixel.y:F0}) — no drag.");
@@ -940,7 +944,8 @@ internal sealed partial class FlatScreen
             return;
         var data = new UnityEngine.EventSystems.PointerEventData(es) { position = pixel };
         s_raycastResults.Clear();
-        es.RaycastAll(data, s_raycastResults);
+        using (UguiRaycastCoordinates.EnterCaptured(data))
+            es.RaycastAll(data, s_raycastResults);
         if (s_raycastResults.Count == 0)
         {
             VRLog.Info("WorldUI", $"Under pointer ({pixel.x:F0},{pixel.y:F0}): nothing.");

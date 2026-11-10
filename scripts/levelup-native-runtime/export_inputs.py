@@ -125,6 +125,21 @@ ET.ElementTree(xml_node(item_confirmation)).write(out/'native-item-confirmation-
 (out/'native-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level1').read_bytes()).hexdigest(),
  'presentation':'Original rect/layout/image/TMP declarations; original sprites and font data. Native game controllers are not installed. Localized question is an explicit input.',
  'nativeDefaultGraphicShader':'Original Box and full-screen root use built-in UI/Default; actual editor stock shader executes. Native Blur shader uses declared GL GrabPass stand-in.'},indent=2)+'\n')
+# The scenario ESC producer is a full-screen root with a narrow, left-anchored
+# authored column. Preserve that independent source geometry for the owner-pose
+# proof instead of assuming every native window is centered in its fitted host.
+escape_env=UnityPy.load(str(root/'ressources/GH_Data/level6'))
+escape_ids={x.path_id:x for x in escape_env.objects}
+escape=escape_ids[316];escape_go=escape.read()
+escape_transform=next(c.component.deref() for c in escape_go.m_Component if c.component.type.name=='RectTransform')
+escape_menu=next(c.read().m_GameObject.deref() for c in escape_transform.read().m_Children if c.read().m_GameObject.read().m_Name=='UI Menu Panel')
+escape_column=next(c.component.deref() for c in escape_menu.read().m_Component if c.component.type.name=='RectTransform').read_typetree()
+assert escape_go.m_Name=='UI Scenario Esc Menu' and escape_column['m_SizeDelta']['x']==368
+(out/'native-escape-layout.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level6').read_bytes()).hexdigest(),
+ 'root':p.object_id(escape),'column':p.object_id(escape_menu),'columnWidth':escape_column['m_SizeDelta']['x'],
+ 'anchorMin':escape_column['m_AnchorMin'],'anchorMax':escape_column['m_AnchorMax'],'pivot':escape_column['m_Pivot'],
+ 'anchoredPosition':escape_column['m_AnchoredPosition'],
+ 'limits':'Original column authoring; scene bootstrap/root reference resolution and settled native content fit are explicit surrounding inputs.'},indent=2)+'\n')
 # Closed native card-list opener and its original Cards header. Import only
 # static authored presentation; actual native controllers are installed explicitly
 # by CardListEntry745 with downstream campaign services declared as ports.

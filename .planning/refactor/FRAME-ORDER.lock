@@ -94,3 +94,5 @@ WorldUIModule.LateTail | src/GloomhavenVR/WorldUI/WorldUIModule.cs | ordered | [
 WorldUIModule.MenuDepth | src/GloomhavenVR/WorldUI/WorldUIModule.cs | ordered | [MenuDepth.MenuDepthDriver.Tick, CanvasConversion.LateTick]
 ModalFallback.Tick | src/GloomhavenVR/WorldUI/Modal/ModalFallback.4.Tick.cs | ordered | [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]
 GrabbableModal.LateSyncHost | src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs | ordered | [SyncHostToFrame, SeatBadge]
+
+WorldUIModule.ResultsReady | src/GloomhavenVR/WorldUI/WorldUIModule.cs | ordered | [ScenarioResultsReadyPark.Tick, ModalFallback.Tick]

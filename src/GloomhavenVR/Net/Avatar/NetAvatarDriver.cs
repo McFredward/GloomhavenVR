@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -580,6 +581,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private UseBarWidgetState[]? _lastSentUseBarWidgets;
     private bool _lastSentShortRest;
     private int _lastSentSeatCode0 = -1;
+    private PublicHandPickState? _lastSentPublicHandPick;
     private int _lastSentSeatCode1 = -1;
 
     /// <summary>Change edge for the SPENT-HALF record (41). Initialised to an impossible mask so
@@ -683,6 +685,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     {
         if (_subscribed)
             return;
+        SharedWindowScrollSync.Bind(_transport, (payload, length, hostOnly) =>
+            _transport is FfsNetTransport ffs && ffs.SendSharedWindowScroll(payload, length, hostOnly));
+        SharedWindowScrollSync.MapParticipant = RemoteMapRoom.IsPeerInRoom;
         _transport.PacketReceived += OnPacketReceived;
         _subscribed = true;
     }
@@ -1012,16 +1017,20 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private void OnEnable()
     {
         _instance = this;
+        VREvents.WindowVisibility += OnResultsWindowVisibility;
         Subscribe();
     }
 
     private void OnDisable()
     {
-        Unsubscribe();
+        // Presentation owners can already be destroyed on scene/module shutdown. Their cleanup
+        // must not retain departed peers or skip held-object restoration later in this sequence.
+        VREvents.WindowVisibility -= OnResultsWindowVisibility;
+        TickGuard.Run("Net.Disable.Unsubscribe", Unsubscribe, "Net");
         _pending.Clear();
         _pendingExtras.Clear();
         _pendingAnimations.Clear();
-        ResetNativePresentation();
+        TickGuard.Run("Net.Disable.NativePresentation", ResetNativePresentation, "Net");
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
@@ -1030,7 +1039,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _rxRejectLogged.Clear();   // a new session re-reports a peer it cannot parse
         _rxRejected = 0;
         _sendGateState = -1; // next session logs its join window from scratch
-        NetCardFx.Reset(); // never carry a queued card animation into the next session
+        TickGuard.Run("Net.Disable.CardFx", NetCardFx.Reset, "Net"); // never carry a queued card animation into the next session
         _hasFx = false;
         _lastSentBoardUi = -1;      // next session re-states the board UI from scratch
         _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
@@ -1046,7 +1055,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentTrackSelectionCount = -1;        // …and the track's selection frames (record 23)
         _lastSentTrackOrderCount = -1;            // …and the track's per-viewer player order (27)
         _lastSentTrackOrderOwned = 0;
-        Board.CharacterFocus.Reset();             // …including every peer's synced focus
+        TickGuard.Run("Net.Disable.CharacterFocus", Board.CharacterFocus.Reset, "Net");             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentDecisionState = -1;   // …including its option states + prompt-text variant
         _lastSentDecisionWidgets = -1; // …and the widget roles + damage numbers (record 29)
@@ -1055,11 +1064,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentSkipLabel = null;
         _lastSentUndoLabel = null;
         _lastSentItemUseLabel = null;
-        RemoteStorySync.Reset();       // …and never carries a story page/pose into a new session
-        RemoteMapRoom.Reset();         // …nor a peer's map-room placard (which owns a GameObject)
-        RemoteMapStory.Reset();
-        MapStoryLifecycle.Reset();        // …nor a map story page or a shared window pose
-        RemoteVideoPlayback.Reset();  // …nor a cosmetic movie decoder or prior playback identity
+        TickGuard.Run("Net.Disable.Story", RemoteStorySync.Reset, "Net");       // …and never carries a story page/pose into a new session
+        TickGuard.Run("Net.Disable.MapRoom", RemoteMapRoom.Reset, "Net");         // …nor a peer's map-room placard (which owns a GameObject)
+        TickGuard.Run("Net.Disable.MapStory", RemoteMapStory.Reset, "Net");
+        TickGuard.Run("Net.Disable.StoryLifecycle", MapStoryLifecycle.Reset, "Net");        // …nor a map story page or a shared window pose
+        TickGuard.Run("Net.Disable.Video", RemoteVideoPlayback.Reset, "Net");  // …nor a cosmetic movie decoder or prior playback identity
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
         _fanPresentationSent.Reset();  // new peers need a complete fan presentation sample
@@ -1082,13 +1091,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // with the figure teardown one line up: a released figure is re-authored by the game's own
         // Update, a released prop is re-authored by NOTHING, so a driver teardown mid-hold would
         // strand a chest in mid-air for the rest of the scenario.
-        NetProps.Clear();
+        TickGuard.Run("Net.Disable.Props", NetProps.Clear, "Net");
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
-        VersionGuard.Reset();
-        PlayerBadges.RestoreAll();
+        TickGuard.Run("Net.Disable.Version", VersionGuard.Reset, "Net");
+        TickGuard.Run("Net.Disable.Badges", PlayerBadges.RestoreAll, "Net");
         _flatApplied = false;
-        DestroyAllAvatars();
+        TickGuard.Run("Net.Disable.Avatars", DestroyAllAvatars, "Net");
     }
 
     /// <summary>
@@ -1103,6 +1112,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         float dt = Time.unscaledDeltaTime;
         using (Core.PerfMonitor.Scope("Net.Avatar"))
         {
+            try { SharedWindowScrollSync.Tick(Time.unscaledTime); }
+            catch (Exception e) { LogPhaseError("Shared window scroll", e); }
             try { PrepareMerchantCards(); }
             catch (Exception e) { LogPhaseError("PrepareMerchantCards", e); }
             // EVERY phase runs behind its own catch, because the phases are INDEPENDENT and an
@@ -1489,7 +1500,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
         // no single last-sent pose to diff here and why the grab is the right superset.
         bool sharedWindowDue = (WorldUI.SharedWindows.AnyGrabbedHere()
-                               || WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving)
+                               || WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving
+                               || WorldUI.ModalFallback.StoryRecoverySendDue)
                                && _extrasAccumulator >= fastInterval;
 
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
@@ -2147,6 +2159,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         WorldUI.Surfaces.UseBarsSurface.SampleDecisionAttribution(out int decisionActor, out bool decisionPending, out bool decisionVisible);
         bool decisionAttributionChanged = decisionActor != _lastSentDecisionActor
             || decisionPending != _lastSentDecisionPending || decisionVisible != _lastSentDecisionVisible;
+        PublicHandPickState? publicHandPick = PublicHandPickSampler.Sample();
+        bool publicHandPickChanged = !ReferenceEquals(publicHandPick, _lastSentPublicHandPick);
         bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
                                     || seatCode1 != _lastSentSeatCode1;
         bool spentHalfChanged = spentMask != _lastSentSpentMask;
@@ -2175,7 +2189,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && !emptyFanHintChanged && !tuningChanged && !itemClipChanged && !dismissChanged
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
-            && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
+            && !publicHandPickChanged && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
             && !fanSourceChanged && !shortRestChanged && !decisionHighlightChanged && !damagePreviewChanged && !decisionAttributionChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
@@ -2207,6 +2221,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentItemCount = itemsCount;
 
         var extras = default(PresenceState);
+        extras.PublicHandPick = publicHandPick;
+        _lastSentPublicHandPick = publicHandPick;
 
         // The mode, proximity preview and counted public seat are one owner-authored picture.
         // Emit edges immediately and repeat current state on cadence; absence clears a remote
@@ -4122,6 +4138,16 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 }
                 break;
 
+            case ScenarioResultsCodec.MessageType:
+                parsed = QueueResults(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgSharedWindowScroll:
+                parsed = SharedWindowScrollSync.Receive(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
             case NetProtocol.MsgCardPlume:
             case NetProtocol.MsgNativeUseBar:
             case NetProtocol.MsgNativeBoard:
@@ -4174,10 +4200,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 {
                     parsed = true;
                     VersionGuard.NotePacket(senderId);
-                    // The extras packet is the only one the version record rides — feed the
-                    // handshake registry (record present: their build; absent: pre-handshake
-                    // build 0, a mismatch by definition).
+                    // Sparse extras may omit the version after an earlier announcement.
+                    // Keep the registry's existing version unless this packet advertises one.
                     VersionGuard.NoteExtras(senderId, in extras);
+                    // Cheat admission needs this exact native player generation,
+                    // not an earlier connection's cached numeric player/build pair.
+                    if (extras.HasModVersion)
+                        WorldUI.MultiplayerCheats.NoteVersionReceipt(senderId, extras.ModBuild);
                     ExtrasToWorld(ref extras);
                     _pendingExtras[senderId] = extras; // dedup: keep only the newest
                 }
@@ -4669,27 +4698,36 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// </summary>
     private void ForgetPeer(int playerId)
     {
-        if (_transport is FfsNetTransport ffs)
-            ffs.ForgetPeer(playerId);
-        if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
-        {
-            WorldUI.Surfaces.DamageDecisionPreview.ResetRemote(avatar);
-            CharacterDecisionPresentation.Remove(avatar);
-            avatar.Destroy();
-            _avatars.Remove(playerId);
-        }
-        _pending.Remove(playerId);             // nothing queued for a peer we no longer hold
+        // Retire the driver identity before touching Unity objects. A failed cosmetic destructor
+        // must not keep the peer eligible for another stale tick or a new placement/clock vote.
+        _avatars.TryGetValue(playerId, out RemoteAvatar avatar);
+        _avatars.Remove(playerId);
+        _pending.Remove(playerId);
         _pendingExtras.Remove(playerId);
         _pendingAnimations.Remove(playerId);
-        ForgetNativePresentation(playerId);
-        _createRetryAt.Remove(playerId);       // a rejoin gets a fresh construction budget
-        NetFigures.ReleaseRemote(playerId);    // drop any figure this peer was holding
-        NetProps.ReleaseRemote(playerId);      // …and put any map item they carried back on its hex
-        NetPlayerActors.ForgetAvatarFetch(playerId); // …and a rejoin gets a fresh fetch budget
-        Board.CharacterFocus.ForgetPeer(playerId);   // …and their focus outline goes with them
-        _peerEnv.Remove(playerId);                   // …and they stop being a clock/host candidate
-        RemoteTestTriggers.ForgetPeer(playerId);     // …and any debug override they owned is released
-        PeerCardFaceCensus.ReportPeerGone(playerId); // …and their card-face rows stop being reported
+        _createRetryAt.Remove(playerId);
+        _peerEnv.Remove(playerId);
+
+        // Each owner gets its cleanup even when another owner's Unity reference is already gone.
+        // These are cold lifecycle calls; stable guard keys bound repeated failures across peers.
+        if (_transport is FfsNetTransport ffs)
+            TickGuard.Run("Net.ForgetPeer.Transport", () => ffs.ForgetPeer(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.Figures", () => NetFigures.ReleaseRemote(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.Props", () => NetProps.ReleaseRemote(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.NativePresentation", () => ForgetNativePresentation(playerId), "Net");
+        // Build764: a returning native player may reuse this numeric ID. Retire
+        // its story epoch/bindings too, before any replacement avatar can appear.
+        TickGuard.Run("Net.ForgetPeer.StoryLifecycle", () => MapStoryLifecycle.ForgetPeer(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.AvatarFetch", () => NetPlayerActors.ForgetAvatarFetch(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.CharacterFocus", () => Board.CharacterFocus.ForgetPeer(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.TestTriggers", () => RemoteTestTriggers.ForgetPeer(playerId), "Net");
+        TickGuard.Run("Net.ForgetPeer.CardCensus", () => PeerCardFaceCensus.ReportPeerGone(playerId), "Net");
+        if (avatar != null)
+        {
+            TickGuard.Run("Net.ForgetPeer.DamagePreview", () => WorldUI.Surfaces.DamageDecisionPreview.ResetRemote(avatar), "Net");
+            TickGuard.Run("Net.ForgetPeer.DecisionPresentation", () => CharacterDecisionPresentation.Remove(avatar), "Net");
+            TickGuard.Run("Net.ForgetPeer.Avatar", avatar.Destroy, "Net");
+        }
     }
 
     /// <summary>Immediate teardown entry point for a future <c>PlayerRegistry.OnPlayerLeft</c>
@@ -4698,23 +4736,28 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
     private void DestroyAllAvatars()
     {
+        // Snapshot identities before any reset can invoke a native lifecycle callback. A peer
+        // created/rejoined during teardown belongs to the later opening, not this retirement.
+        var retiring = new KeyValuePair<int, RemoteAvatar>[_avatars.Count];
+        ((ICollection<KeyValuePair<int, RemoteAvatar>>)_avatars).CopyTo(retiring, 0);
+        _decisionWait.Tick(0, 0, 0f);
+        _delayedDecisionPlayer = 0;
+        _nextDecisionWait = 0f;
         _pendingAnimations.Clear();
-        ResetNativePresentation();
+        TickGuard.Run("Net.DestroyAvatars.NativePresentation", ResetNativePresentation, "Net");
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
         _lastAnimationSourceFrameTime = 0;
         if (_transport is FfsNetTransport ffs)
-            ffs.ResetFragments();
-        // THE IDS FIRST, because ForgetPeer removes from _avatars and a dictionary cannot be
-        // written while it is being enumerated. _scratchIds is free here: the only other user is
-        // TickAvatars, which has finished with it before any teardown path can run.
-        _scratchIds.Clear();
-        foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
-            _scratchIds.Add(kv.Key);
-        for (int i = 0; i < _scratchIds.Count; i++)
-            ForgetPeer(_scratchIds[i]);
-        _avatars.Clear();   // belt: ForgetPeer emptied it entry by entry
+            TickGuard.Run("Net.DestroyAvatars.Fragments", ffs.ResetFragments, "Net");
+        for (int i = 0; i < retiring.Length; i++)
+        {
+            KeyValuePair<int, RemoteAvatar> peer = retiring[i];
+            if (_avatars.TryGetValue(peer.Key, out RemoteAvatar current)
+                && ReferenceEquals(current, peer.Value))
+                TickGuard.Run("Net.DestroyAvatars.Peer", () => ForgetPeer(peer.Key), "Net");
+        }
     }
 
     private void OnDestroy()

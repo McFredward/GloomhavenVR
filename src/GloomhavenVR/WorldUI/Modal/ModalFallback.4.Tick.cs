@@ -3095,6 +3095,7 @@ internal static partial class ModalFallback
         //     re-derived THIS tick is re-placed in the same tick (one-shot, see TickPoseRePlace).
         TickPoseRePlace();
         TickWindowRoomMaking();
+        TickStoryRecovery(Time.unscaledTime);
 
         EnterPhase(PhaseChainPose);
         // 5c. LEVEL-MESSAGE CHAIN POSE: record where the player is reading the scripted message

@@ -591,6 +591,10 @@ internal sealed class PropInfoSurface
     private static HandSide _copySide;
     private static string _copyLabel = string.Empty;
     private static bool _copyCommitted;
+    private static Component? _refusedCopySource;
+    private static HeldPropCardWindow _refusedCopyWindow;
+    private static HandSide _refusedCopySide;
+    private static string _refusedCopyLabel = string.Empty;
 
     /// <summary>
     /// Take the frozen copy of <paramref name="window"/> for the prop that owns it, NOW — the
@@ -615,6 +619,9 @@ internal sealed class PropInfoSurface
         };
         if (live == null)
             return;
+        if (ReferenceEquals(_refusedCopySource, live) && _refusedCopyWindow == window
+            && _refusedCopySide == side && _refusedCopyLabel == label)
+            return;
 
         int stripped;
         int filled;
@@ -626,7 +633,17 @@ internal sealed class PropInfoSurface
             holder.SetActive(false); // MUST precede the Instantiate — keeps every Awake from running
             copy = Object.Instantiate(live.gameObject, holder.transform, false);
             copy.name = "GloomhavenVR.PropInfoPanelCopy";
-            stripped = StatPanelSurface.StripLogicComponents(copy);
+            if (!StatPanelSurface.StripLogicComponents(copy, out stripped))
+            {
+                _refusedCopySource = live;
+                _refusedCopyWindow = window;
+                _refusedCopySide = side;
+                _refusedCopyLabel = label;
+                Object.Destroy(holder); // rejected snapshot never leaves its inactive holder
+                VRLog.Alert("WorldUI", "HELD PROP SECOND CARD could not be built: native logic " +
+                                      "remains in the inactive copy; the live card is unchanged.");
+                return;
+            }
             AutoScrollRect[] scrollers = copy.GetComponentsInChildren<AutoScrollRect>(true);
             for (int i = 0; i < scrollers.Length; i++)
             {
@@ -701,6 +718,11 @@ internal sealed class PropInfoSurface
     /// tier when a card actually existed; null means silent.</summary>
     internal static void DropSecondCard(string? why)
     {
+        if (why != null)
+        {
+            _refusedCopySource = null; // explicit release/registry teardown permits a new hold
+            _refusedCopyLabel = string.Empty;
+        }
         bool had = _copyHolder != null || _copyPanel != null;
         if (_copyPanel != null)
         {

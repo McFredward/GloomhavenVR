@@ -25,6 +25,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    // This city-event population has no Results owner. Its independent native
+    // owner and common presentation are exercised by the Results fixtures.
+    internal static class ScenarioResultsNative { internal static UIWindow? Window => null; }
     internal static class RewardShowcase { internal static UIWindow? Window; }
     internal static class NativeVideoWindow { internal static UIWindow? Window; }
     internal static class SharedWindowIdentity { internal static UIWindow? MapStoryHost; }

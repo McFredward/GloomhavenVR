@@ -182,6 +182,8 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             Close();
             return false;
         }
+        SceneMaterialObservers.Install();
+        SceneMaterialObservers.Bind(_materials);
         Camera.onPreRender += _materials.EnterHead;
         Camera.onPostRender += _materials.ExitHead;
         _materialCallbacks = true;
@@ -325,6 +327,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                 Camera.onPostRender -= _materials.ExitHead;
                 _materialCallbacks = false;
             }
+            SceneMaterialObservers.Unbind(_materials);
             _materials.DisarmImmediate();
             _materials.Dispose();
             _materials = null;

@@ -37,10 +37,98 @@
     "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownEyeLighting.cginc": "b3f33df53f7c75f8026560635219dbd84e1514341d3851e81e040951c7bc4c7a",
     "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownPracticalLighting.cginc": "cda705f79373d8515d90d2a49e8edd139b150b85ecf34d4bc2233a47948548a3",
     "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownSharedEnvironment.cginc": "8a3848063d60f50d26e8f14920c1487c12b1c204949863083f97ea3e7e1803d3",
-    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WaterVR.shader": "27652fa007d06b75a47ed75f904922dbc2448f4fbb425cd89adc5e355a360051"
+    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WaterVR.shader": "27652fa007d06b75a47ed75f904922dbc2448f4fbb425cd89adc5e355a360051",
+    "scripts/steamlink-scene-render/native_variants.py": "54a8731e2367a1ab23cd6356c4de3ddeecda3f8298952d2b9f4b74e38a70d1f9",
+    "scripts/steamlink-scene-render/native-variants.json": "2dd434af02b9814d92148e146789782963a00c9be3349472dfcebd550884b11b",
+    "scripts/steamlink-scene-render/build.py": "42f33dd310f56046272a854983c71124e0b2a56c2461d539da2f82fbb77802e5",
+    "scripts/steamlink-scene-render/verify_bundle.py": "6473ad868dbf2dcb1fb7efb22c9a9f6a6f302f2e5ba7980dc5b6805775e07dff"
   },
-  "bundle_sha256": "c950250c2af5c8f5b27805b95735e7b8862a01eca4c03bbc838a673db7efdcce",
-  "bundle_bytes": 166777,
+  "bundle_sha256": "6a51e25b930377e8599306ad5c6c812b293840009fe90fe31a71a0162eabb781",
+  "bundle_bytes": 249360,
   "resource": "GloomhavenVR.SteamLink.scene.bundle",
-  "limits": "Compiled shader bank only; GPU and real XR routing require separate checks."
+  "limits": "Sixteen original owned shaders retained byte-identically. Seven original native D3D11 programs retained byte-identically with alpha-only camera-global state binding; Linux port/GPU proof does not execute native D3D11 programs or establish HMD output.",
+  "original_owned_bank_sha256": "c950250c2af5c8f5b27805b95735e7b8862a01eca4c03bbc838a673db7efdcce",
+  "native_derivatives": {
+    "schema": "native-alpha-derivatives-v1",
+    "unity": "2021.3.5f1",
+    "bytes": 249360,
+    "sha256": "6a51e25b930377e8599306ad5c6c812b293840009fe90fe31a71a0162eabb781",
+    "original_owned_shaders": 16,
+    "native_derivatives": [
+      {
+        "original": "GUI/AbilityCard_Add_Shd",
+        "derivative": "GUI/AbilityCard_Add_Shd.SceneCoverage",
+        "path_id": -476460874206491152,
+        "program_sha256": "abc23a8d63db824d50ba623d477b3535655fa1ff37c166ba149d86d2bd3a10a2",
+        "original_shader_sha256": "4aee65ad5c6f51e94fb225273d42b50bc589b7ac56d069e7f7cee22ba1e923f9",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "GUI/AbilityCard_Shd",
+        "derivative": "GUI/AbilityCard_Shd.SceneCoverage",
+        "path_id": -1191052957383108049,
+        "program_sha256": "c516fa367bcb4e9a9190c490386e31cf380bff6a3c793bfe60896ea9b3c2d4ef",
+        "original_shader_sha256": "fbd49fffa5bb88c6a448a659d87f41b6d2507f37ddd5def25afde34c00f9bb49",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "ParticleTrailShd",
+        "derivative": "ParticleTrailShd.SceneCoverage",
+        "path_id": -8787790337801094787,
+        "program_sha256": "fbbc513a2da6a64d944c75333ff1dca642ffadcd744c1d4ed113318394a0f89a",
+        "original_shader_sha256": "bd66f4efac14c1ac09aa5671bc2a7eec6c0e7641ddd8cb517cd573f503889f42",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "SimpleParticleAlphaDFade",
+        "derivative": "SimpleParticleAlphaDFade.SceneCoverage",
+        "path_id": 7494463606527431532,
+        "program_sha256": "238bf247428c1edb54a14dbc8f2edba019d26acdbd9ad908167bfdb507f29f9c",
+        "original_shader_sha256": "2b762b9bae15e7ff8850df0cf169bf1a2d25d3c4a91db330da9af7e8a7d68f61",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "VFX/GUI_Smoke_Shd",
+        "derivative": "VFX/GUI_Smoke_Shd.SceneCoverage",
+        "path_id": -6946585488825748102,
+        "program_sha256": "f682f63f7342842f3a731be704192bde520189dbadeffcaa479e1bdb1e036685",
+        "original_shader_sha256": "7cb290c96a7ab16f0c4c417c7892c35a7a2de23930d4c92932d554e2f05cd961",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "VFX/ParticleFlow_Blend_Shd",
+        "derivative": "VFX/ParticleFlow_Blend_Shd.SceneCoverage",
+        "path_id": 3242556444348937109,
+        "program_sha256": "c6cf3ba5c068dbb476460535cc660a9a037ef7ef989bb5b5cc1ad1730c60a009",
+        "original_shader_sha256": "acf002d81b96c7fa3a87b563eba8da32842493ac685a8e6fe64737b27ec9beef",
+        "platforms": [
+          4
+        ]
+      },
+      {
+        "original": "VFX/ParticleMasterUnlitBlend_Shd",
+        "derivative": "VFX/ParticleMasterUnlitBlend_Shd.SceneCoverage",
+        "path_id": 8181423618908580528,
+        "program_sha256": "c7896a65ba7d74c0bde7ec1e5367d9de52e75bf0fecbbacab99ff8d60ac26a15",
+        "original_shader_sha256": "d207df5d63a21027dd1f903fbabf35ed589e34a48e70d4fbc1220f40aacc67c5",
+        "platforms": [
+          4
+        ]
+      }
+    ],
+    "limits": "Exact native D3D11 programs and non-alpha state retained. Linux equation/object-load checks do not execute those native D3D11 programs or establish headset output."
+  },
+  "native_graphics_apis": [
+    "Direct3D11"
+  ]
 }

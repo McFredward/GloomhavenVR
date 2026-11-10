@@ -96,8 +96,9 @@ internal sealed class UIInfoTools
 {
     internal static readonly UIInfoTools Instance = new();
     internal readonly object InvalidOptionAudioItem = new();
+    internal readonly NativeSaleColor goldColor = new();
 }
-internal static class FFSNetwork { internal static bool IsOnline; }
+internal static class FFSNetwork { internal static bool IsOnline, IsHost, IsClient; }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     // This fixture isolates native map masks; exact public city/event ownership is
@@ -157,7 +158,7 @@ internal static class VRLog
     internal static void Warn(string scope, string message) { }
 }
 
-namespace GloomhavenVR.Core { }
+namespace GloomhavenVR.Core { internal static class VRSession { internal static bool IsRunning; } }
 
 namespace HarmonyLib
 {

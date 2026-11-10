@@ -12,7 +12,7 @@ cp "$repo_root/tests/GloomhavenVR.FlightTimingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.FlightTimingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.FlightTimingTests.csproj" --configuration Release
 if [[ "${FLIGHT_NEGATIVE_CONTROLS:-1}" != 1 ]]; then exit 0; fi
-for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home active-grace active-generation local-handover local-vanish local-callback local-alpha local-body dismiss-capture dismiss-once dismiss-width; do
+for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home source-active-duplicate active-grace active-generation local-handover local-vanish local-callback local-alpha local-body dismiss-capture dismiss-once dismiss-width; do
     mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote" "$work_dir/source/src/GloomhavenVR/Cards" "$work_dir/source/src/GloomhavenVR/Defaults"
     cp "$repo_root/src/GloomhavenVR/Cards/VRCard.cs" "$work_dir/source/src/GloomhavenVR/Cards/"
     cp "$repo_root/src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteCardFx.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteControlBoard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteHandFan.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteActiveCards.cs" "$work_dir/source/src/GloomhavenVR/Net/Remote/"
@@ -35,6 +35,7 @@ file,old,new={
 'missing-arrival-gate': ('RemoteControlBoard.cs',' || _owner.FlightOwnsRecess(i)',''),
 'old-generation-reclaim': ('RemoteControlBoard.cs','if (generation < epochs[slot]) return false;','if (bool.Parse("false") && generation < epochs[slot]) return false;'),
  'drawn-home': ('RemoteHandFan.cs','world = parent.TransformPoint(_flightHomePositions[i]);','world = _cards[i].transform.position;'),
+'source-active-duplicate': ('RemoteActiveCards.cs',' || atSource)',' || (bool.Parse("false") && atSource))'),
 'active-grace': ('RemoteActiveCards.cs','if (flying == completedFlightCardId)','if (bool.Parse("false") && flying == completedFlightCardId)'),
 'active-generation': ('RemoteControlBoard.cs','if (_activeFlightOwners.TryGetValue(key, out long previous) && generation < previous) return false;','if (bool.Parse("false") && _activeFlightOwners.TryGetValue(key, out long previous) && generation < previous) return false;'),
 'missing-retirement': ('RemoteBoardCard.cs','if (_retiredFlightGenerations.TryGetValue(ownerId, out long retired) && generation <= retired)','if (bool.Parse("false") && _retiredFlightGenerations.TryGetValue(ownerId, out long retired) && generation <= retired)'),
@@ -62,6 +63,7 @@ PY
         old-generation-reclaim) expected='Older outgoing generation must not reclaim a landed newer card';;
         missing-retirement) expected='Old flight must not recreate its fence after native empty acknowledgement';;
         drawn-home) expected='Recovery must capture parent-transformed home';;
+        source-active-duplicate) expected='A matching occupied source must not also appear in the active destination during native burn';;
         active-grace) expected='Exact completed active flight must override future model-first grace immediately';;
         active-generation) expected='Old active completion must not reset newer departure fence or grace';;
     esac

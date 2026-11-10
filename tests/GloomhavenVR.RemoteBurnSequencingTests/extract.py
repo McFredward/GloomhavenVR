@@ -114,7 +114,7 @@ assert 'private readonly HashSet<CAbilityCard> _known' in burn, 'Burn discovery 
 assert 'RetainNativeOutputDuringBurn()' in method(art,'internal void ApplyNativeAppearance('), 'Missing owner samples must preserve the original burn picture'
 fixture += """
 internal static class CardsGameApi {internal static bool PileWidgetIsArcMember(AbilityCardUI w)=>w.ArcMember;}
-internal static class CardAppearanceMirror {internal static bool TryOwnerBurnNoFlightCompletion(CPlayerActor a,CAbilityCard c,out float time){time=-1;return false;}}
+internal static class CardAppearanceMirror {internal static bool OwnerBurnInProgress(CPlayerActor a)=>MirrorFixture.OwnerBurnInProgress(a); internal static bool TryOwnerBurnNoFlightCompletion(CPlayerActor a,CAbilityCard c,out float time){time=-1;return false;}}
 internal sealed class BurnDiscoveryFixture {
 internal bool _seeded; internal HashSet<CAbilityCard> _known=new();
 internal List<CAbilityCard> _pruneScratch=new(); internal List<AbilityCardUI> _burntBuf=new();

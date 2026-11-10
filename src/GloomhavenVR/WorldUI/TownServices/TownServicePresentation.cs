@@ -111,6 +111,8 @@ internal static class TownServicePresentation
         if ((mode == EGuildmasterMode.Merchant || mode == EGuildmasterMode.Enchantress)
             && !TownServiceEnhancementHandoff.Enabled)
             return false;
+        if (mode == EGuildmasterMode.Enchantress && MapRoomDriver.AbilityHandFailed)
+            return false;
         UIWindow? controller = GuildmasterDestinations.ModeWindow(mode);
         if (controller == null) return false;
         // The same native controller is the explicit escape hatch for a failed town
@@ -216,6 +218,7 @@ internal static class TownServicePresentation
             Reset();
             if (quietService == 2 && !TownServiceTempleController.Prepare(window)) return;
         }
+        if (RestoreFailedAbilityHand(window, service)) return;
         if ((quietService == 1 || quietService == 3)
             && !PrepareQuietController(window, quietService)) return;
         _quietService = quietService;
@@ -379,6 +382,29 @@ internal static class TownServicePresentation
         _tray?.Tick();
         _tray?.SetVisibility(localVisibility);
         foreach (TownServiceToken token in Tokens.Values) token.Tick(_scale);
+    }
+
+    private static bool RestoreFailedAbilityHand(UIWindow window, byte service)
+    {
+        if (service != 3 || !MapRoomDriver.AbilityHandFailed) return false;
+        // A native confirmation already owns an explicit player choice. Preserve
+        // that exact source/callback until its normal answer/hide has completed;
+        // a failed optional fan must not cancel a pending purchase or sale.
+        UINewEnhancementWindow? shop = window.GetComponent<UINewEnhancementWindow>();
+        if (shop != null && shop._isConfirmationBoxOpened) return true;
+        const string reason = "Ability-card hand unavailable; original enhancement window restored";
+        if (ReferenceEquals(_window, window))
+        {
+            RestoreNativeForOpening(reason);
+            return true;
+        }
+        if (ReferenceEquals(_failedWindow, window)) return true;
+        _failedWindow = window;
+        OpenOriginalWindow(window, 3, reason);
+        window.onHidden.AddListener(OnFallbackHidden);
+        ModalFallback.RestoreClassicTownService(window);
+        VRLog.Alert("TownServices", reason + ". Merchant items and temple offerings remain available.");
+        return true;
     }
 
     private static void RestoreNativeForOpening(string reason)

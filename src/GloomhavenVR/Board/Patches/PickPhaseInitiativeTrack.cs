@@ -227,7 +227,7 @@ internal static class PickPhaseInitiativeTrack
     /// and one of them (<c>WaitingForPlayerIdle</c>) is an ANIMATION wait with no decision in it at
     /// all. The class doc says what is left out and why.</para>
     /// </summary>
-    private static bool IsDecisionWait(Choreographer.ChoreographerStateType s) =>
+    internal static bool IsDecisionWait(Choreographer.ChoreographerStateType s) =>
         s == Choreographer.ChoreographerStateType.WaitingForCardSelection
         || s == Choreographer.ChoreographerStateType.WaitingForItemRefresh
         || s == Choreographer.ChoreographerStateType.WaitingForLoseGoalChestRewardSelection

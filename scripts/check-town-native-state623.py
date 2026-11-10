@@ -53,6 +53,43 @@ def bind_delivery_transport(root, bound, loader):
     for constant, value in re.findall(r'public const byte (\w+) = (\d+);', protocol):
         scheduler = re.sub(r'\bNetProtocol\.' + constant + r'\b', value, scheduler)
         batch = re.sub(r'\bNetProtocol\.' + constant + r'\b', value, batch)
+    # Keep the actual Results selector/empty-queue branches and capacity, but
+    # this town-only fixture never submits a Results picture. The small queue
+    # loader deliberately omits its specialized baseline method. Make crossing
+    # that inactive boundary fail loudly instead of dropping the branch or
+    # pretending this fixture qualifies Results transport/authority.
+    results_source = (root / 'src/GloomhavenVR/Net/ScenarioResultsState.cs').read_text()
+    results_constants = {}
+    for name in ('MessageType', 'FragmentType', 'MaxBytes'):
+        found = re.search(r'\b' + name + r' = (\d+)[,;]', results_source)
+        if found is None: raise RuntimeError('Results queue capacity binding drift: ' + name)
+        results_constants[name] = found[1]
+    bound['ResultsOriginal761.cs'] = '// Exact Results source used only for constants; methods are outside this town proof.\n' + '\n'.join('// ' + line for line in results_source.splitlines()) + '\n'
+    bound['InactiveResults761.cs'] = '''using System;
+namespace GloomhavenVR.Net;
+internal sealed class ScenarioResultsState
+{
+    internal bool HasPresentation => throw Unexpected();
+    internal bool Visible => throw Unexpected();
+    internal ulong BaseRevision => throw Unexpected();
+    internal ulong Revision => throw Unexpected();
+    internal uint Key => throw Unexpected();
+    internal int Author => throw Unexpected();
+    private static Exception Unexpected() => new InvalidOperationException("Town-only fixture entered inactive Results state.");
+}
+internal static class ScenarioResultsCodec
+{
+    internal const byte MessageType = %(MessageType)s, FragmentType = %(FragmentType)s;
+    internal const int MaxBytes = %(MaxBytes)s;
+    internal static bool TryRead(byte[] bytes, int length, out ScenarioResultsState? state)
+        => throw new InvalidOperationException("Town-only fixture entered inactive Results decoder.");
+}
+internal static class InactiveResultsQueue761
+{
+    internal static void EnqueueResults(this ExtrasSendQueue queue, byte[] bytes, int length, ScenarioResultsState state)
+        => throw new InvalidOperationException("Town-only fixture entered inactive Results queue.");
+}
+''' % results_constants
     bound['ActualScheduler629.cs'] = 'using System; namespace GloomhavenVR.Net;\n' + scheduler
     receipt_scheduler = root / 'src/GloomhavenVR/Net/ExtrasSendScheduler.OriginalReceipts.cs'
     if receipt_scheduler.exists():

@@ -23,6 +23,8 @@ namespace UnityEngine
         public bool Equals(Vector3 other) => x == other.x && y == other.y && z == other.z;
         public override bool Equals(object? value) => value is Vector3 v && Equals(v);
         public override int GetHashCode() => HashCode.Combine(x,y,z);
+        public static bool operator ==(Vector3 a,Vector3 b)=>a.Equals(b);
+        public static bool operator !=(Vector3 a,Vector3 b)=>!a.Equals(b);
         public static Vector3 operator +(Vector3 a, Vector3 b) => new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a, Vector3 b) => new(a.x-b.x,a.y-b.y,a.z-b.z);
         public static Vector3 operator *(Vector3 a, float f) => new(a.x*f,a.y*f,a.z*f);
@@ -39,6 +41,8 @@ namespace UnityEngine
         internal static Quaternion Euler(float x, float y, float z) => new() { Value = N.Quaternion.CreateFromYawPitchRoll(y*MathF.PI/180,x*MathF.PI/180,z*MathF.PI/180) };
         internal Vector3 eulerAngles => new(0,(MathF.Atan2(2*(Value.W*Value.Y+Value.X*Value.Z),1-2*(Value.Y*Value.Y+Value.X*Value.X))*180/MathF.PI+360)%360,0);
         internal static Quaternion Inverse(Quaternion q) => new() { Value = N.Quaternion.Inverse(q.Value) };
+        public static bool operator ==(Quaternion a,Quaternion b)=>a.Equals(b);
+        public static bool operator !=(Quaternion a,Quaternion b)=>!a.Equals(b);
         public static Quaternion operator *(Quaternion a, Quaternion b) => new() { Value = a.Value*b.Value };
         public static Vector3 operator *(Quaternion q, Vector3 v) => Vector3.From(N.Vector3.Transform(v.Native,q.Value));
         public bool Equals(Quaternion q) => Value.Equals(q.Value);
@@ -50,6 +54,7 @@ namespace UnityEngine
     }
     internal static class Mathf
     {
+        internal static float Sqrt(float v)=>MathF.Sqrt(v);
         internal static float Max(float a,float b)=>MathF.Max(a,b);
         internal static float Min(float a,float b)=>MathF.Min(a,b);
         internal static float Abs(float v)=>MathF.Abs(v);
@@ -60,15 +65,79 @@ namespace UnityEngine
         internal static int RoundToInt(float v)=>(int)MathF.Round(v);
     }
     internal static class Time { internal static float unscaledTime = 10; internal static int frameCount = 100; }
+    public class Object
+    {
+        public bool Destroyed;
+        public static void DontDestroyOnLoad(Object value) { }
+        public static void Destroy(Object value)
+        {
+            value.Destroyed = true;
+            if (value is GameObject root) foreach (Component component in root.Components) component.Destroyed = true;
+        }
+        private static bool Null(Object? value) => ReferenceEquals(value, null) || value.Destroyed;
+        public static bool operator ==(Object? a, Object? b) => Null(a) && Null(b) || ReferenceEquals(a, b);
+        public static bool operator !=(Object? a, Object? b) => !(a == b);
+        public override bool Equals(object? other) => ReferenceEquals(this, other);
+        public override int GetHashCode() => base.GetHashCode();
+    }
+    public sealed class GameObject : Object
+    {
+        public readonly List<Component> Components = new();
+        internal bool activeInHierarchy = true;
+        public GameObject(string name = "fixture") { }
+        public T AddComponent<T>() where T : Component, new()
+        {
+            var component = new T { gameObject = this }; Components.Add(component); return component;
+        }
+    }
+    public class Component : Object { public GameObject gameObject = null!; }
+    public sealed class AudioSource : Object { public bool mute; }
+
     internal sealed class Transform
     {
         internal Vector3 position, localScale=Vector3.one;
         internal Quaternion rotation=Quaternion.identity;
     }
 }
+namespace UnityEngine.Video
+{
+    public enum VideoRenderMode { APIOnly }
+    public enum VideoAudioOutputMode { None, Direct, AudioSource }
+    public sealed class VideoPlayer : Component
+    {
+        public bool playOnAwake, isLooping, isPrepared, isPlaying, isPaused;
+        public bool canSetTime = true;
+        public string url = string.Empty;
+        public double time, length = 100;
+        public ushort audioTrackCount;
+        public VideoRenderMode renderMode;
+        public VideoAudioOutputMode audioOutputMode;
+        public int PlayCalls, StopCalls;
+        private readonly Dictionary<ushort, bool> _mute = new();
+        private readonly Dictionary<ushort, AudioSource> _targets = new();
+        public event Action<VideoPlayer>? prepareCompleted, loopPointReached;
+        public event Action<VideoPlayer, string>? errorReceived;
+        public void Prepare() { }
+        public void Prepared() { isPrepared = true; prepareCompleted?.Invoke(this); }
+        public Action CapturePrepared() { var callback = prepareCompleted; return () => { isPrepared = true; callback?.Invoke(this); }; }
+        public void End() { isPlaying = false; loopPointReached?.Invoke(this); }
+        public void Fail() => errorReceived?.Invoke(this, "injected decoder failure");
+        public void Play() { PlayCalls++; isPlaying = true; isPaused = false; }
+        public void Pause() { isPlaying = false; isPaused = true; }
+        public void Stop() { StopCalls++; isPlaying = isPaused = false; }
+        public bool GetDirectAudioMute(ushort track) => _mute.TryGetValue(track, out bool mute) && mute;
+        public void SetDirectAudioMute(ushort track, bool mute) => _mute[track] = mute;
+        public void SetDirectAudioVolume(ushort track, float volume) { }
+        public AudioSource GetTargetAudioSource(ushort track) => _targets.TryGetValue(track, out AudioSource? source) ? source : null!;
+        public void Bind(ushort track, AudioSource source) => _targets[track] = source;
+    }
+}
+
+public static class AudioController { public static float GetGlobalVolume() => 0.8f; }
+
 internal static class FFSNetwork { internal static bool IsOnline=true,IsHost=false; }
 namespace FFSNet { internal static class FixtureNamespace { } }
-namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; } }
+namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; internal bool IsOpen=true,IsVisible=true; internal UnityEngine.GameObject gameObject=new(); } }
 internal sealed class DialogLineDTO { internal string text="page-key", character="hero-guid"; }
 internal sealed class UICharacterStoryBox { internal List<DialogLineDTO>? dialogs=new() { new() }; internal int currentDialogIndex=0; }
 internal sealed class UIQuestPopup { internal uint Key = 303; }
@@ -81,7 +150,8 @@ namespace GloomhavenVR.WorldUI
 {
     using UnityEngine;
     using UnityEngine.UI;
-    internal enum SharedWindowKind { None,ScenarioStory,MapStory,QuestConfirm,Encounter,Video,RewardShowcase }
+    using UnityEngine.Video;
+    internal enum SharedWindowKind { None,ScenarioStory,MapStory,QuestConfirm,Encounter,Video,RewardShowcase,Results }
     internal interface IPanelGrabOwner { Transform? GrabRoot { get; } bool GrabVisible { get; } }
     internal sealed class GrabbableModal : IPanelGrabOwner
     {
@@ -199,7 +269,56 @@ namespace GloomhavenVR.WorldUI
         internal static void ObserveCompletions(int sender,GloomhavenVR.Net.MapStoryOpening[] entries) { }
         internal static bool MatchesPose(int sender,int local,uint key,GloomhavenVR.Net.MapStoryOpening[]? entries)=>true;
     }
-    internal static class NativeVideoWindow { internal static bool SharedInitialPoseReady=>ModalFallback.Ready; }
+    internal static class ScenarioResultsNative { internal static UnityEngine.UI.UIWindow? Window = new(); }
+    internal static class NativeVideoReview
+    {
+        internal static bool ContextAvailable = true;
+        internal static bool TryCloseOwnedKey(string key)
+        {
+            if (!ContextAvailable || NativeVideoWindow.ReviewPlayer == null || NativeVideoWindow.ReviewKey != key) return false;
+            CancelForNativePlayback(); return true;
+        }
+        internal static void CancelForNativePlayback()
+        {
+            if (NativeVideoWindow.ReviewPlayer != null) NativeVideoWindow.ReviewPlayer.Stop();
+            NativeVideoWindow.ReviewPlayer = null;
+        }
+    }
+    internal static class NativeVideoWindow
+    {
+        internal static VideoPlayer? NativePlayer, Remote;
+        internal static uint NativePlaybackGeneration;
+        internal static VideoPlayer? ReviewPlayer;
+        internal static uint ReviewGeneration;
+        internal static string ReviewKey = string.Empty;
+        internal static uint OriginatingPlaybackGeneration => NativePlayer != null ? NativePlaybackGeneration : ReviewGeneration;
+        internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? ReviewPlayer;
+        internal static bool SharedInitialPoseReady => ModalFallback.Ready;
+        internal static bool Suppressed, AssetAvailable = true;
+        internal static string NativeKey = "Heroes/A.mov", ResolvedKey = string.Empty;
+        internal static string PlaybackKey => NativePlayer != null ? NativeKey : ReviewPlayer != null ? ReviewKey : string.Empty;
+        internal static string RemoteKey = string.Empty;
+        internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "")
+        { if (player != null) NativeVideoReview.CancelForNativePlayback(); Remote = player; RemoteKey = selectedKey; }
+        internal static void SetNativePresentationSuppressed(bool suppressed) => Suppressed = suppressed;
+        internal static void SetRemotePose(Vector3 pos, Quaternion rot, float size) { }
+        internal static bool TryResolvePlaybackKey(string key, out string url) { url = ResolvedKey.Length == 0 ? key : ResolvedKey; return AssetAvailable; }
+    }
+    internal static class NativeVideoMovies
+    {
+        internal const string StereoIntroKey = "CP_Intro/GH_CP_Intro.sbs-v2.mov";
+        internal const string NativeIntroKey = "CP_Intro/GH_CP_Intro.native.mov";
+        internal static bool IsStereoKey(string? key) => key != null && (key.EndsWith(".sbs-v1.mov", StringComparison.Ordinal) || key.EndsWith(".sbs-v2.mov", StringComparison.Ordinal));
+        internal static bool IsStereoUrl(string url) => IsStereoKey(url);
+        private static string? Canonical(string? key)
+        {
+            if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
+            return key == StereoIntroKey || key == NativeIntroKey ? "CP_Intro/GH_CP_Intro.mov" : key;
+        }
+        internal static bool SamePresentation(string? first, string? second) =>
+            GloomhavenVR.Net.VideoMovieKeys.IsReview(first) == GloomhavenVR.Net.VideoMovieKeys.IsReview(second)
+            && Canonical(first) == Canonical(second);
+    }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
@@ -239,7 +358,6 @@ namespace GloomhavenVR.Net
         internal RigPose Pose;
         internal bool InitialPose;
     }
-    internal struct FixtureVideo { internal SharedWindowEntry Window; }
     internal struct PresenceState
     {
         internal bool HasStorySync,StoryInitialPose,HasSharedWindow,HasVideoWindow,HasRewardWindow,HasMapStoryLifecycle,HasRewardPoseHandshake,HasRewardContinuation;
@@ -250,7 +368,7 @@ namespace GloomhavenVR.Net
         internal RigPose StoryPose;
         internal SharedWindowEntry[]? SharedWindowEntries;
         internal int SharedWindowCount;
-        internal FixtureVideo VideoWindow;
+        internal VideoWindowState VideoWindow;
         internal RewardWindowState RewardWindow;
         internal RewardPoseHandshakeState RewardPoseHandshake;
         internal MapStoryOpening[]? RewardContinuationEntries;

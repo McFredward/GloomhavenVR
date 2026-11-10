@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName></PropertyGroup>
+  <ItemGroup><Compile Include="$(ProductionDir)/*.cs"/><Compile Include="$(FixtureDir)/*.cs"/>
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/Unity.TextMeshPro.dll"><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

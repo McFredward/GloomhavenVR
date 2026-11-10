@@ -637,6 +637,10 @@ public static class InteractionProgram
             slot.Selectable.interactable = true; handoff.Tick();
             Check(gate.alpha == 1f,
                 "restored native row resumes the actionable overlay on the same visit");
+            MapRoomDriver.AbilityHandFailed = true; handoff.Tick();
+            Check(gate.alpha < 1f && !TownServiceEnhancementHandoff.TryOffer(card),
+                "failed ability fan cannot claim an interactive physical enhancement target");
+            MapRoomDriver.AbilityHandFailed = false; handoff.Tick();
             CardsDriver.OffScenarioFanCards = Array.Empty<VRCard>(); handoff.Tick();
             Check(gate.alpha == 1f,
                 "held owned card remains offerable when the visible fan no longer lists its plucked card");
@@ -1512,6 +1516,15 @@ public static class InteractionProgram
         TownServiceEnhancementHandoff.TickApproach();
         Check(TownServiceQuietController.Requests == 15 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
             "mage face attention cannot immediately undo a nearer priestess's native visit in their overlap");
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        CardsDriver.OffScenarioFanCards = null;
+        MapRoomDriver.AbilityHandFailed = true;
+        head.transform.position = root.transform.position + Vector3.forward * 2.30f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 16
+            && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "failed ability fan still admits the native enhancement-window escape without a physical card");
+        MapRoomDriver.AbilityHandFailed = false;
         UnityEngine.Object.DestroyImmediate(templeRoot);
         UnityEngine.Object.DestroyImmediate(merchantRoot);
         UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);

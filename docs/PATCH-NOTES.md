@@ -26,6 +26,66 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build762: explicitly enabled multiplayer test commands
+
+`MultiplayerCheatActionPatch` admits only the reserved native action127 after a
+runtime enum guard. Native GameActionEvent has a seven-bit action type and a
+600-byte attachment bound; the explicit command remains at most512 bytes.
+The host checks opt-in, its exact issued payload, current native player objects,
+world identity and the complete forwarding roster before changing the model.
+Ordinary actions are untouched. Scenario victory uses the existing native
+DebugWinScenario path and remains compatible with unmodded clients; additional
+commands require compatible installed peers. Received commits never consult the
+receiver's private character selection or cheat-menu configuration.
+
+`MultiplayerCheatQueueGuard` preserves the original lock/ready/order and the
+player-choice permits around an explicit test command. A refused, exact owned
+host head cannot consume ProcessOneAndHalt/SwitchBack; accepted client commands
+remain neutral to those native permits. Reveal waits at the original pre-dequeue
+safe point. There are no forced phases, ACKs or automatic choices. Optional save,
+visual-refresh and logging failures cannot split a model commit. Actual accepted
+model failures deliberately retain native desync handling; see
+[the network-action ledger](NET-ACTION-SURFACE.md) and
+[the integration review](../.planning/MP762-INTEGRATION.md).
+
+## Build761: native audio and scene-alpha presentation
+
+`NativeFigureAudioPatches` observes exact native SFX producer calls and pooled
+audio returns. A generation-bound follower keeps detached figure emitters at
+their original producer offset; native playback, settings and stop ownership
+remain unchanged. Exact CharacterManager/ActorPrefab sibling association is
+required. Unrelated previews and global/UI sounds are not retargeted.
+`CardsHandUI.OnLoseCardClick` and `AudioController.PlayAudioItem` are passive,
+bounded Debug correlation probes: no deduplication or additional playback.
+
+The Steam Link material hooks observe original Graphic registration, material
+rebinding and the exact pooled-object return. They enroll only audited material
+families. Private derivatives preserve original shader programs and RGB/depth/
+stencil behavior, changing scene-alpha coverage in the owned head camera only.
+Camera scopes restore their previous values; foreign writes and unsupported
+shader families retain original behavior. No extra render pass is introduced.
+See `.planning/MP761-MR-COVERAGE.md` for the D3D11 audit, actual GPU witnesses and
+the explicit native-program/headset coverage boundary.
+
+Results presentation reuses the existing native window-visibility event rather
+than adding native Show/Hide callbacks. Messages29/30 with record125 carry an
+inert common picture; native result controllers, ready votes and host final
+authority remain local/original. New124 carries public HAND provenance only.
+
+## Build754: confirmations on cropped native windows
+
+The existing confirmation-producer hooks retain their original targets and
+callbacks. Only `ConfirmationOnOwner.Apply` changes: a prompt owned by the entire
+converted window uses its fitted visible host's center. The native full-screen
+source root can be displaced by content fitting, notably the scenario ESC menu's
+left-hand column. Its old origin incorrectly placed Main Menu / Exit prompts
+beside the visible window. Original producer depth, scale, rotation, nested
+subwindow positions and persistent-home restoration stay intact.
+
+This is a presentation repair, not a workaround for the separately reported
+end-turn stall. No gameplay continuation or network acknowledgment is generated.
+See [the source audit](../.planning/END-TURN-123-AUDIT.md).
+
 ## Build747: complete native More Cards previews
 
 WorldUI registers `MenuDepthFurtherAbilityHoverObserver` on the original

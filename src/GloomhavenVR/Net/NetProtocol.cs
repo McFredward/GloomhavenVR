@@ -161,6 +161,14 @@ internal static class NetProtocol
     public const byte ExtIdRigSecondHeldCard = 111;
     /// <summary>Receipt for exact retained original metadata, never gameplay permission.</summary>
     public const byte MsgTownOriginalReceipt = 28;
+    // Independent original Results picture and gesture: no presence budget or legacy kind change.
+    public const byte MsgScenarioResults = 29;
+    public const byte MsgScenarioResultsFragments = 30;
+    public const byte ExtIdScenarioResults = 125;
+    /// <summary>Reliable, opening-scoped native scroll input and common viewport state.
+    /// Private windows never enter this independent control stream.</summary>
+    public const byte MsgSharedWindowScroll = 31;
+    public const byte ExtIdSharedWindowScroll = 126;
     public const byte ExtIdTownOriginalReceipt = 112;
     /// <summary>One owner-authored native card return clock with exact public
     /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
@@ -196,6 +204,14 @@ internal static class NetProtocol
     /// <summary>Atomic opening identity, manual claim order and pose-sample sequence for
     /// the unchanged shared window poses. Six bounded30-byte rows plus a count; automatic rows also bind the observed release.</summary>
     public const byte ExtIdSharedWindowMoveOrder = 123;
+    /// <summary>Owner public hand-pick seats: revisionU32, presented actorI32,
+    /// native roundI32, phaseU8, hand occupied/named masksU8, atomic board occupancyU8; each named seat adds original
+    /// source actorI32 and class-pool seat/countU16. Native seedI32 + deterministic
+    /// scenario-ID fingerprintU64 fence a scenario namespace (not a unique run).28..44 payload bytes. Provenance
+    /// is identity: emit only under existing public naming AND face permission;
+    /// private phases carry anonymous occupancy or an explicit empty tombstone.
+    /// Older readers skip124 by length. Record39 remains byte/semantic exact.</summary>
+    public const byte ExtIdPublicHandPick = 124;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -279,6 +295,13 @@ internal static class NetProtocol
     /// next free one.</b></para>
     /// </summary>
     public const int SideRequestAssignmentPress = 2;
+
+    // Results-only presses reuse the existing reliable native side-action
+    // request fields. DataInt2 identifies the exact shared Results opening;
+    // native host callbacks retain readiness/animation/actor authority.
+    public const int SideRequestResultsContinue = 3;
+    public const int SideRequestResultsReturn = 4;
+    public const int SideRequestResultsRetry = 5;
 
     /// <summary>Local sampling / send rate (Hz). ~15 Hz unreliable, interpolated on the receiver.</summary>
     public const float SendRateHz = 15f;
@@ -632,7 +655,201 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 753;
+    public const ushort ModBuild = 770;
+
+    // ModBuild770 — paired769 confirms complete common Results content, but
+    // guests see their own scrolling late and shared frame motion trails grabs.
+    // Project accepted small scroll states onto the visible inert content and
+    // handles, including after a later graph paint. Carry bounded live Results
+    // poses independently of reliable picture fragments, through the existing
+    // common move register and interpolation. Motion cannot bootstrap an opening
+    // or supersede content ordering. Native callbacks, source animations/audio,
+    // continuation authority, other streams and wire grammar remain unchanged.
+    // See MP770-INTEGRATION.md for affected-only proof and hardware limits.
+
+    // ModBuild769 — paired768 Results can remain at the completed Victory
+    // heading with no missing-original warning. Actual sampled enabled-state
+    // transitions change property membership and require new full pictures.
+    // Replacing an unfinished same-opening full on every such revision can
+    // prevent any statistics picture from completing. Finish that active full,
+    // retaining only the latest waiting full and its exact cumulative delta;
+    // new opening/author and explicit close still supersede immediately.
+    // Add bounded queued/assembled/displayed receipts and actual built-DLL
+    // capture/head coverage. Native opening controllers, animation/audio,
+    // continuation authority, other streams and wire grammar remain unchanged.
+    // See MP769-INTEGRATION.md for the source-real counterexample and limits.
+
+    // ModBuild768 — paired767 observer Results still froze on another native
+    // runtime GUI material texture. Replace per-report admission with a Results-
+    // scoped catalogue of audited unambiguous original texture descriptors.
+    // A conflicting background sprite uses its exact immutable native root
+    // widget reference rather than choosing either same-name texture.
+    // The default registry, original widget/material contracts, native actions
+    // and wire layouts remain unchanged. Reproduce heading-to-statistics and
+    // late discovery across the complete native material dependency census.
+    // See MP768-INTEGRATION.md and its owned asset/consumer reviews.
+
+    // ModBuild767 — paired766 Results picture follow-up. A late duplicate of
+    // the audited original DXT5 flow map blocked every subsequent observer
+    // picture while native shared scroll inputs kept working at the author.
+    // Admit only that exact native descriptor; exercise late scanning and
+    // complete scrolling pictures with the actual compressed texture/mips.
+    // The Results handle uses the same published native frame on both peers,
+    // independent of private visible-ink/hover classification.
+    // See MP767-INTEGRATION.md for bounded scope and hardware limitations.
+
+    // ModBuild766 — paired765 Results input and footer follow-up.
+    // Qualify visitor scrolling through the actual converted laser/scroll
+    // consumer and keep native continuation controls in a reserved footer,
+    // outside the list's clipping and scrolling area. Original native votes,
+    // callback permissions, common scroll ordering and wire layouts remain.
+    // See MP766-INTEGRATION.md for causal evidence and bounded qualification.
+
+    // ModBuild765 — paired764 shared Results input/continuation follow-up.
+    // Inactive observer pictures register their own nested input canvas before
+    // reveal. Every visitor scrolls one author-ordered viewport. Original
+    // Results readiness controls retain correct Player-mode visibility and
+    // explicit visitor presses request the host's original live callback.
+    // No automatic votes, synthetic completion or GVR codec/layout changes.
+    // See MP765-INTEGRATION.md for bounded qualification and native/HMD limits.
+
+    // ModBuild764 — paired763 follow-up. Enroll a late visitor only into an
+    // exact, successfully completed native intro of the current scenario. The
+    // original finish releases card setup and queued victory; session/peer
+    // story identities retire independently. Combat-log native size and user
+    // resize persist. Nested creator frames remain complete; source-empty
+    // stereo-to-mono handback preserves the first plain-window head frame.
+    // See MP764-INTEGRATION.md for actual causes, final scope, qualification,
+    // retained failures and hardware acceptance limits.
+
+    // ModBuild763 — paired762 shared-window follow-up. Native Results stage
+    // highlights retain the audited original 3DNoise texture identity; full
+    // serialized material coverage exposes the formerly missing dependency.
+    // Video mirrors establish their initial pose once, then yield continuous
+    // movement/resize to the existing common resolver. No wire layout changes.
+    // See MP763-INTEGRATION.md for actual evidence and verification boundaries.
+
+    // ModBuild762 — every visitor can scroll a genuine shared multiplayer window;
+    // its original native scroll target has one common ordered input/state author.
+    // Private window scrolling remains local. Explicit test cheats gain online
+    // paths through native game authority, retaining opt-in and incompatible-peer
+    // admission. See MP762-INTEGRATION.md for final implementation and proof.
+
+    // ModBuild761 — paired759 multiplayer presentation review.
+    // The exact ESC player chooser now retires with its native pause-menu owner.
+    // Public HAND forced-pick identity and physical occupancy travel atomically in
+    // additive124; frozen39 keeps its original Discard/Burn semantics. Native
+    // flights retain their exact public source rather than mixed guessed fronts.
+    // World health/modifier symbols receive no MR readability plates. Original
+    // rest silhouettes glow, and initiative edge clicks reach the actual avatar
+    // Graphic/callback instead of stopping at its smaller parent rect.
+    // Live figure loops follow the exact native producer/model generation; their
+    // original clip, spatial settings and gameplay callback timing are retained.
+    // Results uses independent29/30+125 and the common shared-world gesture law;
+    // original native ready/gameplay authority remains separate from presentation.
+    // Original GUI/VFX alpha coverage is corrected only for the VR scene camera;
+    // RGB, program, depth and stencil remain native. See MP761-INTEGRATION.md for
+    // concrete causes, source-bound proof and unverified hardware boundaries.
+
+    // ModBuild760 — retain complete windows at maximum zoom-in.
+    // A native millimeter-per-pixel host made raw unit-axis cross products
+    // smaller than Unity's absolute Normalize cutoff, producing a zero plane
+    // normal and undefined 0/0 reconstructed UI depth. Explicit scale-free
+    // axis/cross normalization supplies the shared head, mono and flat-menu
+    // consumers without changing window size, pose, native choice or protocol.
+    // Regression proof includes real environment depth and the complete
+    // ESC -> owned confirmation -> ESC capture transition; RGB alone is not
+    // sufficient because a permissive GL driver can still paint NaN depth.
+
+    // The same undelivered760 candidate also fixes new-character card scrolling:
+    // pointer-only plain EventTriggers yield wheel input to the actual ancestor
+    // handler, retaining explicitly authored/custom wheel handlers. Floated native
+    // full-screen roots keep their original authored design frame; their16:9
+    // capture domain no longer follows desktop aspect, preserving raster density.
+    // Exact pointer/caster and owned captured-camera leases bypass only OS mouse
+    // remapping. Admitted world panels use their committed physical interaction
+    // bounds rather than the desktop mono viewport. Genuine/native input and
+    // unowned canvases keep their original route; native filters and callbacks
+    // remain authoritative. No desktop camera/projection or wire change.
+
+    // ModBuild759 — preserve original confirmations at small world scales.
+    // Generic blackout guards recognize exact producer-owned confirmation leases
+    // instead of hiding their native canvases again immediately after reveal.
+    // Recover a distant progression story through a finite shared flight, yielding
+    // to native closure, manual grips, opening/authority changes and room making.
+    // Additional action explanations are owner-authored Always/Never/AfterDelay
+    // hints (default 150 seconds); remote boards show the same accepted text.
+    // Original decisions, common world metrics and the wire grammar are unchanged.
+
+    // ModBuild758 — comprehensive SP/MP progression-safety review.
+    // Isolate every mod event/mode observer so one failure cannot consume another
+    // owner's unlock or scene edge. Canceled queued card work releases its four
+    // mod admission latches without running native actions or success callbacks.
+    // Complete only the original successful card-animation cancellation's missing
+    // UI-liveness flag; preserve native exceptions and replacement generations.
+    // Refuse native enhancement-sale joining guards before their phantom-confirm
+    // latch, and keep original enchantress controls reachable if the optional
+    // ability fan has failed. Unavailable optional grab lessons cannot hold the
+    // scripted tutorial. Late-camera confirmations receive their first pose once;
+    // independent window content probes cannot starve another original's recovery.
+    // Cosmetic peer teardown failures no longer skip identity retirement or other
+    // owners' releases, and reentrant new peer identities survive old retirement.
+    // Native hand+round/phase/extra-turn rules drive both forced-rest cues. Existing
+    // shared banners explain actual choices and prolonged original automatic waits;
+    // bounded ordinary logs retain each wait's local-ready/completion context.
+    // No synthetic ACK, forced decision, rule phase, save or protocol change.
+    // These source-proven repairs do not establish the historical Issue27 cause.
+
+    // ModBuild757 — keep initiative entries in their original row plane.
+    // A native world-x tween can run before the first adopted LateTick or before
+    // a new batch is observed. Prime at conversion, retain the clean pre-batch
+    // latch, restore known/authored entry planes after original layout, and apply
+    // the plan in the first visible frame. Preserve native order and slide curve.
+    // Static held-figure/prop info snapshots now remove ordinary native popup
+    // controllers as well as singletons before activation. Refused copies stay
+    // inactive and retry only for a changed hold/source. Original live UI stays.
+    // The issue27 video/logs do not identify one captured stall: recorded native
+    // callbacks and synchronization barriers complete. No synthetic ACK, rule
+    // advancement or claimed turn-stall repair is added. Wire remains v3.
+
+    // ModBuild756 — paired753 campaign creation and progression presentation review.
+    // Repeated provisional creation reused different quest rolls on creator and
+    // observer. Retain the original local result within the exact native command
+    // origin/save/player/class/name context; no RNG rewrite or synthetic action.
+    // Native perk summary pool cells wholly outside their own original frame
+    // are clipped for capture only; valid summaries and actual hover remain.
+    // Starting-card views yield only the creation preview; quest ready badges
+    // follow original tab/confirm eligibility. Pooled depth helpers are rebound,
+    // not added twice. Enemy initiative info uses physical depth, current board
+    // order and the actual portrait seat; remote activated cards wait for the
+    // complete native burn/source departure and their arrival flight.
+    // New scenario arrivals normalize extreme remembered zoom; a rig replacement
+    // retires stale world-grab anchors. The maintainer explicitly permits an open
+    // progression story to be recovered after three seconds far outside the
+    // measured playfield: one author, manual grips win, existing shared pose
+    // channel, no native continuation. No ordinary window recall is added.
+    // Insufficient hand cards quietly accent available rest controls locally
+    // and remotely. One proven pending decision/readiness owner gets a delayed
+    // head-tag arrow; ordinary optional-use bars never imply blocked progress.
+    // Existing native/presentation records supply these cues; wire stays v3.
+
+    // ModBuild755 — update prompts participate in ordinary world-window depth.
+    // The standalone update canvas stayed at sorting order zero while the main
+    // menu grab bar drew in its owner's foreground slot, overpainting the nearer
+    // prompt. Register the actual dialog frame in the existing standalone panel
+    // order ladder after placement, and unregister it on close/replacement.
+    // Keep existing window geometry, materials, input, update callbacks and the
+    // shared ordering implementation; no new always-on-top tier or wire change.
+
+    // ModBuild754 — keep confirmations inside fitted native owner windows.
+    // The 1.2.3 multiplayer report combines a stalled turn with off-screen
+    // Main Menu/Exit Game confirmations. Since Build742 these prompts belong
+    // to their original ESC producer, whose full-screen root can be shifted
+    // away from its compact visible VR frame. Seat root-owned prompts at that
+    // frame without changing native scale, callbacks, nested producer ownership
+    // or consent. The separate turn stall remains unproven without peer logs:
+    // compared turn/board/transport paths retain their 1.2.1 behavior. Never
+    // bypass native end-of-turn presentation or participant acknowledgements.
 
     // ModBuild753 — useful naming-page character size beside the keyboard.
     // Hardware review accepts752's quest page but the narrow naming strip

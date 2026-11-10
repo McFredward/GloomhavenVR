@@ -293,47 +293,18 @@ internal static class BurnCommitWatch
     /// So <c>AnimatingLostCards</c> standing true is the exact fingerprint of that wait not
     /// returning, and it is readable offline and online alike.</para>
     ///
-    /// <para><b>IT IS AN INSTRUMENT AND NOTHING ELSE, AND THE 2026-09-07 ROUND RE-ASKED WHETHER
-    /// THAT STILL HOLDS AT 479. IT DOES — but not for the reason this text used to give.</b>
-    /// The old wording ("the card is gone, the answer is given, and nothing advances") asserted that
-    /// the park is terminal. <b>The game ships its own recovery and it was never read:</b>
-    /// <c>CardsHandUI.OnDisable()</c> (CardsHandUI.cs:1149-1152) calls
-    /// <c>CancelAnimateCardLost()</c> (:1154-1179), which — when <c>animatedLosingCard</c> is
-    /// true — runs <c>OnClearLeanTweens()</c> (cancels every tween and CLEARS the
-    /// <c>animations</c> list, :1181-1188), <c>StopAllCoroutines()</c>, restores the layout, and
-    /// then <b>invokes <c>onAnimateCardLostCallback</c></b> (:1177) — which IS
-    /// <c>GameState.PlayerAvoidingDamage</c> + <c>Hide()</c> / <c>ShowLongRested</c>, the exact
-    /// callback the park withholds. So the flow is released by the next thing that deactivates the
-    /// hand, and this mod does not stand in the way of that:
-    /// <c>Cards.Patches.HandSuppression</c> is alpha-only by design (it forces the hand WINDOW's
-    /// CanvasGroup to 0 and states so in as many words), and neither
-    /// <c>CardsHandUI.Hide</c>/<c>ShowOrHideInternal</c> nor <c>CardsHandManager.SwitchHand</c> is
-    /// patched anywhere in <c>src/</c>. Shipping a remedy on top of a live game recovery would be a
-    /// second writer racing the first, so there is still none — deliberately, and now for a measured
-    /// reason instead of an assumed one.</para>
+    /// <para>This watch remains read-only. The original OnDisable recovery calls
+    /// CancelAnimateCardLost, restores its layout/lock and invokes the native callback.
+    /// NativeCardAnimationLifetime now completes that successful endpoint's missing UI flag
+    /// write; it never calls the callback again or interrupts a running iterator. Exceptions
+    /// and replacement generations refuse the repair and retain their original behavior.</para>
     ///
-    /// <para><b>WHAT THAT RECOVERY DOES NOT DO — and it is the thing to carry forward.</b>
-    /// <c>CancelAnimateCardLost</c> never writes <c>AnimatingLostCards = false</c>. The ONLY writer
-    /// of false is CardsHandUI.cs:1115, the coroutine's last statement — which
-    /// <c>StopAllCoroutines()</c> has just killed. So every recovery LATCHES that flag true, and a
-    /// latched <c>AnimatingLostCards</c> permanently strands
-    /// <c>Choreographer.WaitTriggerAnyOnLongRestAddActiveBonuses</c>, whose whole body is
-    /// <c>yield return new WaitWhile(() =&gt; hand.AnimatingLostCards); </c>
-    /// <c>GameState.TriggerAnyOnLongRestAddActiveBonuses();</c> (Choreographer.cs:14471-14476).
-    /// That is a rule-engine call, on the LONG REST path, behind a wait that can never end. It is a
-    /// GAME defect the mod may not repair — <c>AnimatingLostCards</c> has a private setter and
-    /// writing it would be presentation code writing game state — so it is NAMED here and measured
-    /// by <see cref="TickAnimation"/> instead.</para>
-    ///
-    /// <para><b>AND IT IS WHY THIS WATCH NEEDED A SECOND TERM.</b> Read on
-    /// <c>AnimatingLostCards</c> alone, a recovered flow and a parked one are the same reading, and
-    /// the watch would have reported a lost turn for a flow that had in fact advanced — an
-    /// instrument asserting a cause it cannot observe. <c>CardsHandUI.animatedLosingCard</c>
-    /// (private, publicized) separates them: it is set true beside the flag at :1020 and false by
-    /// BOTH endings, the normal one at :1107 and the cancel at :1160. So
-    /// <c>AnimatingLostCards &amp;&amp; animatedLosingCard</c> is the coroutine genuinely parked,
-    /// and <c>AnimatingLostCards &amp;&amp; !animatedLosingCard</c> is the game's own recovery
-    /// having run with its flag left behind.</para>
+    /// <para>Read both lifetime terms. AnimatingLostCards with animatedLosingCard true can
+    /// indicate a genuinely running or parked iterator. A true flag with animatedLosingCard
+    /// false may instead mean canceled bookkeeping, a reentrant replacement or an exception;
+    /// it does not by itself prove that the completion callback was delivered. The original
+    /// Choreographer.WaitTriggerAnyOnLongRestAddActiveBonuses waits on AnimatingLostCards,
+    /// so retain the complete lifecycle/exception context when reporting either state.</para>
     /// </summary>
     internal static void Arm(CardsHandUI? hand)
     {
@@ -395,14 +366,13 @@ internal static class BurnCommitWatch
                 "StartCoroutine being refused on an inactive hand object — look for a 'Coroutine couldn't " +
                 "be started' line, and for a 'BURN COMMIT RESCUE' line just above this one. If the RESCUE " +
                 "line is present and this one still fired, the coroutine started and something ELSE " +
-                "swallowed it. THE NEXT SUSPECT IS THE WaitUntil AT CardsHandUI.cs:1103, NOT " +
-                "OnDisable: 'CardsHandUI.OnDisable -> CancelAnimateCardLost -> StopAllCoroutines' " +
-                "stood here for several builds and CANNOT be the cause — CancelAnimateCardLost " +
-                "(CardsHandUI.cs:1154-1178) releases the UI lock and INVOKES " +
-                "onAnimateCardLostCallback before nulling it, so that path advances the flow " +
-                "rather than swallowing it. AnimateCardsLost's own 'yield return new WaitUntil(() " +
-                "=> animations.Count == 0)' has no timeout of any kind, and everything the rules " +
-                "need runs after it. Read the BURN ANIM STUCK line below for that half. Reported " +
+                "interrupted it. THE NEXT SUSPECT IS THE original WaitUntil at CardsHandUI.cs:1103; " +
+                "this search marker does not establish a cause. Inspect native callback " +
+                "exceptions and cancellation/replacement evidence before assigning a " +
+                "cause. Successful original CancelAnimateCardLost invokes the original callback; " +
+                "its returned UI animation flag alone does not prove rule/network completion. " +
+                "AnimateCardsLost's own 'yield return new WaitUntil(() => animations.Count == 0)' " +
+                "has no timeout. Read the BURN ANIM STUCK line below for that half. Reported " +
                 "once per commit.");
         }
         catch (System.Exception ex)
@@ -453,12 +423,9 @@ internal static class BurnCommitWatch
                     // HW-VERIFY: grep token "BURN ANIM STUCK CLEARED".
                     VRLog.Note("Cards",
                         $"BURN ANIM STUCK CLEARED after {now - _animRunningSince:0.0}s — " +
-                        "CardsHandUI.AnimatingLostCards came back down after all, so the " +
-                        "WaitUntil(animations.Count == 0) returned and the flow's completion " +
-                        "callback ran. The turn was not lost. NOTE this is the ONLY ending that " +
-                        "clears the flag (CardsHandUI.cs:1115): the game's own recovery path, " +
-                        "CancelAnimateCardLost, leaves it latched true, so a recovery reaches the " +
-                        "BURN ANIM FLAG LATCHED verdict instead and never this line.");
+                        "CardsHandUI.AnimatingLostCards came back down. The animation lifetime " +
+                        "completed, or successful original cancellation bookkeeping was restored. " +
+                        "This UI flag alone does not prove native rule/network continuation.");
                 }
                 Disarm();
                 return;
@@ -468,12 +435,10 @@ internal static class BurnCommitWatch
                 return;
 
             _animReported = true;
-            // THE DECIDING FIELD. `AnimatingLostCards` alone cannot tell a coroutine that is still
-            // parked from one the game has already CANCELLED and completed — both read true, because
-            // CancelAnimateCardLost never clears the flag (see Arm's doc). `animatedLosingCard` is
-            // false in BOTH endings and true only while the coroutine is live, so it is the term
-            // that separates a lost turn from a leftover flag. Without it this alert would report a
-            // stranded flow for a flow that had advanced.
+            // A running iterator and leftover presentation bookkeeping are different incidents.
+            // Original cancellation omits the final flag clear; successful native cleanup is now
+            // repaired at that endpoint. Exception or replacement cases deliberately remain intact.
+            // Neither flag independently establishes callback delivery or rule/network progress.
             bool coroutineLive = hand.animatedLosingCard;
             if (!coroutineLive)
             {
@@ -482,20 +447,15 @@ internal static class BurnCommitWatch
                     $"BURN ANIM FLAG LATCHED: {now - _animRunningSince:0.0}s after this client's " +
                     "lose/burn commit, CardsHandUI.AnimatingLostCards is still true on " +
                     $"'{HandName(hand)}' but animatedLosingCard is FALSE — so AnimateCardsLost is " +
-                    "NOT parked: the game's own CancelAnimateCardLost (CardsHandUI.cs:1154-1179, " +
-                    "reached from OnDisable at :1149) cancelled the tweens, cleared the animations " +
-                    "list, stopped the coroutine and INVOKED onAnimateCardLostCallback — the burn " +
-                    "answer was delivered and the turn was NOT lost. What is left behind is the " +
-                    "flag: the only writer of false is the coroutine's own last line (:1115), which " +
-                    "StopAllCoroutines had already killed. READ IT SO: this is a GAME defect the mod " +
-                    "may not repair (private setter; writing it would be presentation code writing " +
-                    "game state), and its consequence is NOT this burn — it is that " +
+                    "NOT marked as a running iterator. Original successful CancelAnimateCardLost " +
+                    "cleanup now releases this UI flag through NativeCardAnimationLifetime, so a " +
+                    "remaining flag may indicate an exception, a replacement animation request or " +
+                    "another lifetime path. The flag alone does NOT prove the callback ran. " +
+                    "Retain the surrounding exception and CARD ANIMATION CANCEL COMPLETED context. " +
                     "Choreographer.WaitTriggerAnyOnLongRestAddActiveBonuses " +
                     "(Choreographer.cs:14471-14476) is a WaitWhile on hand.AnimatingLostCards " +
-                    "followed by GameState.TriggerAnyOnLongRestAddActiveBonuses(), so on THIS hand " +
-                    "that rule call can never run again for the rest of the scenario. If this line " +
-                    "appears in a session where a long rest later failed to apply its on-long-rest " +
-                    "bonuses, those two facts are the same fact.");
+                    "followed by GameState.TriggerAnyOnLongRestAddActiveBonuses(); that continuation " +
+                    "cannot run until the real presentation lifetime ends. Reported once per commit.");
                 return;
             }
             // HW-VERIFY: grep token "BURN ANIM STUCK".
@@ -520,12 +480,12 @@ internal static class BurnCommitWatch
                 "for that other reading). It is not necessarily terminal: the game's own OnDisable " +
                 "reaches CancelAnimateCardLost (CardsHandUI.cs:1149/1154), which cancels the tweens " +
                 "and invokes onAnimateCardLostCallback, so the next thing that deactivates this " +
-                "hand releases the answer — which is why no remedy is shipped here. THIS HALF OF " +
+                "hand releases the answer. The cancellation repair completes that successful native " +
+                "cleanup; it does not interrupt a live animation. THIS HALF OF " +
                 "THE WATCH RUNS OFFLINE TOO — the phase " +
                 "half above cannot, because FFSNet.ActionProcessor.CurrentPhase only means anything " +
                 "online, and gating the WHOLE watch on that left single player with no instrument at " +
-                "all. Reported once per commit; no remedy is shipped, deliberately — the game " +
-                "already has one and a second writer would race it.");
+                "all. Reported once per commit; no forced phase advance or repeated answer is issued.");
         }
         catch (System.Exception ex)
         {

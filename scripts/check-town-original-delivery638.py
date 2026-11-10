@@ -160,7 +160,7 @@ namespace GloomhavenVR.Core {{ internal static class VRLog {{
     if args.controls:
         variants = {
             "historical-unreliable-original": replace_once(bindings,
-                "_sendArgs[2] = !ReferenceEquals(bytes, _versionAnnouncement)\n            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);", "_sendArgs[2] = true;"),
+                "\n            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length)", ""),
             "unreliable-version-discovery": replace_once(bindings,
                 "!ReferenceEquals(bytes, _versionAnnouncement)", "true"),
             "missing-finally-restoration": replace_once(bindings,
@@ -184,7 +184,13 @@ namespace GloomhavenVR.Core {{ internal static class VRLog {{
         ):
             insertion = "        if (type == NetProtocol.MsgPresentationCompression) return false;\n" if label.startswith("compressed") \
                 else "        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgPresentationBatch) return false;\n"
-            selector.write_text(replace_once(original_selector, signature, insertion + signature))
+            # The Results stream has its own compressed-page parser now. Keep
+            # this original-artwork counterfactual on the exact Town parser;
+            # batched admission remains the common production HasPage method.
+            subject = method(original_selector, "private static bool TownOriginalAt(") if label.startswith("compressed") \
+                else method(original_selector, "private static bool HasPage(")
+            mutated = replace_once(subject, signature, insertion + signature)
+            selector.write_text(replace_once(original_selector, subject, mutated))
             result = run(label)
             caught = result.returncode != 0 and "FAIL  " in result.stderr
             controls.append({"name": label, "caught_by_assertion": caught})

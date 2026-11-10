@@ -189,6 +189,16 @@ internal static class TutorialGrabStep
         if (!string.Equals(messageDismissed.TitleKey, AfterTitleKey, StringComparison.OrdinalIgnoreCase))
             return;
 
+        // This extra lesson teaches an optional capability. Its actual driver
+        // returns before adoption/grabbing when the user's master switch is off;
+        // holding native TB_11 in that state used to require the 300-second error
+        // ceiling to recover. Leave the original scripted chain untouched instead.
+        if (!FigureGrabConfig.GrabFigures.Value)
+        {
+            _doneThisScenario = true;
+            return;
+        }
+
         // Already holding a mini? Then the player has performed the taught action before being
         // asked, and the step is complete before it starts. Do NOT hold the chain and do NOT open
         // a window to teach what was just demonstrated.
@@ -250,6 +260,15 @@ internal static class TutorialGrabStep
         if (!inTutorial)
         {
             Finish("the tutorial context ended (scenario left, or the message handler is gone)");
+            return;
+        }
+
+        // A player can disable figure grabbing after this lesson has armed or
+        // appeared. Retire only our own step and replay the original held messages
+        // through their existing path; never require an unavailable taught action.
+        if (!FigureGrabConfig.GrabFigures.Value)
+        {
+            Finish("figure grabbing was disabled while its optional lesson was pending");
             return;
         }
 

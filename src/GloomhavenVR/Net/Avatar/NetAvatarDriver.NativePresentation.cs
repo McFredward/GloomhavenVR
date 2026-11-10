@@ -33,6 +33,12 @@ internal sealed partial class NetAvatarDriver
         // native member census and final material/sorting state must belong to this frame.
         try { driver.SendTownServices(); }
         catch (Exception e) { driver.LogPhaseError("Sample native town services", e); }
+        // Results shares this final visual-writer boundary. Its own29/30 stream
+        // remains independent of town content and the ordinary presence snapshot.
+        try { SharedWindowScrollSync.LateTick(Time.unscaledTime); }
+        catch (Exception e) { driver.LogPhaseError("Sample shared window scroll", e); }
+        try { driver._resultsPresentation.Tick(); driver.TickResultsSend(Time.unscaledTime); }
+        catch (Exception e) { driver.LogPhaseError("Sample native results presentation", e); }
         // The use-bar pass already drained the queue earlier. Newly captured town artwork
         // may use a remaining slot; the transport's existing budget keeps its send cadence.
         if (driver._transport is FfsNetTransport ffs)
@@ -181,6 +187,7 @@ internal sealed partial class NetAvatarDriver
 
     private void ApplyNativePresentation()
     {
+        ApplyResults();
         ApplyMapButtonTooltip();
         ApplyTownServices();
         ApplyItemAppearance();
@@ -225,10 +232,12 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); }
+    { SharedWindowScrollSync.ForgetPeer(sender); ForgetResultsMotion(sender); ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); _pendingResults.Remove(sender); _resultsRevisions.Remove(sender); _resultsBases.Remove(sender); _resultsLatestData.Remove(sender); _resultsQueued.Remove(sender); }
 
     private void ResetNativePresentation()
     {
+        SharedWindowScrollSync.Reset();
+        ResetResults();
         ResetTownServices();
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         ResetItemAppearance();

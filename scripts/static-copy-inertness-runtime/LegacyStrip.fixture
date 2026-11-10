@@ -1,0 +1,33 @@
+// Exact583c2282e legacy method bodies; only method name/signature adaptation is below.
+internal static bool StripLogicComponents(GameObject copy, out int stripped) { stripped=LegacyStripLogicComponents(copy);return true; }
+private static int LegacyStripLogicComponents(GameObject copy)
+    {
+        int stripped = 0;
+        MonoBehaviour[] behaviours = copy.GetComponentsInChildren<MonoBehaviour>(true);
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            MonoBehaviour mb = behaviours[i];
+            if (mb == null || !IsSingletonDerived(mb.GetType()))
+                continue;
+            Object.DestroyImmediate(mb);
+            stripped++;
+        }
+        UIWindow[] windows = copy.GetComponentsInChildren<UIWindow>(true);
+        for (int i = 0; i < windows.Length; i++)
+        {
+            if (windows[i] == null)
+                continue;
+            Object.DestroyImmediate(windows[i]);
+            stripped++;
+        }
+        return stripped;
+    }
+private static bool IsSingletonDerived(System.Type type)
+    {
+        for (System.Type? t = type; t != null; t = t.BaseType)
+        {
+            if (t.IsGenericType && t.Name == "Singleton`1")
+                return true;
+        }
+        return false;
+    }

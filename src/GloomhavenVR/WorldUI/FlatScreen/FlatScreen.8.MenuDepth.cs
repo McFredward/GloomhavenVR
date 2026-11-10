@@ -181,6 +181,7 @@ internal sealed partial class FlatScreen
             _menuDepthPhysicalScale = new Vector2(DepthSide(left) * physical, DepthSide(right) * physical);
             var leftEye = new MenuDepthEye(false, left, head);
             var rightEye = new MenuDepthEye(true, right, head);
+            Vector3 normal = MenuDepthProjection.PlaneNormal(_quad.transform);
             _menuDepthBoundsMapper ??= MapHeadBoundsEye;
             _menuDepthBoundsApplies ??= OwnsHeadBoundsGraphic;
             RectInt region = MenuDepthSources.HeadRegion(null, _quad.transform.localToWorldMatrix, new Rect(-.5f, -.5f, 1f, 1f),
@@ -191,19 +192,19 @@ internal sealed partial class FlatScreen
                 CaptureMenuDepthUi(filter.Target, sampledLeft);
                 CollectMenuDepthHeadAnnotations();
                 filter.Resolve(_menuDepthCarrierLeft ?? _uiRt, sampledLeft, _quad.transform.position,
-                    Vector3.Cross(_quad.transform.TransformVector(Vector3.right), _quad.transform.TransformVector(Vector3.up)).normalized,
+                    normal,
                     _quad.transform.worldToLocalMatrix, new Rect(-.5f, -.5f, 1f, 1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
                 CaptureMenuDepthUi(filter.Target, sampledRight);
                 CollectMenuDepthHeadAnnotations();
                 filter.Resolve(_menuDepthRight!, sampledRight, _quad.transform.position,
-                    Vector3.Cross(_quad.transform.TransformVector(Vector3.right), _quad.transform.TransformVector(Vector3.up)).normalized,
+                    normal,
                     _quad.transform.worldToLocalMatrix, new Rect(-.5f, -.5f, 1f, 1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
             }
             _menuDepthHeadMaterial ??= MenuDepthDisplay.CreateDisplayMaterial(_menuDepthCarrierLeft!, _menuDepthRight!);
             if (_glassMaterial.HasProperty("_Color")) _menuDepthHeadMaterial.SetColor("_Color", _glassMaterial.GetColor("_Color"));
             MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,
                 new MenuDepthEye(false,left,head), new MenuDepthEye(true,right,head), _quad.transform.position,
-                Vector3.Cross(_quad.transform.TransformVector(Vector3.right),_quad.transform.TransformVector(Vector3.up)).normalized);
+                normal);
             CollectMenuDepthHeadAnnotations();
             MenuDepthDisplay.SetHeadClip(_menuDepthHeadMaterial, _quad.transform.worldToLocalMatrix,
                 new Rect(-.5f,-.5f,1f,1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);

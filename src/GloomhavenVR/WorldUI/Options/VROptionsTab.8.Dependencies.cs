@@ -219,6 +219,7 @@ internal static partial class VROptionsTab
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair
         //      folds on every board; the variant filter then shows the selected board's.
         ["Cards/TrayFollow"] = new("Cards", "WristBoardEnabled", Off),
+        ["Cards/ProgressHelpDelaySeconds"] = new("Cards", "ProgressHelpMode", Named("AfterDelay")),
         ["Cards/WristBoardHand"] = new("Cards", "WristBoardEnabled", On),
         ["Cards/WristBoardOffsetMeters"] = new("Cards", "WristBoardEnabled", On),
         ["Cards/WristBoardAnglesDegrees"] = new("Cards", "WristBoardEnabled", On),

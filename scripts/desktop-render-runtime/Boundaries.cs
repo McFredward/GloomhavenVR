@@ -37,6 +37,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed partial class FlatScreen
     {
+        private static FlatScreen? _coverageOwner = null; // Instance-owner observation is unused in this desktop-only fixture.
         private bool _visible;
         private bool _mirrorLogged;
         private RenderTexture? _rt, _uiRt;

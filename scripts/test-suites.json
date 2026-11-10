@@ -3132,6 +3132,51 @@
       "weight": 10
     },
     {
+      "id": "window-plane-normal",
+      "command": [
+        "bash",
+        "scripts/window-plane-normal-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "ugui-scroll760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-scroll760-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "ugui-coordinates760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-coordinates760-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "native-ui-pointer760-runtime",
+      "command": [
+        "python3",
+        "scripts/ugui-coordinates760-runtime/run.py",
+        "--common"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
       "id": "menu-depth-character",
       "command": [
         "python3",
@@ -3329,6 +3374,304 @@
         "local"
       ],
       "weight": 2
+    },
+    {
+      "id": "campaign-creation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-campaign-creation-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "initiative-popup-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-popup-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "multiplayer-progression-runtime",
+      "command": [
+        "python3",
+        "scripts/check-multiplayer-progression-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "initiative-row-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-row-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "static-copy-inertness-runtime",
+      "command": [
+        "python3",
+        "scripts/check-static-copy-inertness-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "card-progress-lifetime",
+      "command": [
+        "python3",
+        "scripts/check-card-progress-lifetime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "event-dispatch",
+      "command": [
+        "python3",
+        "scripts/check-event-dispatch.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "peer-retirement",
+      "command": [
+        "bash",
+        "scripts/peer-retirement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "esc-roster-close",
+      "command": [
+        "python3",
+        "scripts/check-esc-roster-close.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "public-hand-pick-runtime",
+      "command": [
+        "python3",
+        "scripts/check-public-hand-pick-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "figure-audio-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-audio-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "results-window-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-window-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "mr-scene-symbol761",
+      "command": [
+        "python3",
+        "scripts/mr-scene-symbol761/run.py",
+        "--output",
+        ".planning/debug/mr-scene-symbol761"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "steamlink-material-scope",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-transparent-materials/run.py",
+        "--output",
+        ".planning/debug/steamlink-material-scope",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-native-alpha",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-transparent-materials/run.py",
+        "--native-alpha-only",
+        "--output",
+        ".planning/debug/steamlink-native-alpha",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-native-shader-preservation",
+      "command": [
+        "python3",
+        "scripts/steamlink-scene-render/check-native-variants.py",
+        "--root",
+        ".",
+        "--bank",
+        "src/GloomhavenVR/Assets/SteamLink/scene.bundle",
+        "--output",
+        ".planning/debug/steamlink-native-shader-preservation/result.json"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "results-presentation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-presentation-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "results-transport-runtime",
+      "command": [
+        "python3",
+        "scripts/check-results-transport-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "scenario-results-control-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-results-control-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "shared-window-scroll-runtime",
+      "command": [
+        "python3",
+        "scripts/shared-window-scroll-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "multiplayer-cheats-runtime",
+      "command": [
+        "python3",
+        "scripts/check-multiplayer-cheats.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "video-window-pose-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-window-pose-runtime.py",
+        "--unity-video"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "combatlog-runtime",
+      "command": [
+        "python3",
+        "scripts/check-combatlog-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "scenario-start-visitor-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-start-visitor-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "selection-story-native-runtime",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.SelectionLateJoinTests/run.py",
+        "--native-story"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
     }
   ]
 }

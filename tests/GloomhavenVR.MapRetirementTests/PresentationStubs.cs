@@ -160,6 +160,7 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.GameObject HostGo = null!;
         public bool IsAlive => !HostGo.Destroyed;
         public bool FitHeightCapped, FrameDriftLogged;
+        public UnityEngine.Vector2 NativeDesignFrame;
         public string FitHeightCapName = "";
     }
     // Conversion is the established presentation dependency, not the defect being tested.

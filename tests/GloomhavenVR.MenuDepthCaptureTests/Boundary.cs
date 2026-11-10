@@ -107,12 +107,16 @@ namespace GloomhavenVR.WorldUI
             CaptureMenuDepth(head);
         }
         internal static void Synchronize(Entry entry) => SyncProjection(entry);
+        // Fixed native allocation/geometry is an explicit input; these exact
+        // production projection/display kernels supply ServiceEntry's geometry
+        // seam without importing its unrelated allocator/diagnostic lifecycle.
+        private static void SyncGeometry(Entry entry) { SyncProjection(entry); SyncDisplayPose(entry); }
         internal static void ResolveMono(Entry entry) => ResolveAndMip(entry);
         private static float AskedMipLodOffset() => 0f; // Explicit original sampler preference input.
         private static bool IsMoving(Entry entry) => false; // Diagnostic counter input; camera geometry is exercised independently.
         // Explicit editor tick boundary; native frame scheduling is not emulated
         // by a replacement renderer. Actual enabled cameras execute Camera.Render.
-        internal static void Visibility(Entry entry) { entry.NextCaptureFrame = Time.frameCount; SyncVisibility(entry); }
+        internal static void Visibility(Entry entry) { entry.NextCaptureFrame = Time.frameCount; ServiceEntry764(entry); }
         internal static void CaptureAgain(Camera head) => CaptureMenuDepth(head);
         internal static void Clear()
         {

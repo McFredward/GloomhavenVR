@@ -24,6 +24,10 @@ internal static partial class ModalFallback
     /// </summary>
     private sealed class WindowPanel
     {
+        public readonly StoryRecoveryDwell StoryRecovery = new();
+        public Vector3 StoryRecoverySeat;
+        public StoryRecoveryFlight? StoryRecoveryFlight;
+        public StoryRecoveryFlight? StoryRecoveryPublication;
         // Opening-scoped reflow only: no periodic lost-window recall. One fallback admission can
         // be followed by one late native content-fit correction during the first three seconds.
         public float ReflowOpenedAt = -1f;

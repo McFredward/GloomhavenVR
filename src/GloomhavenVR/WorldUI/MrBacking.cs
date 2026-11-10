@@ -846,7 +846,7 @@ internal static partial class MrBacking
                     break;
                 }
             }
-            if (!alive || p.MrBackingSuppressed)
+            if (!alive || p.MrBackingSuppressed || MrBackingSceneSymbols.Contains(p.Target))
             {
                 // A released panel's plate died with its host (Unity-null here); a suppressed
                 // live panel's plate is mod-owned and must go explicitly.
@@ -860,7 +860,8 @@ internal static partial class MrBacking
         {
             ConvertedPanel panel = active[i];
             RectTransform? host = panel.HostRect;
-            if (host == null || panel.HostGo == null || panel.MrBackingSuppressed)
+            if (host == null || panel.HostGo == null || panel.MrBackingSuppressed
+                || MrBackingSceneSymbols.Contains(panel.Target))
                 continue;
 
             PanelEntry? entry = null;

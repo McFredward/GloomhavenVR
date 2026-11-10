@@ -21,6 +21,14 @@ internal static class Program
         CardsGameApi.Selected = _foreign;
         CardsGameApi.Decision = null;
         ModalFallback.BlockingWindowModalActive = false;
+#if NATIVE_STORY_PROOF
+        Singleton<StoryController>.Instance = new StoryController();
+        StoryController.DisplayDelayInEffect = false;
+        FFSNet.ActionProcessor.Locks = 0;
+        FFSNet.ActionProcessor.CurrentPhase = FFSNet.ActionPhaseType.StartOfRound;
+        SceneController.Instance = new SceneController();
+        FFSNet.Synchronizer.ReadyNotifications = 0;
+#endif
         CardActionQueue.Actions.Clear();
         VRLog.Lines.Clear();
         Time.frameCount = 100;
@@ -104,6 +112,72 @@ internal static class Program
         CardActionQueue.Pump(); Frame(driver);
         Check(ReferenceEquals(CardsHandManager.Instance.CurrentHand, replacementHand), "Queued repair must follow the fresh actor rather than the stale assignment");
         Check(driver.Wanted == 3 && VRLog.Lines.Single().Contains("'replacement'"), "The recovered overlay and lifecycle report must both identify the fresh native hand");
+
+#if NATIVE_STORY_PROOF
+        // Paired763: the hidden original intro remains visible to native state,
+        // so both the card presenter watchdog and overlays correctly refuse work.
+        // Shared-story authority/occurrence matching is tested upstream; consume
+        // its successful original callback here without bypassing any card gate.
+        driver = Reset();
+        var story = Singleton<StoryController>.Instance;
+        story.OpenNative();
+        ModalFallback.BlockingWindowModalActive = story.IsVisible;
+        for (int i = 0; i < 200; ++i) Frame(driver);
+        Check(driver.Wanted == 0 && !driver.Queued && CardsHandManager.Instance.NativeSwitches == 0,
+            "A pending original intro must preserve the read-only floor and defer recovery");
+        Check(FFSNet.ActionProcessor.Locks == 1 && Choreographer.s_Choreographer.UpdateBlockers == 1,
+            "The actual native intro must hold both gameplay and choreography locks");
+        story.NativeFinish();
+        Check(FFSNet.ActionProcessor.Locks == 0 && Choreographer.s_Choreographer.UpdateBlockers == 0,
+            "Successful native story completion must release both original locks");
+        Check(!story.IsVisible && story.NativeCompletions == 1 && SceneController.Instance.GameLoadedAndClientReady,
+            "Original story completion must close its native window and retain native client readiness");
+        Check(FFSNet.Synchronizer.ReadyNotifications == 1,
+            "The native finish path must retain its original reliable ready notification");
+        ModalFallback.BlockingWindowModalActive = story.IsVisible;
+        QueueRepair(driver); CardActionQueue.Pump(); Frame(driver);
+        Check(ReferenceEquals(CardsHandManager.Instance.CurrentHand, _myHand) && driver.Wanted == 3,
+            "A completed latejoin intro must restore the owned hand and both real placement overlays without reloading");
+        Check(CardsHandManager.Instance.NativeSwitches == 1,
+            "Native story completion must not manufacture a second hand-switch callback");
+
+        driver = Reset(); CardsHandManager.Instance.CurrentHand = _myHand;
+        story = Singleton<StoryController>.Instance;
+        story.OpenNative(2); // A genuine successor must still block gameplay.
+        Frame(driver);
+        Check(driver.Wanted == 0, "A visible native story must suppress placement even for an already-owned hand");
+        story.NativeFinish(); ModalFallback.BlockingWindowModalActive = story.IsVisible;
+        Frame(driver);
+        Check(story.IsVisible && driver.Wanted == 0 && FFSNet.ActionProcessor.Locks == 1
+            && Choreographer.s_Choreographer.UpdateBlockers == 1,
+            "A genuine queued successor must keep both native locks and placement refusal");
+        story.NativeFinish(); ModalFallback.BlockingWindowModalActive = story.IsVisible;
+        Frame(driver);
+        Check(!story.IsVisible && driver.Wanted == 3 && story.NativeCompletions == 2,
+            "Only finishing the genuine successor may restore placement on the owned hand");
+
+        driver = Reset(); _mine.ListedMine = false;
+        story = Singleton<StoryController>.Instance; story.OpenNative();
+        ModalFallback.BlockingWindowModalActive = true; Frame(driver);
+        story.NativeFinish(); ModalFallback.BlockingWindowModalActive = story.IsVisible;
+        for (int i = 0; i < 10; ++i) Frame(driver);
+        Check(SceneController.Instance.GameLoadedAndClientReady && FFSNet.ActionProcessor.Locks == 0,
+            "A visitor without a character must also complete native story readiness");
+        Check(driver.Wanted == 0 && !driver.Queued && CardsHandManager.Instance.NativeSwitches == 0,
+            "An unassigned visitor must remain unable to place cards after native story completion");
+
+        driver = Reset(); story = Singleton<StoryController>.Instance;
+        story.OpenNative(); story.FailCompletion = true;
+        ModalFallback.BlockingWindowModalActive = true;
+        bool failed = false;
+        try { story.NativeFinish(); } catch (InvalidOperationException) { failed = true; }
+        Frame(driver);
+        Check(failed && story.IsVisible && FFSNet.ActionProcessor.Locks == 1
+            && Choreographer.s_Choreographer.UpdateBlockers == 1 && driver.Wanted == 0,
+            "A throwing native finish must preserve its native locks and placement refusal");
+        Check(!SceneController.Instance.GameLoadedAndClientReady && FFSNet.Synchronizer.ReadyNotifications == 0,
+            "A failed native finish must not manufacture a successful client-ready notification");
+#endif
         Console.WriteLine($"Selection latejoin: {_assertions} production-bound assertions passed.");
     }
 }

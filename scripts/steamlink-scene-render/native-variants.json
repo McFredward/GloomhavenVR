@@ -1,0 +1,55 @@
+{
+  "schema": "native-alpha-variants-v1",
+  "scope": "Original installed2021.3.5f1 Shader programs; only fixed alpha blend-factor values differ.",
+  "variants": [
+    {
+      "name": "GUI/AbilityCard_Add_Shd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle",
+      "path_id": 8953540694620679159,
+      "shader_sha256": "4aee65ad5c6f51e94fb225273d42b50bc589b7ac56d069e7f7cee22ba1e923f9",
+      "program_sha256": "abc23a8d63db824d50ba623d477b3535655fa1ff37c166ba149d86d2bd3a10a2"
+    },
+    {
+      "name": "GUI/AbilityCard_Shd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle",
+      "path_id": 7314317428712670795,
+      "shader_sha256": "fbd49fffa5bb88c6a448a659d87f41b6d2507f37ddd5def25afde34c00f9bb49",
+      "program_sha256": "c516fa367bcb4e9a9190c490386e31cf380bff6a3c793bfe60896ea9b3c2d4ef"
+    },
+    {
+      "name": "ParticleTrailShd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle",
+      "path_id": 8272294740900048146,
+      "shader_sha256": "bd66f4efac14c1ac09aa5671bc2a7eec6c0e7641ddd8cb517cd573f503889f42",
+      "program_sha256": "fbbc513a2da6a64d944c75333ff1dca642ffadcd744c1d4ed113318394a0f89a"
+    },
+    {
+      "name": "SimpleParticleAlphaDFade",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle",
+      "path_id": 6452364448751993984,
+      "shader_sha256": "2b762b9bae15e7ff8850df0cf169bf1a2d25d3c4a91db330da9af7e8a7d68f61",
+      "program_sha256": "238bf247428c1edb54a14dbc8f2edba019d26acdbd9ad908167bfdb507f29f9c"
+    },
+    {
+      "name": "VFX/GUI_Smoke_Shd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle",
+      "path_id": -8792178770634145600,
+      "shader_sha256": "7cb290c96a7ab16f0c4c417c7892c35a7a2de23930d4c92932d554e2f05cd961",
+      "program_sha256": "f682f63f7342842f3a731be704192bde520189dbadeffcaa479e1bdb1e036685"
+    },
+    {
+      "name": "VFX/ParticleFlow_Blend_Shd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle",
+      "path_id": -2302863409600467767,
+      "shader_sha256": "acf002d81b96c7fa3a87b563eba8da32842493ac685a8e6fe64737b27ec9beef",
+      "program_sha256": "c6cf3ba5c068dbb476460535cc660a9a037ef7ef989bb5b5cc1ad1730c60a009"
+    },
+    {
+      "name": "VFX/ParticleMasterUnlitBlend_Shd",
+      "source": "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle",
+      "path_id": -6934996250685069645,
+      "shader_sha256": "d207df5d63a21027dd1f903fbabf35ed589e34a48e70d4fbc1220f40aacc67c5",
+      "program_sha256": "c7896a65ba7d74c0bde7ec1e5367d9de52e75bf0fecbbacab99ff8d60ac26a15"
+    }
+  ]
+}

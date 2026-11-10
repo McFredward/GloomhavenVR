@@ -492,7 +492,7 @@ public static partial class MenuDepthProgram
             Head.orthographic = false; Head.fieldOfView = 2f * Mathf.Atan(.9f / 3f) * Mathf.Rad2Deg; Head.aspect = 16f / 9f; Head.cullingMask = 1 << 27;
             Head.clearFlags = CameraClearFlags.SolidColor; Head.backgroundColor = Color.black;
             _result = new RenderTexture(320, 180, 24); _result.Create(); Head.targetTexture = _result; VRRigDriver.HeadCamera = Head;
-            Entry = new PanelSupersample.Entry { Panel = new ConvertedPanel { HostRect = Panel }, Cam = capture,
+            Entry = new PanelSupersample.Entry { Panel = new ConvertedPanel { HostRect = Panel, HostCanvas=go.GetComponent<Canvas>(), HostGo=go }, Cam = capture,
                 CamGo = capture.gameObject, DisplayGo = display, Rt = rt, MipRt = mip, DisplayImage = raw,
                 Frame = Panel.rect, RtW = rt.width, RtH = rt.height, VramBytes = (long)rt.width * rt.height * 40 / 3 };
             PanelSupersample.Add(Entry); PanelSupersample.Synchronize(Entry);
@@ -505,9 +505,15 @@ public static partial class MenuDepthProgram
         {
             if(camera==Entry.Cam && !MenuDepthDisplay.IsCapturing(camera)) PanelSupersample.ResolveMono(Entry);
         }
-        internal void Capture()
+        internal void Capture(bool ordinaryLateTick = true)
         {
             PrepareEye(false);
+            if (ordinaryLateTick)
+            {
+                PanelSupersample.Visibility(Entry);
+                Canvas.ForceUpdateCanvases();
+                if (Entry.Cam.enabled) Entry.Cam.Render();
+            }
             PanelSupersample.Capture(Head);
             Head.Render(); // Complete the actual observing head draw and restore its photograph lease.
             if (Entry.MenuDepthDisplay != null)

@@ -29,13 +29,15 @@ public static partial class MenuDepthCardProgram
     public static IEnumerator RunHeadText736(string output) => RunCore(output, false, headTextOnly: true);
     public static IEnumerator RunLevelUpHover738(string output) => RunCore(output, false, levelUpHoverOnly: true);
     public static IEnumerator RunMoreCards747(string output) => RunCore(output, false, moreCardsOnly: true);
+    public static IEnumerator RunPerkClip756(string output) => RunCore(output, false, perkClipOnly: true);
 
-    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false, bool levelUpHoverOnly = false, bool moreCardsOnly = false)
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false, bool levelUpHoverOnly = false, bool moreCardsOnly = false, bool perkClipOnly = false)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
         var observer = new Harmony(native.Id + ".observer");
         native.CreateClassProcessor(typeof(NativePorts)).Patch();
+        if (perkClipOnly) native.CreateClassProcessor(typeof(PerkClipPorts756)).Patch();
         if (nativeHoverOnly) native.CreateClassProcessor(typeof(NativeHoverPorts)).Patch();
         if (levelUpHoverOnly || moreCardsOnly) native.CreateClassProcessor(typeof(LevelUpHoverPorts738)).Patch();
         if (moreCardsOnly)
@@ -52,7 +54,15 @@ public static partial class MenuDepthCardProgram
         if (headTextOnly) observer.CreateClassProcessor(typeof(HeadMeshObserver736)).Patch();
         try
         {
-            if (moreCardsOnly)
+            if (perkClipOnly)
+            {
+                using (var scene = new Scene(1, headRaster: true))
+                {
+                    IEnumerator proof = scene.ProvePerkClip756();
+                    while (proof.MoveNext()) yield return proof.Current;
+                }
+            }
+            else if (moreCardsOnly)
             {
                 using (var scene = new Scene(1, headRaster: true))
                 {
@@ -420,6 +430,13 @@ public static partial class MenuDepthCardProgram
 
         private IEnumerator ProveLifecycle()
         {
+            var pooled = new Card(typeof(UIScenarioAttackModifier), _root, 12);
+            var inherited = pooled.Rect.gameObject.AddComponent<MenuDepthCardPlane>(); inherited.enabled=false;
+            pooled.Rect.gameObject.SetActive(true);MenuDepthDriver.ObserveOwner(pooled.Owner);MenuDepthDriver.Tick();
+            Check(ReferenceEquals(inherited,pooled.Rect.GetComponent<MenuDepthCardPlane>())&&inherited.IsReady
+                &&pooled.Rect.GetComponents<MenuDepthCardPlane>().Length==1,
+                "a native pooled widget rebinds its inherited presentation helper immediately without a forbidden duplicate");
+            pooled.Rect.gameObject.SetActive(false);
             _head.transform.SetPositionAndRotation(new Vector3(.25f, .08f, -.60f), Quaternion.LookRotation(new Vector3(-.25f, -.08f, .60f), Vector3.up));
             foreach (Type type in new[] { typeof(FullAbilityCard), typeof(ItemCardUI) })
             {

@@ -22,7 +22,7 @@ internal static class Program
         internal readonly CanvasGroup[] CellStates=new CanvasGroup[4];
         internal Fixture()
         {
-            MapQuestReadyRoster.Reset();VRLog.Warnings.Clear();MapRoomDriver.Active=true;FFSNetwork.IsOnline=true;Time.frameCount+=10;Time.unscaledTime+=1;
+            MapQuestReadyRoster.Reset();GloomhavenVR.WorldUI.LoadoutConfirmPark.WantsShown=true;VRLog.Warnings.Clear();MapRoomDriver.Active=true;FFSNetwork.IsOnline=true;Time.frameCount+=10;Time.unscaledTime+=1;
             Hud=Rect("Native HUD",width:1920,height:1080);Quest=Window("Quest card",1000);Loadout=Window("Character window",1080);Ready=Window("Native pooled ready",65);
             Toggle=Ready.gameObject.AddComponent<UIReadyToggle>();Singleton<UIReadyToggle>.Instance=Toggle;Ready.gameObject.layer=23;
             Ink("Original native button",Ready.transform,0,0,307,65);
@@ -72,6 +72,19 @@ internal static class Program
             Check(MapQuestReadyRoster.NoticeOwner==null,"stale quest cannot display assignment notice during city event");
             f.Tick(prior,previous,f.Ready.gameObject);
             Check(ReferenceEquals(f.Bar.parent,f.Ready.transform),"late previous-phase parker cannot override current city ownership");
+            f.NativeCellsUnchanged();
+        }
+        f=new Fixture();f.Toggle.readyUpToggleState=EReadyUpToggleStates.NotSet;
+        f.Tick(ReadyRosterSite.EnterDungeon,f.Loadout,f.Ready.gameObject);
+        Check(ReferenceEquals(f.Bar.parent,f.Loadout.transform),"native personal-quest loadout presents its original readiness crests");
+        foreach(string tab in new[]{"cards","perks","cards"})
+        {
+            GloomhavenVR.WorldUI.LoadoutConfirmPark.WantsShown=false;
+            f.Tick(ReadyRosterSite.EnterDungeon,f.Loadout,f.Ready.gameObject);
+            Check(ReferenceEquals(f.Bar.parent,f.Hud)&&MapQuestReadyRoster.Bar==null,"readiness crests leave non-confirmable "+tab+" tab immediately");
+            GloomhavenVR.WorldUI.LoadoutConfirmPark.WantsShown=true;
+            f.Tick(ReadyRosterSite.EnterDungeon,f.Loadout,f.Ready.gameObject);
+            Check(ReferenceEquals(f.Bar.parent,f.Loadout.transform),"return to native personal-quest loadout restores original readiness crests");
             f.NativeCellsUnchanged();
         }
         f=new Fixture();f.City();
