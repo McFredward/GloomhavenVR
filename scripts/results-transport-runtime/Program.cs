@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine;
+using Random = System.Random;
 using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 
@@ -29,7 +32,7 @@ internal static class ResultsTransportProof
         try
         {
             if (Environment.GetEnvironmentVariable("GVR_RESULTS_NATIVE_ENABLED") != null) NativeStarvation();
-            else { Ingress(); Emission(); SharedScrollTransport(); PublisherWorkflow(); ResultsQueueLifecycle(); }
+            else { Ingress(); Emission(); SharedScrollTransport(); MotionTransport(); MotionOnlyPublisher(); MotionWorkflow(); PublisherWorkflow(); ResultsQueueLifecycle(); }
             Console.WriteLine("PASS " + _assertions + " exact Results/shared-scroll ingress/emission assertions"); return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
@@ -145,6 +148,153 @@ internal static class ResultsTransportProof
         Check(!source.SendSharedWindowScroll(emitted, emitted.Length, true) && attempts.Count == 3,
             "native reliable control rejection is reported without throwing into gameplay");
         Check(source.EmissionFlagsRestored, "failed control delivery restores ordinary emission flags");
+    }
+
+    private static ScenarioResultsState Motion(ulong revision, uint sequence, float x = 0)
+    {
+        var state = Picture(revision);
+        state.HasPresentation = false; state.Parts = Array.Empty<ScenarioResultsPart>();
+        state.Pose = new RigPose { Position = new Vector3(x, 0, 0), Rotation = Quaternion.identity };
+        state.Move = new SharedWindowMoveEntry { Kind = 7, Phase = SharedWindowMovePhase.Held,
+            ContentKey = state.Key, OpeningAuthor = 1, Opening = 1, Claim = 9, Sequence = sequence };
+        return state;
+    }
+
+    private static void MotionTransport()
+    {
+        var source = new FfsNetTransport(); var motion = Motion(10, 10);
+        byte[] bytes = ScenarioResultsCodec.Write(motion);
+        var attempts = FfsNetTransport.NativeSocket.Attempts; attempts.Clear();
+        Check(source.TrySendResultsMotion(bytes, bytes.Length) && attempts.Count == 1 && attempts[0].Unreliable,
+            "a bounded Results motion sample bypasses reliable artwork with native unreliable delivery");
+        byte[] emitted = attempts[0].Bytes; bytes[0] ^= 0xff;
+        Check(!ReferenceEquals(emitted, bytes) && ScenarioResultsCodec.TryRead(emitted, emitted.Length, out _),
+            "Results motion owns immutable native emission bytes");
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "Results motion validates actual bytes");
+        bytes = ScenarioResultsCodec.Write(Picture(1));
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "Results motion refuses native content pictures");
+        var close = Motion(11, 11); close.Visible = false; bytes = ScenarioResultsCodec.Write(close);
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "Results motion never makes close delivery unreliable");
+        var oversized = new byte[865];
+        Check(!source.TrySendResultsMotion(oversized, oversized.Length), "Results motion never exceeds one native datagram");
+        Check(source.EmissionFlagsRestored, "Results motion restores native delivery flags");
+        bytes = ScenarioResultsCodec.Write(motion); source.IsOnline = false;
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "offline Results motion is inert");
+        source.IsOnline = true; NetSession.FlatNetMode = true;
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "flat-net Results motion is inert");
+        NetSession.FlatNetMode = false; source.SetControlAvailability(false, false);
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "uninstalled Results motion is inert");
+        source.SetControlAvailability(true, true);
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length), "degraded Results motion is inert");
+        source.SetControlAvailability(true, false); FfsNetTransport.NativeSocket.FailNext = true;
+        Check(!source.TrySendResultsMotion(bytes, bytes.Length) && source.EmissionFlagsRestored,
+            "failed Results motion neither throws nor changes the next packet delivery flags");
+
+        var target = new ResultsIngress(); var basis = Picture(20); var future = Motion(24, 24);
+        target.Receive(1, ScenarioResultsCodec.Write(basis)); target.Receive(1, ScenarioResultsCodec.Write(future));
+        Check(target.Take(1)?.Revision == 20 && target.Motion(1)?.Revision == 24,
+            "live motion cannot erase an unapplied complete native picture");
+        var delta = ScenarioResultsDelta.Create(basis, Picture(22, 22))!;
+        target.Receive(1, ScenarioResultsCodec.Write(delta));
+        Check(target.Take(1)?.Revision == 22 && target.Motion(1)?.Revision == 24,
+            "a newer live motion watermark cannot discard an older exact sparse content dependency");
+        target.Receive(1, ScenarioResultsCodec.Write(Motion(23, 23)));
+        Check(target.Motion(1)?.Revision == 24, "out-of-order motion cannot rewind the newest live target");
+    }
+
+    private static string Trace(double at, int sender, ScenarioResultsState state)
+    {
+        SharedWindowMoveEntry move = state.Move!.Value;
+        object[] row = { at, sender, state.Revision, state.HasPresentation ? 1 : 0, state.Visible ? 1 : 0,
+            state.Key, state.Author, state.SampleTime, state.Pose.Position.x, state.Pose.Position.y,
+            state.Pose.Position.z, state.Pose.Rotation.x, state.Pose.Rotation.y, state.Pose.Rotation.z,
+            state.Pose.Rotation.w, state.Size, state.Reference, state.Origin.x, state.Origin.y,
+            state.Origin.z, state.Rotation.x, state.Rotation.y, state.Rotation.z, state.Rotation.w,
+            state.Scale, move.Kind, (byte)move.Phase, move.ContentKey, move.OpeningAuthor,
+            move.Opening, move.Claim, move.Sequence, move.ParentClaim, move.ParentAuthor };
+        return string.Join("\t", Array.ConvertAll(row, value => value is IFormattable number
+            ? number.ToString(null, CultureInfo.InvariantCulture) : value.ToString()));
+    }
+
+    private static void MotionOnlyPublisher()
+    {
+        var publisher = new ResultsIngress(); var attempts = FfsNetTransport.NativeSocket.Attempts; attempts.Clear();
+        for (int sample = 0; sample < 40; sample++)
+        {
+            var state = Picture(1); var live = Motion(1, (uint)sample + 1, sample);
+            state.Pose = live.Pose; state.Move = live.Move;
+            publisher.Publish(state, sample * .07f); publisher.Transport.TickFragments(sample * .07f);
+        }
+        int full = 0, motion = 0;
+        foreach (var packet in attempts)
+            if (ScenarioResultsCodec.TryRead(packet.Bytes, packet.Bytes.Length, out var state) && !state!.HasPresentation) ++motion;
+            else if (PresentationBatch.HasResultsPage(packet.Bytes, packet.Bytes.Length)) ++full;
+        Check(motion == 40 && full <= 6,
+            "a moving static Results picture serializes only its bounded content refreshes and independent tiny poses");
+    }
+
+    private static void MotionWorkflow()
+    {
+        var publisher = new ResultsIngress(); var observer = new ResultsIngress();
+        var receiver = new FfsNetTransport { LocalPlayerId = 2 }; var trace = new List<string>();
+        double delivery = 0; int motionCount = 0, fullCount = 0, dropped = 0;
+        float lastMotionTime = 0, worstGap = 0;
+        receiver.PacketReceived += (sender, bytes, length) =>
+        {
+            Check(observer.Receive(sender, bytes), "motion workflow executes actual Results ingress");
+            var complete = observer.Take(sender);
+            if (complete != null) { ++fullCount; trace.Add(Trace(delivery, sender, complete)); }
+            var current = observer.Motion(sender);
+            if (current != null && current.SampleTime > lastMotionTime)
+            {
+                if (lastMotionTime >= .5f) worstGap = Math.Max(worstGap, current.SampleTime - lastMotionTime);
+                lastMotionTime = current.SampleTime; ++motionCount;
+                trace.Add(Trace(delivery, sender, current));
+            }
+        };
+        var pending = new List<(double At, byte[] Bytes)>();
+        var attempts = FfsNetTransport.NativeSocket.Attempts; attempts.Clear();
+        int delivered = 0, emittedMotion = 0;
+        for (int frame = 0; frame <= 450; frame++)
+        {
+            float now = frame / 90f;
+            ScenarioResultsState state = now < .5f ? Picture(1) : Stats(now);
+            var live = Motion(1, (uint)frame + 1, now < .5f ? 0 : (now - .5f) * 2f);
+            state.Move = live.Move; state.Pose = live.Pose;
+            publisher.Publish(state, now); publisher.Transport.TickFragments(now);
+            while (delivered < attempts.Count)
+            {
+                var packet = attempts[delivered++];
+                bool tiny = ScenarioResultsCodec.TryRead(packet.Bytes, packet.Bytes.Length, out var sample)
+                    && !sample!.HasPresentation;
+                if (tiny)
+                {
+                    Check(packet.Unreliable && packet.Bytes.Length <= 864,
+                        "each live pose is independent of the reliable incomplete native graph");
+                    ++emittedMotion;
+                    if (emittedMotion % 13 == 0) { ++dropped; continue; }
+                }
+                else Check(!packet.Unreliable, "motion does not weaken complete native picture reliability");
+                double jitter = tiny && emittedMotion % 11 == 0 ? .11 : (frame % 3) * .006;
+                pending.Add((now + .02 + jitter, packet.Bytes));
+            }
+            pending.Sort((a, b) => a.At.CompareTo(b.At));
+            while (pending.Count > 0 && pending[0].At <= now)
+            {
+                var packet = pending[0]; pending.RemoveAt(0); delivery = now;
+                receiver.Dispatch(1, packet.Bytes);
+            }
+        }
+        Console.WriteLine($"MOTION emitted={emittedMotion}, received={motionCount}, full={fullCount}, worst source gap={worstGap:F3}s");
+        Check(motionCount >= 45 && emittedMotion <= 76 && dropped > 0 && worstGap < .24f,
+            "actual producer and receiver retain bounded fifteen-Hz motion despite loss, jitter and a fragmented native graph");
+        Check(fullCount > 1, "independent live movement leaves complete native picture progress intact");
+        string? output = Environment.GetEnvironmentVariable("GVR_RESULTS_MOTION_TRACE_OUT");
+        if (output != null) File.WriteAllLines(output, trace);
+        // A stalled source never sends a burst of historical poses on its next frame.
+        int before = attempts.Count; publisher.Publish(Stats(), 20);
+        Check(attempts.Count <= before + 1, "a stalled Results publisher emits at most one current live pose");
+        Console.WriteLine($"MOTION emitted={emittedMotion}, received={motionCount}, full={fullCount}, worst source gap={worstGap:F3}s, trace={output}");
     }
 
     private static ScenarioResultsState Stats(float x = 0)
@@ -313,7 +463,9 @@ internal static class ResultsTransportProof
             publisher.Transport.TickFragments(now);
             while (delivered < attempts.Count)
             {
-                var packet = attempts[delivered++]; Check(packet.Bytes.Length <= 864 && !packet.Unreliable,
+                var packet = attempts[delivered++];
+                bool motion = ScenarioResultsCodec.TryRead(packet.Bytes, packet.Bytes.Length, out var decoded) && !decoded!.HasPresentation;
+                Check(packet.Bytes.Length <= 864 && (motion ? packet.Unreliable : !packet.Unreliable),
                     "native sampled Stats retains reliable bounded emission");
                 client.Receive(packet.Bytes, now, false);
             }

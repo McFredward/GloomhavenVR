@@ -46,7 +46,8 @@ def main():
     parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return','results-poses','video-mirror'), default='complete', help='Partial development reproduction; requires --case production')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
-    if args.scenario != 'complete' and args.case != ['production']: parser.error('Partial scenarios require exactly --case production')
+    results_cases = {'production', 'results-stale-full-rewind', 'results-motion-resets'}
+    if args.scenario != 'complete' and args.case != ['production'] and not (args.scenario == 'results-poses' and args.case and set(args.case) <= results_cases): parser.error('Partial scenarios require production, or explicit bounded Results pose controls')
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir)).resolve()
@@ -166,6 +167,11 @@ def main():
              'if (!NativeVideoWindow.SharedInitialPoseReady\n            && RemoteMapStory.TryVideoSharedInitialPose(',
              'if (RemoteMapStory.TryVideoSharedInitialPose(',
              'revealed mirror follows the physical shared drag: native/scenario/host'),
+            ('results-stale-full-rewind', 'ResultsPose.cs',
+             'if (PoseRevisions.TryGetValue(sender, out ulong previous) && state.Revision <= previous) return original;',
+             'if (bool.Parse("false")) return original;', 'delayed complete Results content cannot rewind the newer independent live pose'),
+            ('results-motion-resets', 'ResultsPose.cs', 'if (_mover != sender) { Track.Reset(); _mover = sender; }',
+             'if (true) { Track.Reset(); _mover = sender; }', 'actual Results producer and pose consumer remain smooth under incomplete heavy content, jitter, loss and late full pictures'),
             ('results-foreign-author', 'ResultsPose.cs',
              'state.Author != SharedWindowSpawnAuthority.AuthorId', 'false',
              'results refuses a foreign content author'),
@@ -303,6 +309,18 @@ def main():
             ('reward-writer-seat-domain', 'Map.cs', 'if (scenarioFrame)', 'if (scenarioFrame && bool.Parse("false"))',
              'the actual reward sampler keeps WorldFrame2 even while parchment geometry is available'),
         ]
+        trace_path = os.environ.get('GVR_RESULTS_MOTION_TRACE')
+        if trace_path:
+            incoming_trace = Path(trace_path).resolve()
+            trace_bytes = incoming_trace.read_bytes()
+            owned_trace = run / 'results-motion-trace.tsv'
+            owned_trace.write_bytes(trace_bytes)
+            (run / 'motion-input.json').write_text(json.dumps({'source': str(incoming_trace), 'copy': str(owned_trace), 'sha256': hashlib.sha256(trace_bytes).hexdigest(), 'projection': 'All exact production decoded fields consumed by ScenarioResultsPose, with native delivery times; content graph stays in transport companion.'}, indent=2) + '\n')
+            os.environ['GVR_RESULTS_MOTION_TRACE'] = str(owned_trace)
+        else:
+            if args.case and 'results-motion-resets' in args.case:
+                parser.error('results-motion-resets requires GVR_RESULTS_MOTION_TRACE from the transport companion')
+            variants = [item for item in variants if item[0] != 'results-motion-resets']
         if args.case:
             unknown = set(args.case) - {item[0] for item in variants}
             if unknown:

@@ -12,21 +12,21 @@ def member(text, signature):
         if depth==0:return text[start:end+1]
     raise ValueError(signature)
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/results-transport-runtime');p.add_argument('--native-samples',nargs=2,type=Path,metavar=('ENABLED','DISABLED'));args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/results-transport-runtime');p.add_argument('--case',action='append');p.add_argument('--native-samples',nargs=2,type=Path,metavar=('ENABLED','DISABLED'));args=p.parse_args()
     args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()));completion=run/'completion.log';completion.write_text('evidence: '+str(run)+'\n');print('evidence: '+str(run),flush=True)
     source=ROOT/'src/GloomhavenVR/Net';driver=(source/'Avatar/NetAvatarDriver.Results.cs').read_text();transport=(source/'FfsNetTransport.cs').read_text()
     kernel='using System;using System.Collections.Generic;using GloomhavenVR.Core;namespace GloomhavenVR.Net;\n'
     kernel+='internal sealed partial class ResultsIngress {\n'
-    for name in ['_pendingResults','_resultsRevisions','_resultsBases','_resultsLatestData','_resultsQueued']:
+    for name in ['_pendingResults','_resultsRevisions','_pendingResultsMotion','_resultsMotionRevisions','_resultsBases','_resultsLatestData','_resultsQueued']:
         kernel+=next(line for line in driver.splitlines() if 'private readonly Dictionary' in line and ' '+name+' ' in line)+'\n'
     for name in ['_resultsPeers','_resultsPresentation','_resultsSendProgress','_resultsReceiveProgress','_sentResults','_resultsPublishingAuthor','_resultsRevision','_nextResultsCapture']:
         kernel+=next(line for line in driver.splitlines() if ' '+name+' ' in line or ' '+name+',' in line or ' '+name+';' in line)+'\n'
-    for signature in ['private void TickResultsSend(', 'private static ScenarioResultsState CopyResultsPose(', 'private static bool SameResults(', 'private bool QueueResults(', 'private void QueueResultsReady(']:
+    for signature in ['private void TickResultsSend(', 'private void SendResultsMotion(', 'private static ScenarioResultsState CopyResultsPose(', 'private static bool SameResultsPose(', 'private static bool SameResults(', 'private bool QueueResults(', 'private void QueueResultsReady(']:
         kernel+=member(driver,signature)+(';' if 'CopyResultsPose' in signature else '')+'\n'
     kernel+='}\n'
     kernel+='internal sealed partial class FfsNetTransport {\n'
     kernel+=transport[transport.index('    private readonly ExtrasFragments _fragments'):transport.index('    private readonly ExtrasSendScheduler _extrasQueue')]+'\n'
-    for signature in ['internal void TickFragments(', 'private void SendToken(', 'internal bool TrySendResults(', 'internal bool SendSharedWindowScroll(', 'private bool SendReliableTownPacket(', 'private void RaiseReceived(']:
+    for signature in ['internal void TickFragments(', 'private void SendToken(', 'internal bool TrySendResults(', 'internal bool TrySendResultsMotion(', 'internal bool SendSharedWindowScroll(', 'private bool SendReliableTownPacket(', 'private void RaiseReceived(']:
         kernel+=member(transport,signature)+'\n'
     kernel+='}\n'
     # Only the original native clock and diagnostic sink are substituted. The
@@ -50,14 +50,24 @@ def main():
             ('lossy-shared-scroll','_sendArgs[2] = false;','_sendArgs[2] = true;','shared scroll uses native reliable ordered delivery'),
             ('lost-scroll-author-route','_sendArgs[3] = hostOnly;','_sendArgs[3] = false;','shared scroll requests route to the native host when requested'),
             ('unvalidated-shared-scroll','SharedWindowScrollCodec.TryRead(payload, length, out _)','length > 0','malformed scroll input never reaches the native socket'),
-            ('borrowed-scroll-buffer','var bytes = new byte[length];\n            Buffer.BlockCopy(payload, 0, bytes, 0, length);','var bytes = payload;','shared scroll emission owns immutable bytes after caller reuse'),
+            ('borrowed-scroll-buffer','var bytes = new byte[length];\n            Buffer.BlockCopy(payload, 0, bytes, 0, length);\n            object token = _customDataCtor.Invoke(new object[] { bytes, false });\n            _sendArgs[1] = token;\n','var bytes = payload;\n            object token = _customDataCtor.Invoke(new object[] { bytes, false });\n            _sendArgs[1] = token;\n','shared scroll emission owns immutable bytes after caller reuse'),
             ('delta-as-full-basis','if (publisher && wire.BaseRevision == 0) _resultsSourceBasis','if (publisher) _resultsSourceBasis','both clients converge to latest Stats sample after coalescing and same-snapshot page reordering'),
             ('cancel-active-full-original','','','stale active full finishes once before the latest full and its dependency-preserving delta'),
+        ]
+        variants += [
+            ('motion-reliable','_sendArgs[1] = token; _sendArgs[2] = true; _sendArgs[3] = false;', '_sendArgs[1] = token; _sendArgs[2] = false; _sendArgs[3] = false;', 'a bounded Results motion sample bypasses reliable artwork with native unreliable delivery'),
+            ('motion-through-artwork','if (!ffs.TrySendResultsMotion(bytes, bytes.Length)) return;', 'if (!ffs.TrySendResults(bytes, bytes.Length, motion)) return;', 'a moving static Results picture serializes only its bounded content refreshes and independent tiny poses'),
+            ('motion-erases-picture','_pendingResultsMotion[sender] = state;', '_pendingResultsMotion[sender] = state; QueueResultsReady(sender, state);', 'live motion cannot erase an unapplied complete native picture'),
+            ('motion-discards-content','if (newer) _resultsRevisions[sender] = state.Revision;', 'if (newer) _resultsRevisions[sender] = state.Revision; if (_resultsMotionRevisions.TryGetValue(sender, out ulong newest) && newest > state.Revision) return true;', 'a newer live motion watermark cannot discard an older exact sparse content dependency'),
+            ('motion-reserializes-content','|| a.HasPresentation != b.HasPresentation || a.FrameSize != b.FrameSize', '|| a.HasPresentation != b.HasPresentation || !a.Pose.Position.Equals(b.Pose.Position) || a.FrameSize != b.FrameSize', 'a moving static Results picture serializes only its bounded content refreshes and independent tiny poses'),
+            ('motion-no-cadence','if (now < _nextResultsCapture) return;', 'if (bool.Parse("false")) return;', 'actual producer and receiver retain bounded fifteen-Hz motion despite loss, jitter and a fragmented native graph'),
         ]
         if samples:
             variants=[('native-starvation-before','','','native sampled Stats must eventually replace the completed heading'),('native-starvation-production','','','')]
             variants += [('native-'+name,'','','new key or author immediately supersedes the old in-flight full') for name in ['lost-new-key-priority','lost-new-author-priority']]
             variants += [('native-lost-close-priority','','','native close immediately supersedes the old in-flight full'),('native-unbounded-full-waiters','','','newer full originals coalesce to one bounded waiter')]
+        if args.case:
+            assert set(args.case)<={x[0] for x in variants};variants=[x for x in variants if x[0] in args.case]
         dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
         for name,before,after,failure in variants:
             case=run/name;case.mkdir();code=kernel
@@ -90,7 +100,7 @@ def main():
             cmd=[dotnet,'build',str(local_project),'-c','Release','--nologo','-v','quiet','--disable-build-servers','-nr:false','-p:StartupObject=ResultsTransportProof',f'-p:CustomAfterMicrosoftCommonTargets={target}',f'-p:OutputPath={case}/bin/',f'-p:BaseIntermediateOutputPath={case}/obj/']
             with (case/'build.log').open('w') as log:child=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT,start_new_session=True);rc=child.wait(timeout=180)
             if rc:raise RuntimeError('Compilation is not accepted as a causal failure: '+name)
-            environment=os.environ.copy()
+            environment=os.environ.copy();environment['GVR_RESULTS_MOTION_TRACE_OUT']=str(case/'motion-trace.tsv')
             if samples:
                 environment['GVR_RESULTS_NATIVE_ENABLED']=samples[0]['copy'];environment['GVR_RESULTS_NATIVE_DISABLED']=samples[1]['copy']
             with (case/'execution.log').open('w') as log:child=subprocess.Popen([dotnet,str(case/'bin/GloomhavenVR.WireTests.dll')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True,env=environment);rc=child.wait(timeout=30)

@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Globalization;
 using GloomhavenVR.Net;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -17,6 +20,8 @@ internal static class ResultsPoseCases
 
     internal static void Run()
     {
+        IndependentMotionOrdering();
+        ReplayProducerMotion();
         Configure(1, true);
         GrabbableModal author = SharedWindows.Grabs[SharedWindowKind.Results];
         author.Root.position = Proof.HostPose.Position; author.Root.rotation = Proof.HostPose.Rotation;
@@ -121,5 +126,104 @@ internal static class ResultsPoseCases
         Proof.Check(ScenarioResultsPose.Author == 2 && ScenarioResultsPose.Key != 0,
             "results one compatible VR surrogate remains movable with a native flat host");
         ScenarioResultsPose.Reset(); SharedWindowMoves.Reset();
+    }
+
+    private static ScenarioResultsState Moving(ulong revision, uint sequence, float x, bool picture = false)
+        => new() { Key = 71, Author = 1, Revision = revision, Visible = true, HasPresentation = picture,
+            Pose = new RigPose { Position = new Vector3(x, 0, 0), Rotation = Quaternion.identity },
+            Move = new SharedWindowMoveEntry { Kind = 7, Phase = SharedWindowMovePhase.Held,
+                ContentKey = 71, OpeningAuthor = 1, Opening = 1, Claim = 9, Sequence = sequence } };
+
+    private static void IndependentMotionOrdering()
+    {
+        Configure(2);
+        var fresh = Moving(10, 10, 10);
+        Proof.Check(!ScenarioResultsPose.Observe(1, fresh) && ScenarioResultsPose.Key == 0
+            && !ScenarioResultsPose.TryInitial(out _, out _, out _),
+            "early independent Results motion cannot manufacture its native opening or picture");
+        var basis = Moving(1, 1, 0, true);
+        Proof.Check(ScenarioResultsPose.Observe(1, basis) && ScenarioResultsPose.Observe(1, fresh),
+            "the retained pre-bootstrap motion applies immediately after its exact full opening");
+        ScenarioResultsPose.Tick();
+        var grab = SharedWindows.Grabs[SharedWindowKind.Results];
+        Proof.Check(Proof.Same(grab.Root.position, new Vector3(10, 0, 0)), "first independent live target reaches the actual grab writer");
+        var late = Moving(5, 5, -100, true); late.Move = null;
+        Proof.Check(ScenarioResultsPose.Observe(1, late), "delayed complete Results content remains admissible after a newer motion revision");
+        ScenarioResultsPose.Tick();
+        Time.unscaledTime += .3f; ScenarioResultsPose.Tick();
+        Proof.Check(Proof.Same(grab.Root.position, new Vector3(10, 0, 0)),
+            "delayed complete Results content cannot rewind the newer independent live pose");
+        Proof.Check(!ScenarioResultsPose.Observe(1, Moving(9, 9, -20)), "out-of-order independent Results pose is rejected");
+        grab.IsGrabbed = true; grab.Root.position = new Vector3(22, 0, 0);
+        ScenarioResultsPose.Observe(1, Moving(11, 11, 11)); ScenarioResultsPose.Tick();
+        Proof.Check(Proof.Same(grab.Root.position, new Vector3(22, 0, 0)), "actual local grip retains physical Results pose authority");
+        grab.IsGrabbed = false;
+        var nextMover = Moving(1, 1, 30); var row = nextMover.Move!.Value; row.Claim = 10; nextMover.Move = row;
+        Proof.Check(ScenarioResultsPose.Observe(3, nextMover), "a different mover uses its own revision clock and the existing winning gesture");
+        ScenarioResultsPose.Tick();
+        Proof.Check(Proof.Same(grab.Root.position, new Vector3(30, 0, 0)), "a new winning Results mover seeds the existing smooth track exactly once");
+        Proof.Check(ScenarioResultsPose.Observe(1, Moving(12, 12, -30, true)), "a losing original writer still updates native Results content");
+        Time.unscaledTime += .3f; ScenarioResultsPose.Tick();
+        Proof.Check(Proof.Same(grab.Root.position, new Vector3(30, 0, 0)), "a losing original writer cannot replace the winning Results mover pose");
+        ScenarioResultsPose.ForgetPeer(3);
+        Proof.Check(!ScenarioResultsPose.TryInitial(out _, out _, out _), "peer retirement discards the retained independent Results motion target");
+        ScenarioResultsPose.ObserveNativeBoundary(out _, out _);
+        ScenarioResultsNative.Window!.IsOpen = ScenarioResultsNative.Window.IsVisible = false;
+        ScenarioResultsPose.ObserveNativeBoundary(out _, out _);
+        Proof.Check(!ScenarioResultsPose.Observe(1, fresh), "native close rejects retained live motion from the retired Results opening");
+        var next = Moving(13, 13, 40, true); next.Key = 72; row = next.Move!.Value;
+        row.ContentKey = 72; row.Opening = 2; next.Move = row;
+        Proof.Check(ScenarioResultsPose.Observe(1, next) && !ScenarioResultsPose.Observe(1, fresh),
+            "a later Results opening accepts its own baseline and rejects old live motion");
+    }
+
+    // The transport companion writes these exact decoded production emissions.
+    // This projection contains every field consumed by ScenarioResultsPose; no
+    // graph reconstruction or interpolation algorithm is substituted here.
+    private static void ReplayProducerMotion()
+    {
+        string? path = Environment.GetEnvironmentVariable("GVR_RESULTS_MOTION_TRACE");
+        if (path == null) return;
+        Configure(2);
+        string[] lines = File.ReadAllLines(path); int at = 0, movingFrames = 0, stalePictures = 0;
+        ulong latestMotion = 0; float worstError = 0, greatestStep = 0, previousX = 0;
+        var grab = SharedWindows.Grabs[SharedWindowKind.Results];
+        for (int frame = 0; frame <= 450; frame++)
+        {
+            float now = frame / 90f; Time.unscaledTime = 10 + now; ++Time.frameCount;
+            while (at < lines.Length)
+            {
+                string[] cells = lines[at].Split('\t');
+                float F(int i) => float.Parse(cells[i], CultureInfo.InvariantCulture);
+                uint U(int i) => uint.Parse(cells[i], CultureInfo.InvariantCulture);
+                int I(int i) => int.Parse(cells[i], CultureInfo.InvariantCulture);
+                if (F(0) > now + .00001f) break;
+                ++at;
+                var state = new ScenarioResultsState { Revision = ulong.Parse(cells[2], CultureInfo.InvariantCulture),
+                    HasPresentation = I(3) != 0, Visible = I(4) != 0, Key = U(5), Author = I(6), SampleTime = F(7),
+                    Pose = new RigPose { Position = new Vector3(F(8), F(9), F(10)), Rotation = new Quaternion(F(11), F(12), F(13), F(14)) },
+                    Size = F(15), Reference = F(16), Origin = new Vector3(F(17), F(18), F(19)),
+                    Rotation = new Quaternion(F(20), F(21), F(22), F(23)), Scale = F(24),
+                    Move = new SharedWindowMoveEntry { Kind = (byte)I(25), Phase = (SharedWindowMovePhase)I(26),
+                        ContentKey = U(27), OpeningAuthor = I(28), Opening = U(29), Claim = U(30),
+                        Sequence = U(31), ParentClaim = U(32), ParentAuthor = I(33) } };
+                if (!state.HasPresentation) latestMotion = Math.Max(latestMotion, state.Revision);
+                else if (state.Revision < latestMotion) ++stalePictures;
+                ScenarioResultsPose.Observe(I(1), state);
+            }
+            ScenarioResultsPose.Tick();
+            if (now > 1 && now < 4.9f)
+            {
+                ++movingFrames; float x = grab.Root.position.x;
+                worstError = Math.Max(worstError, Math.Abs(x - (now - .5f) * 2));
+                greatestStep = Math.Max(greatestStep, Math.Abs(x - previousX));
+            }
+            previousX = grab.Root.position.x;
+        }
+        Proof.Check(at == lines.Length && movingFrames > 300 && stalePictures > 0,
+            "actual Results producer trace reaches the actual consumer with delayed complete native pictures");
+        Proof.Check(worstError < .55f && greatestStep < .15f,
+            "actual Results producer and pose consumer remain smooth under incomplete heavy content, jitter, loss and late full pictures");
+        Console.WriteLine($"RESULTS MOTION consumer frames={movingFrames}, stale full={stalePictures}, maximum world error={worstError:F3}, maximum frame step={greatestStep:F3}");
     }
 }

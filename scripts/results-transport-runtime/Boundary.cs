@@ -13,8 +13,10 @@ namespace GloomhavenVR.Net
     {
         private readonly FfsNetTransport _transport = new();
         internal FfsNetTransport Transport => _transport;
+        internal ScenarioResultsState? Motion(int sender)
+            => _pendingResultsMotion.TryGetValue(sender, out var state) ? state : null;
         internal void Publish(ScenarioResultsState state, float now)
-        { ScenarioResultsPresentation.Current = state; TickResultsSend(now); }
+        { GloomhavenVR.Core.ResultsClock.Now = now; ScenarioResultsPresentation.Current = state; TickResultsSend(now); }
         internal bool Receive(int sender, byte[] bytes) => QueueResults(sender, bytes, bytes.Length);
         internal ScenarioResultsState? Take(int sender)
         {
@@ -89,10 +91,11 @@ namespace GloomhavenVR.Net
     {
         internal static void NotePacket(int sender) { }
         internal static void NoteExtras(int sender, in PresenceState state) { }
+        internal static int CollectCalls;
         internal static void CollectContinuationPeers(List<int> peers, int local)
-        { peers.Clear(); peers.Add(2); peers.Add(3); }
+        { ++CollectCalls; peers.Clear(); peers.Add(2); peers.Add(3); }
     }
-    internal static class SharedWindowMoves { internal static bool HasLocalClaim(SharedWindowKind kind) => false; }
+    internal static class SharedWindowMoves { internal static bool LocalClaim = false; internal static bool HasLocalClaim(SharedWindowKind kind) => LocalClaim; }
     internal enum SharedWindowKind { Results }
     internal static class ScenarioResultsNative
     {
