@@ -655,7 +655,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 769;
+    public const ushort ModBuild = 770;
+
+    // ModBuild770 — paired769 confirms complete common Results content, but
+    // guests see their own scrolling late and shared frame motion trails grabs.
+    // Project accepted small scroll states onto the visible inert content and
+    // handles, including after a later graph paint. Carry bounded live Results
+    // poses independently of reliable picture fragments, through the existing
+    // common move register and interpolation. Motion cannot bootstrap an opening
+    // or supersede content ordering. Native callbacks, source animations/audio,
+    // continuation authority, other streams and wire grammar remain unchanged.
+    // See MP770-INTEGRATION.md for affected-only proof and hardware limits.
 
     // ModBuild769 — paired768 Results can remain at the completed Victory
     // heading with no missing-original warning. Actual sampled enabled-state

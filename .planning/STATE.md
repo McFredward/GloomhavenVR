@@ -1,3 +1,29 @@
+**Responsive shared Results scrolling and motion, Build770, 2026-11-10.**
+
+Paired769/726634d5c now shows the complete common picture. Only the guest sees
+its own scrolling late; the host sees that guest's action promptly. Small ordered
+scroll state previously updated hidden native components, leaving the visible
+inert copy waiting for graph snapshots. Project accepted state onto exact common
+content/handle geometry each frame and after graph paint. Keep native authority,
+ordering and permissions; no local prediction or clone callbacks.
+
+Shared frame motion now uses the existing small Results pose grammar independently
+of reliable picture fragments, with bounded native unreliable delivery and the
+existing common move register/interpolation. Separate queues and pose watermarks
+retain full content progress and reject delayed pose rewind. No new wire fields,
+global scheduler changes, asset changes or gameplay actions. Original opening
+animations/audio, shared absolute geometry and native continuation are retained.
+
+Class B, affected checks only as requested. Final strict Release has zero warnings
+and errors; all16 source suites pass. Independent motion review found no blocker.
+Compiled boundary: four behavior types plus one new internal projection helper,
+eight inlined build stamps, no type removal and32 byte-identical resources. All
+config/Harmony/log surfaces unchanged. Unchanged Build769 full aggregate and wire
+proof are reused; no fresh complete gate or HMD/Photon latency claim. See
+MP770-INTEGRATION/SCROLL/MOTION/REVIEW for targeted counts, controls, failed fixture
+attempts, actual source bindings and explicit ports. Dev-only delivery, both peers
+need770, no ZIP/release/device change. Clean owned runs/worktrees after preservation.
+
 **Shared Results starvation repair, Build769, 2026-11-09.**
 
 Both current hardware logs are768/d18f3cb7c; missing-original warnings are gone.
