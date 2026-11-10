@@ -1,3 +1,24 @@
+**Release 1.2.4 readiness, Build770, 2026-11-10.**
+
+The maintainer reports the paired multiplayer test successful and authorizes
+publication. Preserve the tested335215e70 runtime, assets and ModBuild770; release
+preparation changes only English highlights and this state record. Issue27's
+historical End Turn stall remains explicitly unresolved in the player notes.
+
+Class R audit qualifies complete applicable coverage through the input-bound
+Build769 aggregate297 local scopes/307,211 goldens plus Build770 affected
+2,666 assertions/21 controls, fresh strict0W0E and16 source suites. Independently
+verified328 log hashes,11,653 baseline inputs,9,831 final runtime inputs and both
+worker archives. No new local test is required; this is aggregate coverage, not a
+new successful complete invocation. Original failures and fixture limits remain.
+Audit: `.planning/validation/release124/proof-lane/audit.json`.
+
+Hosted full CI42893353601 succeeds for the exact tested source, including all four
+runtime shards, source/build and completion marker. Final allowed Markdown-only
+descendants must pass the normal trusted proof verifier. The authorized dev-to-main
+merge triggers a fresh release-flag build, package/version checks, verified upload,
+publication and the normal subsequent dev version bump. No local ZIP is built.
+
 **Responsive shared Results scrolling and motion, Build770, 2026-11-10.**
 
 Paired769/726634d5c now shows the complete common picture. Only the guest sees
