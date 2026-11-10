@@ -232,7 +232,7 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { SharedWindowScrollSync.ForgetPeer(sender); ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); _pendingResults.Remove(sender); _resultsRevisions.Remove(sender); _resultsBases.Remove(sender); _resultsLatestData.Remove(sender); _resultsQueued.Remove(sender); }
+    { SharedWindowScrollSync.ForgetPeer(sender); ForgetResultsMotion(sender); ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); _pendingResults.Remove(sender); _resultsRevisions.Remove(sender); _resultsBases.Remove(sender); _resultsLatestData.Remove(sender); _resultsQueued.Remove(sender); }
 
     private void ResetNativePresentation()
     {

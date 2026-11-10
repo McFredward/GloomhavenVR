@@ -13,6 +13,7 @@ internal static class ScenarioResultsPose
     private static ScenarioResultsState? _target;
     private static uint _key, _nextKey;
     private static int _author, _mover;
+    private static readonly Dictionary<int, ulong> PoseRevisions = new();
     private static bool _nativeVisible, _nativeWasShown;
     private static uint _shownKey;
     private static int _shownAuthor, _pendingRetiredAuthor;
@@ -50,7 +51,7 @@ internal static class ScenarioResultsPose
             { _shownAuthor = 0; _shownKey = 0; }
             if (_author == retiredAuthor && _key == retiredKey)
             {
-                SharedWindowMoves.Close(Kind); _target = null; _key = 0; _mover = 0; Track.Reset();
+                SharedWindowMoves.Close(Kind); _target = null; _key = 0; _mover = 0; Track.Reset(); PoseRevisions.Clear();
             }
         }
         _pendingRetiredAuthor = 0; _pendingRetiredKey = 0;
@@ -81,7 +82,7 @@ internal static class ScenarioResultsPose
         if (visible && (!_nativeVisible || _authoredShow != _nativeShow))
         {
             if (++_nextKey == 0) ++_nextKey;
-            _key = _nextKey; _authoredShow = _nativeShow; _target = null; _mover = 0; Track.Reset();
+            _key = _nextKey; _authoredShow = _nativeShow; _target = null; _mover = 0; Track.Reset(); PoseRevisions.Clear();
             SharedWindowMoves.Open(Kind, _key);
             RememberShownKey();
         }
@@ -116,12 +117,15 @@ internal static class ScenarioResultsPose
         bool original = sender == state.Author && state.HasPresentation;
         if (original && (_key != state.Key || _author != state.Author))
         {
-            SharedWindowMoves.Close(Kind); Track.Reset(); _target = null; _mover = 0;
+            SharedWindowMoves.Close(Kind); Track.Reset(); _target = null; _mover = 0; PoseRevisions.Clear();
             _key = state.Key; _author = state.Author;
             SharedWindowMoves.Open(Kind, _key);
         }
         if (state.Key != _key || state.Author != _author) return false;
         RememberShownKey();
+        // Full pictures can finish after a newer live grab sample. They still
+        // update native content, but may never pull the shared frame backwards.
+        if (PoseRevisions.TryGetValue(sender, out ulong previous) && state.Revision <= previous) return original;
         if (state.Move.HasValue)
         {
             SharedWindowMoveEntry move = state.Move.Value;
@@ -129,6 +133,8 @@ internal static class ScenarioResultsPose
             if (!SharedWindowMoves.MayFollow(sender, Kind, _key)) return original;
         }
         else if (!original || SharedWindowMoves.HasLocalClaim(Kind)) return original;
+        if (!PoseRevisions.ContainsKey(sender) && PoseRevisions.Count >= 8) return original;
+        PoseRevisions[sender] = state.Revision;
         if (!state.Visible && original) { _target = null; return true; }
         _target = state;
         if (_mover != sender) { Track.Reset(); _mover = sender; }
@@ -174,11 +180,18 @@ internal static class ScenarioResultsPose
         Rotation = state.Rotation * state.Pose.Rotation
     };
 
+    internal static void ForgetPeer(int sender)
+    {
+        PoseRevisions.Remove(sender);
+        if (_mover != sender) return;
+        _target = null; _mover = 0; Track.Reset();
+    }
+
     internal static void Reset()
     {
         SharedWindowMoves.Close(Kind); _key = 0; _author = _mover = 0;
         _nativeVisible = _nativeWasShown = false; _shownKey = 0; _shownAuthor = 0;
         _nativeShow = _authoredShow = _pendingRetiredKey = 0; _pendingRetiredAuthor = 0;
-        Retired.Clear(); _target = null; Track.Reset();
+        Retired.Clear(); _target = null; Track.Reset(); PoseRevisions.Clear();
     }
 }

@@ -300,6 +300,29 @@ internal sealed class FfsNetTransport : INetTransport
         catch { return false; } // The caller retains its last admitted complete basis.
     }
 
+    internal bool TrySendResultsMotion(byte[] payload, int length)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
+            || !IsOnline || NetSession.FlatNetMode || length > ExtrasFragments.MaxDatagramBytes
+            || !ScenarioResultsCodec.TryRead(payload, length, out ScenarioResultsState? state)
+            || state == null || state.HasPresentation || !state.Visible || state.BaseRevision != 0
+            || state.Parts.Length != 0) return false;
+        try
+        {
+            // Results artwork keeps its reliable, fragmented scheduler. Its small
+            // live grab sample uses the same lossy native side action as rig motion,
+            // so a missing artwork fragment cannot stall a hand-driven window.
+            var bytes = new byte[length];
+            Buffer.BlockCopy(payload, 0, bytes, 0, length);
+            object token = _customDataCtor.Invoke(new object[] { bytes, false });
+            _sendArgs[1] = token; _sendArgs[2] = true; _sendArgs[3] = false;
+            try { _sendSideAction.Invoke(null, _sendArgs); }
+            finally { _sendArgs[2] = true; _sendArgs[3] = false; }
+            return true;
+        }
+        catch { return false; } // A newer sample retries at the ordinary bounded cadence.
+    }
+
     internal bool TrySendTownOriginalReceipt(byte[] payload, int length)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline

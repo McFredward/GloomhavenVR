@@ -10,17 +10,19 @@ internal sealed partial class NetAvatarDriver
 {
     private readonly Dictionary<int, List<ScenarioResultsState>> _pendingResults = new();
     private readonly Dictionary<int, ulong> _resultsRevisions = new();
+    private readonly Dictionary<int, ScenarioResultsState> _pendingResultsMotion = new();
+    private readonly Dictionary<int, ulong> _resultsMotionRevisions = new();
     private readonly List<int> _resultsPeers = new(4);
     private readonly ScenarioResultsPresentation _resultsPresentation = new();
     private readonly ScenarioResultsProgress _resultsSendProgress = new("queued");
     private readonly ScenarioResultsProgress _resultsReceiveProgress = new("assembled");
-    private ScenarioResultsState? _sentResults, _resultsSourceBasis;
-    private int _resultsPublishingAuthor, _resultsPeerFingerprint;
+    private ScenarioResultsState? _sentResults, _resultsSourceBasis, _sentResultsMotion;
+    private int _resultsPublishingAuthor, _resultsPeerFingerprint, _resultsMotionPeerFingerprint;
     private readonly Dictionary<int, List<ScenarioResultsState>> _resultsBases = new();
     private readonly Dictionary<int, ScenarioResultsState> _resultsLatestData = new();
     private readonly Dictionary<int, ulong> _resultsQueued = new();
     private ulong _resultsRevision;
-    private float _nextResultsCapture, _nextResultsRefresh;
+    private float _nextResultsCapture, _nextResultsRefresh, _nextResultsMotionRefresh;
 
     private static void OnResultsWindowVisibility(WindowVisibilityEvent change)
     {
@@ -40,8 +42,8 @@ internal sealed partial class NetAvatarDriver
         {
             // A former observer must release its native draw lease BEFORE it
             // becomes the common publisher, otherwise it would sample its own zero alpha.
-            _resultsPresentation.Reset(); _resultsSourceBasis = _sentResults = null;
-            _resultsPeerFingerprint = 0;
+            _resultsPresentation.Reset(); _resultsSourceBasis = _sentResults = _sentResultsMotion = null;
+            _resultsPeerFingerprint = _resultsMotionPeerFingerprint = 0;
         }
         _resultsPublishingAuthor = publisher ? author : 0;
         if (publisher) ScenarioResultsPose.BeginAuthorOpening();
@@ -62,6 +64,10 @@ internal sealed partial class NetAvatarDriver
             state = CopyResultsPose(_sentResults, now);
             state.Visible = false;
         }
+        bool newParticipant = peerFingerprint != _resultsPeerFingerprint;
+        if (state.Visible && state.Move.HasValue
+            && (publisher || SharedWindowMoves.HasLocalClaim(SharedWindowKind.Results)))
+            SendResultsMotion(state, now, peerFingerprint);
         if (publisher)
         {
             if (!state.Visible)
@@ -76,11 +82,9 @@ internal sealed partial class NetAvatarDriver
         {
             if (!state.Visible || !SharedWindowMoves.HasLocalClaim(SharedWindowKind.Results)
                 || !state.Move.HasValue) return;
-            if (ScenarioResultsNative.TryGetConverted(out ConvertedPanel? panel) && panel != null)
-                state.FrameSize = panel.HostRect.rect.size;
+            return; // A visitor owns only the independent live grab sample, never native content.
         }
         bool changed = !SameResults(_sentResults, state);
-        bool newParticipant = peerFingerprint != _resultsPeerFingerprint;
         if (!changed && !newParticipant && now < _nextResultsRefresh) return;
         if (++_resultsRevision == 0) ++_resultsRevision;
         state.Revision = _resultsRevision;
@@ -102,6 +106,22 @@ internal sealed partial class NetAvatarDriver
         _nextResultsRefresh = now + .5f;
     }
 
+    private void SendResultsMotion(ScenarioResultsState state, float now, int peerFingerprint)
+    {
+        if (SameResultsPose(_sentResultsMotion, state) && peerFingerprint == _resultsMotionPeerFingerprint
+            && now < _nextResultsMotionRefresh) return;
+        ScenarioResultsState motion = CopyResultsPose(state, now);
+        motion.HasPresentation = false;
+        if (++_resultsRevision == 0) ++_resultsRevision;
+        motion.Revision = _resultsRevision;
+        byte[] bytes = ScenarioResultsCodec.Write(motion);
+        if (_transport is FfsNetTransport ffs)
+        { if (!ffs.TrySendResultsMotion(bytes, bytes.Length)) return; }
+        else _transport.Send(bytes, bytes.Length, motion);
+        _sentResultsMotion = motion; _nextResultsMotionRefresh = now + .5f;
+        _resultsMotionPeerFingerprint = peerFingerprint;
+    }
+
     private static ScenarioResultsState CopyResultsPose(ScenarioResultsState source, float now) => new()
     {
         Key = source.Key, Author = source.Author, SampleTime = now, HasPresentation = source.HasPresentation,
@@ -114,17 +134,7 @@ internal sealed partial class NetAvatarDriver
     {
         if (a == null || a.Key != b.Key || a.Author != b.Author || a.Visible != b.Visible
             || a.HasPresentation != b.HasPresentation || a.FrameSize != b.FrameSize
-            || !a.Pose.Position.Equals(b.Pose.Position) || !a.Pose.Rotation.Equals(b.Pose.Rotation)
-            || a.Size != b.Size || a.Reference != b.Reference || a.Origin != b.Origin
-            || a.Rotation != b.Rotation || a.Scale != b.Scale || a.Parts.Length != b.Parts.Length) return false;
-        // Sequence heartbeats are ordering, not a reason to serialize a static widget tree.
-        if (a.Move.HasValue != b.Move.HasValue) return false;
-        if (a.Move.HasValue)
-        {
-            SharedWindowMoveEntry x = a.Move.Value, y = b.Move!.Value;
-            if (!x.SameOpening(in y) || x.Claim != y.Claim || x.Phase != y.Phase
-                || x.ParentClaim != y.ParentClaim || x.ParentAuthor != y.ParentAuthor) return false;
-        }
+            || a.Parts.Length != b.Parts.Length) return false;
         for (int i = 0; i < a.Parts.Length; i++)
         {
             ScenarioResultsPart x = a.Parts[i], y = b.Parts[i];
@@ -142,16 +152,38 @@ internal sealed partial class NetAvatarDriver
         return true;
     }
 
+    private static bool SameResultsPose(ScenarioResultsState? a, ScenarioResultsState b)
+    {
+        if (a == null || a.Key != b.Key || a.Author != b.Author || a.Visible != b.Visible
+            || !a.Pose.Position.Equals(b.Pose.Position) || !a.Pose.Rotation.Equals(b.Pose.Rotation)
+            || a.Size != b.Size || a.Reference != b.Reference || a.Origin != b.Origin
+            || a.Rotation != b.Rotation || a.Scale != b.Scale) return false;
+        // Sequence heartbeats are ordering, not a reason to serialize a static widget tree.
+        if (a.Move.HasValue != b.Move.HasValue) return false;
+        if (a.Move.HasValue)
+        {
+            SharedWindowMoveEntry x = a.Move.Value, y = b.Move!.Value;
+            if (!x.SameOpening(in y) || x.Claim != y.Claim || x.Phase != y.Phase
+                || x.ParentClaim != y.ParentClaim || x.ParentAuthor != y.ParentAuthor) return false;
+        }
+        return true;
+    }
+
     private bool QueueResults(int sender, byte[] bytes, int length)
     {
         if (sender <= 0 || !ScenarioResultsCodec.TryRead(bytes, length, out ScenarioResultsState? state)) return false;
         if (state!.Author != SharedWindowSpawnAuthority.AuthorId
             || state.HasPresentation && sender != state.Author) return true;
+        if (!state.HasPresentation)
+        {
+            if ((!_resultsMotionRevisions.TryGetValue(sender, out ulong motionRevision) || state.Revision > motionRevision)
+                && (_pendingResultsMotion.ContainsKey(sender) || _pendingResultsMotion.Count < 8))
+            { _resultsMotionRevisions[sender] = state.Revision; _pendingResultsMotion[sender] = state; }
+            return true;
+        }
         bool newer = !_resultsRevisions.TryGetValue(sender, out ulong previous) || state.Revision > previous;
         if (!newer && !(state.HasPresentation && state.Visible && state.BaseRevision == 0)) return true;
         if (newer) _resultsRevisions[sender] = state.Revision;
-        if (!state.HasPresentation)
-        { if (newer) QueueResultsReady(sender, state); return true; }
         if (state.Visible && state.BaseRevision == 0)
         {
             if (!_resultsBases.TryGetValue(sender, out var bases))
@@ -208,6 +240,10 @@ internal sealed partial class NetAvatarDriver
             }
             catch (Exception error) { LogPhaseError("Apply native results presentation", error); }
         }
+        // Complete pictures establish the native opening first. A small motion
+        // sample arriving ahead of its original waits here without replacing it.
+        foreach (var pair in _pendingResultsMotion)
+            ScenarioResultsPose.Observe(pair.Key, pair.Value);
         ScenarioResultsPose.Tick();
         _resultsPresentation.Tick();
     }
@@ -216,9 +252,14 @@ internal sealed partial class NetAvatarDriver
     {
         _pendingResults.Clear(); _resultsRevisions.Clear(); _resultsPeers.Clear();
         _resultsBases.Clear(); _resultsLatestData.Clear(); _resultsQueued.Clear();
+        _pendingResultsMotion.Clear(); _resultsMotionRevisions.Clear();
         _resultsPresentation.Reset(); ScenarioResultsPose.Reset();
         _resultsSendProgress.Reset(); _resultsReceiveProgress.Reset();
-        _resultsSourceBasis = _sentResults = null; _resultsPublishingAuthor = _resultsPeerFingerprint = 0;
-        _nextResultsCapture = _nextResultsRefresh = 0;
+        _resultsSourceBasis = _sentResults = _sentResultsMotion = null;
+        _resultsPublishingAuthor = _resultsPeerFingerprint = _resultsMotionPeerFingerprint = 0;
+        _nextResultsCapture = _nextResultsRefresh = _nextResultsMotionRefresh = 0;
     }
+
+    private void ForgetResultsMotion(int sender)
+    { _pendingResultsMotion.Remove(sender); _resultsMotionRevisions.Remove(sender); ScenarioResultsPose.ForgetPeer(sender); }
 }
