@@ -1,3 +1,18 @@
+**Quest771 rebase onto published1.2.4, 2026-11-13 — validation in progress.**
+
+The maintainer explicitly approves exact `v1.2.4/113c297357a5` (upstream770).
+The actual Quest delta is rebased onto that release, retaining published754
+ancestry for normal non-force delivery on feature/quest3-standalone. Package
+version1.2.4 and reserved Build771 retain the new shared Results, card/native
+lifecycle and input behavior with existing Android seams. No dev/main change or
+automatic future rebase is authorized by this request.
+
+Class C: one final complete integration guard plus strict, metadata, actual
+Android/AOT and minimum-update/source parity qualification. Test conflicts retain
+both dependency/control rosters; changed asset producers must be classified.
+No local delivery APK/ZIP and no new hardware acceptance claim. See
+QUEST-V1.2.4-INTEGRATION.md and ignored quest-v1.2.4-rebase-20261113 evidence.
+
 **Release 1.2.4 readiness, Build770, 2026-11-10.**
 
 The maintainer reports the paired multiplayer test successful and authorizes

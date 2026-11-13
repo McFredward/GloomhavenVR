@@ -1,10 +1,9 @@
 # Planning index
 
-Updated2026-11-09: independent Build768 post-review distinguishes a fresh run
-still stamped767 from unprovided768hardware evidence. MP768-POSTREVIEW and its
-two independent reports record default/asset lifetime and rendering boundaries,
-exact negative contract repros and the matching-log requirement. Review only:
-no runtime/fixture change or new ModBuild.
+Updated 2026-11-13: Quest771 integrates the explicitly approved release1.2.4
+(upstream770), retaining Android adapters and targeted reuse of existing game
+content. Validation is in progress. See QUEST-V1.2.4-INTEGRATION.md for exact
+scope and hardware limits; future rebases still require a new maintainer go.
 
 Updated2026-11-09: Build768 replaces per-report Results texture admission with
 the complete audited native catalogue, scoped only to Results, and exact native
@@ -130,6 +129,7 @@ status; it is not the player manual.
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
 | [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
+| [QUEST-V1.2.4-INTEGRATION.md](QUEST-V1.2.4-INTEGRATION.md) | Approved exact release1.2.4 rebase, Quest771 Android/update qualification and final validation |
 | [QUEST-V1.2.3-INTEGRATION.md](QUEST-V1.2.3-INTEGRATION.md) | Exact approved release1.2.3 rebase, Quest754 validation and source-only update scope |
 | [QUEST-DEV742-INTEGRATION.md](QUEST-DEV742-INTEGRATION.md) | Quest743 Android head resolve, exact dev742 rebase, minimal updates, material restoration and source-bound final aggregate validation |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
