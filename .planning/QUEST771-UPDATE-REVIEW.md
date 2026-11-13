@@ -99,3 +99,15 @@ logs, receipts and the current four small resource deliverables remain. The
 integrator owns the complete final union gate. These focused passes do not claim
 fresh full-gate, IL2CPP Player, startup, device picture, frame pacing, memory,
 audio or multiplayer acceptance. No APK or ZIP is built or delivered.
+
+## Final integrated source binding
+
+Final AOT/native integration at1de408a6 adds the qualified coordinate boundary.
+The complete release selector now contains4,304files/2,255,528,901bytes, with168
+changed code/native rows and a compact1,508file/61,060,607byte snapshot. All rows
+are freshly byte-verified against the final delivered production inputs in
+`final-input-reuse.json`, including the two explicit authored-link targets.
+Compiler/original/art/helper/resource recipes and the resource-reuse conclusion
+above remain unchanged. Subsequent edits are tests/runner/developer notes only;
+no new conversion or shader census is required. See QUEST771-VALIDATION.md for
+aggregate integration proof and the explicit hardware boundary.

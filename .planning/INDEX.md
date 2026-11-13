@@ -1,9 +1,10 @@
 # Planning index
 
-Updated 2026-11-13: Quest771 integrates the explicitly approved release1.2.4
-(upstream770), retaining Android adapters and targeted reuse of existing game
-content. Validation is in progress. See QUEST-V1.2.4-INTEGRATION.md for exact
-scope and hardware limits; future rebases still require a new maintainer go.
+Updated 2026-11-13: Quest771 qualifies the approved release1.2.4 (upstream770).
+Aggregate325local/16source/307,211goldens, strict and actual Android/AOT proofs;
+original complete-run failures remain recorded. Existing game/resource content
+stays reusable for compact updates. See QUEST771-VALIDATION.md and
+QUEST-V1.2.4-INTEGRATION.md; later rebases still require a maintainer go.
 
 Updated2026-11-09: Build768 replaces per-report Results texture admission with
 the complete audited native catalogue, scoped only to Results, and exact native

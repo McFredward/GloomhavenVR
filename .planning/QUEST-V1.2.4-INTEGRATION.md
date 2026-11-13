@@ -2,8 +2,10 @@
 
 The maintainer explicitly requested this rebase on 2026-11-13. Target exactly
 published tag `v1.2.4`, commit `113c297357a5bde0a781f0c8995d33c7a052a228`
-(upstream Build770). Preserve the Quest feature branch exception; do not change
-dev/main or automatically follow later dev fixes without a new maintainer go.
+(upstream Build770). Preserve the Quest feature branch exception; do not import later
+dev/main VR implementations or automatically follow them without a new maintainer
+go. General fixture-only repairs integrate separately on dev under the
+maintainer's shared-fix ruling.
 The previous published Quest754 tip is `465f2815a17b06eb945349975745100b9152939b`,
 based on release1.2.3 `b87477f8ae6247e524efc6dc128c09a25a6ae55d`.
 
@@ -41,3 +43,12 @@ Evidence: `/home/claw/quest3-local/build/evidence/quest-v1.2.4-rebase-20261113/`
 Preserve source/input/native/package hashes, original references, current outputs
 and hardware evidence; remove owned regenerable caches after each completed run
 and archive worker evidence before retiring its worktree.
+
+## Completed qualification
+
+See [QUEST771-VALIDATION.md](QUEST771-VALIDATION.md) for the final aggregate
+325local/16source/307,211golden coverage, strict builds, Android/AOT qualification,
+minimum-update decisions, original failures, bounded continuations and hardware
+limits. All4,304release-selected inputs remain unchanged after the final native
+adapter; later tracked changes are fixture/runner/developer-note repairs only.
+No local APK/ZIP is produced. Windows builds the test update.

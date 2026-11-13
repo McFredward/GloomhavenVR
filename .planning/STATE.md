@@ -1,17 +1,22 @@
-**Quest771 rebase onto published1.2.4, 2026-11-13 — validation in progress.**
+**Quest771 rebase onto published1.2.4, 2026-11-13 — qualification complete.**
 
-The maintainer explicitly approves exact `v1.2.4/113c297357a5` (upstream770).
-The actual Quest delta is rebased onto that release, retaining published754
-ancestry for normal non-force delivery on feature/quest3-standalone. Package
-version1.2.4 and reserved Build771 retain the new shared Results, card/native
-lifecycle and input behavior with existing Android seams. No dev/main change or
-automatic future rebase is authorized by this request.
+Approved exact `v1.2.4/113c297357a5` (upstream770); Quest package1.2.4/Build771
+stays on feature/quest3-standalone. Actual rebase retains published754 ancestry
+for normal non-force delivery. No later dev VR implementation is imported;
+future rebases still require a new maintainer go. General fixture-only fixes
+integrate separately on dev under the maintainer's shared-fix ruling.
 
-Class C: one final complete integration guard plus strict, metadata, actual
-Android/AOT and minimum-update/source parity qualification. Test conflicts retain
-both dependency/control rosters; changed asset producers must be classified.
-No local delivery APK/ZIP and no new hardware acceptance claim. See
-QUEST-V1.2.4-INTEGRATION.md and ignored quest-v1.2.4-rebase-20261113 evidence.
+Class C aggregate325/325 local scopes,16source suites and307,211goldens; strict
+Debug/Release/metadata0W0E, current Android/native/AOT and minimum-update proofs.
+The initial complete invocation remains failed316/325; nine affected scopes are
+qualified by bounded repairs/continuations with current immutable input bindings.
+Original failures, two existing opt-in runner skips and hardware limits remain
+explicit. All4,304release-selected rows match the final native/code qualification;
+compact updating reuses original content and Android resource banks, compiling
+only the new matched managed/native pair. No local APK/ZIP or new HMD acceptance.
+See QUEST771-VALIDATION.md, QUEST771-AOT-COMPATIBILITY.md and the ignored
+quest-v1.2.4-rebase-20261113 evidence. Owned caches/workers are retired after proof
+preservation; shared game references and other active worktrees stay untouched.
 
 **Release 1.2.4 readiness, Build770, 2026-11-10.**
 
