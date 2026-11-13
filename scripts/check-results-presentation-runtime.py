@@ -10,6 +10,9 @@ ROOT=Path(__file__).resolve().parents[1]
 EDITOR_TOOLS=ROOT/'scripts/menu-depth-character/project_compilers.py'
 editor_spec=importlib.util.spec_from_file_location('results_editor_tools',EDITOR_TOOLS)
 editor_tools=importlib.util.module_from_spec(editor_spec);editor_spec.loader.exec_module(editor_tools)
+RUN_TOOLS=ROOT/'scripts/check-environment-menu-scope.py'
+run_spec=importlib.util.spec_from_file_location('results_run_tools',RUN_TOOLS)
+run_tools=importlib.util.module_from_spec(run_spec);run_spec.loader.exec_module(run_tools)
 def method(s,k):
  a=s.index(k);p=s.index('{',a)+1;d=1
  while d:d+=(s[p]=='{')-(s[p]=='}');p+=1
@@ -35,8 +38,13 @@ def complete_editor_run(folder,project,unity,status,log):
   (folder/'editor-cleanup.json').write_text(json.dumps(editors,indent=2)+'\n')
   editor_reaped=not editors['remaining']
   if not editor_reaped:raise RuntimeError('Exact Results editor failed to stop')
+  # A normally exited editor can leave a globally parented Roslyn process with
+  # private Bee files open. Refuse a compiler shared with another private run.
+  compilers=run_tools.cleanup_run_compilers(folder,editor_reaped=editor_reaped)
+  (folder/'compiler-cleanup.json').write_text(json.dumps(compilers,indent=2)+'\n')
+  if compilers['remaining'] or compilers['refused']:raise RuntimeError('Private Results compiler ownership/exit unresolved')
  except BaseException:
-  (folder/'.keep').write_text('Exact editor cleanup requires review; preserve active project caches.\n')
+  (folder/'.keep').write_text('Private editor/compiler cleanup requires review; preserve active project caches.\n')
   raise
  receipt=cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=editor_reaped)
  (folder/'cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
@@ -150,7 +158,7 @@ def main():
   overlay=base.parent.parent/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader';shutil.copy2(overlay,project/'Assets/Resources/OriginalShaders/GrabBarOverlay.shader');pins += [overlay,base/'Assets/grabbar_generic.png']
   for name in ['TMPro.cginc','TMPro_Properties.cginc']:shutil.copy2(shaders/name,project/'Assets/Resources/OriginalShaders'/name)
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{k:'1.0.0' for k in ['com.unity.modules.ui','com.unity.modules.imgui','com.unity.modules.imageconversion','com.unity.modules.physics','com.unity.modules.jsonserialize']+(['com.unity.modules.audio','com.unity.modules.animation'] if args.head_only else [])}}));(project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');mf=folder/'manifest.json';mf.write_text(json.dumps(manifest,indent=2))
-  pins += [frame,native,runner,Path(__file__),EDITOR_TOOLS,ROOT/'scripts/town_run_retention.py',ROOT/'scripts/results-window-runtime/Boundary.cs',*fixture.glob('*'),*shaders.glob('*.cginc'),shaders/'ActorBarSDF.shader']
+  pins += [frame,native,runner,Path(__file__),EDITOR_TOOLS,RUN_TOOLS,ROOT/'scripts/town_run_retention.py',ROOT/'scripts/results-window-runtime/Boundary.cs',*fixture.glob('*'),*shaders.glob('*.cginc'),shaders/'ActorBarSDF.shader']
   (folder/'source-pins.json').write_text(json.dumps({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()},indent=2));(folder/'source-content-hashes.json').write_text(json.dumps({k:hashlib.sha256(v.encode()).hexdigest() for k,v in sources.items()},indent=2))
   cmd=[str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod',('HeadRunner.Start' if args.head_only else 'ProgressionRunner.Start'),'-progressionManifest',str(mf),'-logFile',str(folder/'unity.log')]
   if not os.environ.get('DISPLAY'):cmd=['xvfb-run','-a']+cmd

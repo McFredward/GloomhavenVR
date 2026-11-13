@@ -32,8 +32,10 @@ def caller_controls(run, check, processes):
     with tempfile.TemporaryDirectory(prefix='editor-caller-controls-') as temporary:
         base = Path(temporary); editor = base/'Unity'
         shutil.copyfile(sys.executable, editor); editor.chmod(0o755)
+        compiler_binary = base/'dotnet'; shutil.copyfile(sys.executable, compiler_binary); compiler_binary.chmod(0o755)
         for name, module in modules:
-            for mode in ('success', 'failure', 'timeout', 'remaining', 'causal'):
+            for mode in ('success', 'failure', 'timeout', 'remaining', 'causal',
+                         'compiler', 'compiler-borrowed', 'compiler-causal'):
                 category = run/(name+'-'+mode); category.mkdir()
                 case = Path(tempfile.mkdtemp(prefix='run-', dir=category))
                 project = case/'unity'
@@ -45,6 +47,7 @@ def caller_controls(run, check, processes):
                 pid_file = case/'escaped.json'; launchers = []; handles = []; events = []
                 expected_code = 7 if mode == 'failure' else 1 if mode in ('timeout', 'remaining', 'causal') else 0
                 real_editor_cleanup = module.editor_tools.cleanup_project_editors
+                real_compiler_cleanup = module.run_tools.cleanup_run_compilers
                 real_retention = module.cleanup_completed_run
                 def spawn(*args, **kwargs):
                     process = original_popen(*args, **kwargs); processes.append(process); launchers.append(process)
@@ -60,15 +63,41 @@ def caller_controls(run, check, processes):
                         # Causal control: an omitted exact teardown used to claim
                         # success while the escaped editor and its child lived.
                         return {'matched': pids, 'remaining': pids if mode == 'remaining' else []}
-                    return real_editor_cleanup(*args, **kwargs)
+                    receipt = real_editor_cleanup(*args, **kwargs)
+                    if mode.startswith('compiler'):
+                        check(not receipt['matched'], name+' '+mode+': normal editor exit leaves no live editor root for orphan discovery')
+                    return receipt
+                def compiler_cleanup(*args, **kwargs):
+                    check(events == ['editor'] and kwargs.get('editor_reaped') is True,
+                          name+' '+mode+': compiler ownership check follows exact editor exit')
+                    events.append('compiler')
+                    if mode == 'compiler-causal': return {'matched': [], 'refused': [], 'remaining': []}
+                    return real_compiler_cleanup(*args, **kwargs)
                 def retention(suite, status, log, checkout, **kwargs):
-                    check(events == ['editor'], name+' '+mode+': exact teardown precedes retention')
-                    check(all(select.select([fd], [], [], 0)[0] for fd in handles), name+' '+mode+': missing exact editor teardown')
+                    check(events == ['editor', 'compiler'], name+' '+mode+': editor and compiler teardown precede retention')
+                    check(all(select.select([fd], [], [], 0)[0] for fd in handles), name+' '+mode+': live private process before retention')
                     check(kwargs.get('process_reaped') is True and status == expected_code,
                           name+' '+mode+': retention receives actual reaping and unchanged exit status')
                     events.append('retention')
                     return real_retention(suite, status, log, checkout, **kwargs)
-                if mode in ('timeout', 'remaining', 'causal'):
+                if mode.startswith('compiler'):
+                    bee = project/'Library/Bee'; bee.mkdir(); private_file = bee/'fixture.dag'; private_file.write_text('owned')
+                    foreign = run/'foreign-compiler-input'; foreign.write_text('borrowed independently')
+                    foreign_arg = str(foreign) if mode == 'compiler-borrowed' else None
+                    release = case/'release-foreign'; closed = case/'foreign-closed'
+                    compiler_code = ('import json,os,time;from pathlib import Path;'
+                        'owned=open('+repr(str(private_file))+');'
+                        'foreign=open('+repr(foreign_arg)+') if '+repr(foreign_arg)+' else None;'
+                        'Path('+repr(str(pid_file))+').write_text(json.dumps([os.getpid()]))\n'
+                        'while not Path('+repr(str(release))+').exists(): time.sleep(.01)\n'
+                        'if foreign: foreign.close()\n'
+                        'Path('+repr(str(closed))+').write_text("closed");time.sleep(60)')
+                    compiler_args = [str(compiler_binary), '-c', compiler_code, 'VBCSCompiler.dll']
+                    editor_code = ('import subprocess,time;from pathlib import Path;'
+                        'subprocess.Popen('+repr(compiler_args)+',cwd='+repr(str(base))+',start_new_session=True)\n'
+                        'while not Path('+repr(str(pid_file))+').exists(): time.sleep(.01)')
+                    command = [str(editor), '-c', editor_code, '-projectPath', str(project)]
+                elif mode in ('timeout', 'remaining', 'causal'):
                     child_code = ('import json,os,signal,subprocess,time;from pathlib import Path;'
                                   'signal.signal(signal.SIGTERM,signal.SIG_IGN);'
                                   'p=subprocess.Popen(["/bin/sleep","60"],start_new_session=True);'
@@ -82,6 +111,7 @@ def caller_controls(run, check, processes):
                 try:
                     with patch.object(module.subprocess, 'Popen', spawn), \
                          patch.object(module.editor_tools, 'cleanup_project_editors', editor_cleanup), \
+                         patch.object(module.run_tools, 'cleanup_run_compilers', compiler_cleanup), \
                          patch.object(module, 'cleanup_completed_run', retention):
                         try:
                             if name == 'results-presentation':
@@ -93,7 +123,7 @@ def caller_controls(run, check, processes):
                                 result_code = module.editor_command(command, project, editor, case, os.environ.copy(), timeout=2).returncode
                         except (subprocess.TimeoutExpired, RuntimeError, AssertionError) as error:
                             caught = error
-                    if mode in ('success', 'failure'):
+                    if mode in ('success', 'failure', 'compiler'):
                         check(caught is None and result_code == expected_code, name+' '+mode+': native return code preserved')
                         check(not (project/'Library').exists(), name+' '+mode+': completed cache removed')
                     elif mode == 'timeout':
@@ -103,17 +133,32 @@ def caller_controls(run, check, processes):
                         check(isinstance(caught, RuntimeError) and 'failed to stop' in str(caught), name+': remaining editor refuses completion')
                         check(events == ['editor'] and (project/'Library/cache.bin').exists() and (case/'.keep').exists(),
                               name+': remaining editor preserves caches and pins outer-suite cleanup')
+                    elif mode == 'compiler-borrowed':
+                        check(isinstance(caught, RuntimeError) and 'compiler ownership/exit unresolved' in str(caught),
+                              name+': borrowed compiler refuses completion after normal editor exit')
+                        check(events == ['editor', 'compiler'] and (project/'Library/cache.bin').exists() and (case/'.keep').exists()
+                              and all(not select.select([fd], [], [], 0)[0] for fd in handles),
+                              name+': foreign compiler input and live owned cache survive refusal')
                     else:
-                        check(isinstance(caught, AssertionError) and 'missing exact editor teardown' in str(caught),
+                        check(isinstance(caught, AssertionError) and 'live private process before retention' in str(caught),
                               name+': omitted exact teardown is rejected by the live-process control')
                         check((project/'Library/cache.bin').exists(), name+': causal control stops before deleting live caches')
                     check(evidence.read_text() == 'Retained original evidence\n', name+' '+mode+': original evidence retained')
                     (case/'control-result.json').write_text(json.dumps({'mode': mode, 'events': events,
                         'expected_exit_code': expected_code, 'caught': type(caught).__name__ if caught else None}, indent=2)+'\n')
                 finally:
+                    (case/'.keep').write_text('Control process cleanup in progress.\n')
                     editors = real_editor_cleanup(project, editor, launcher_reaped=True)
                     (case/'control-editor-cleanup.json').write_text(json.dumps(editors, indent=2)+'\n')
                     if editors['remaining']: raise RuntimeError('Control editor cleanup incomplete')
+                    if mode.startswith('compiler') and handles and any(not select.select([fd], [], [], 0)[0] for fd in handles):
+                        release.write_text('release foreign input')
+                        deadline = time.monotonic()+2
+                        while not closed.exists() and time.monotonic()<deadline: time.sleep(.01)
+                        if not closed.exists(): raise RuntimeError('Control compiler did not release its foreign input')
+                    compilers = real_compiler_cleanup(case, editor_reaped=True)
+                    (case/'control-compiler-cleanup.json').write_text(json.dumps(compilers, indent=2)+'\n')
+                    if compilers['remaining'] or compilers['refused']: raise RuntimeError('Control compiler cleanup incomplete')
                     for fd in handles:
                         if not select.select([fd], [], [], 1)[0]: raise RuntimeError('Control descendant still running')
                         os.close(fd)
@@ -199,7 +244,7 @@ def main():
     pins = {}
     for source in (Path(__file__), Path(__file__).with_name('project_compilers.py'),
                    ROOT/'scripts/check-results-presentation-runtime.py', ROOT/'scripts/check-environment-budget-runtime.py',
-                   ROOT/'scripts/town_run_retention.py'):
+                   ROOT/'scripts/town_run_retention.py', ROOT/'scripts/check-environment-menu-scope.py'):
         shutil.copyfile(source, run / source.name); pins[source.name] = hashlib.sha256(source.read_bytes()).hexdigest()
     (run / 'results.json').write_text(json.dumps({'status': 'passed', 'assertions': len(checks), 'checks': checks,
         'all_direct_children_reaped': all(process.returncode is not None for process in processes),
