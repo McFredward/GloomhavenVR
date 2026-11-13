@@ -80,6 +80,16 @@ Current inventory is 325 local, 141 CI and 16 source suites. Full old-release,
 release, prior-Quest and candidate counts plus exact record comparisons are in
 `test-inventory-comparison.json`. No registration or negative control is removed.
 
+The complete scripts/tests comparison has 281 upstream changes, 725 old Quest
+changes and 16 overlaps. All 265 upstream-only and 709 Quest-only paths remain
+byte-identical to their respective inputs. The overlap patch retains new native
+viewport/frame dependencies, genuine Quest copy helpers with explicit desktop
+boundaries, capture target ownership and Android AOT controls. Static AST review
+also finds no missing release tuple labels or unit-test methods in the overlapping
+Python fixtures. This establishes source retention, not causal-control execution.
+Hashes, reviewed patches and label details are in `fixture-path-comparison.json`,
+`fixture-overlap-diff.patch` and `fixture-control-label-audit.json`.
+
 The new initiative-row source extraction includes the original Quest
 `QuestArtworkEvidence.Raw` observation in its production LateTick, but its fixture
 boundary lacked that passive diagnostic class. The initial strict build fails
@@ -105,20 +115,36 @@ Results control production passes its original native-control fixture. These
 partial development invocations do not include their causal controls and are
 not complete suite or full-gate passes.
 
+The complete affected initiative-row suite then executes through the unchanged
+central runner at worker checkpoint `dffe08bfb`: all seven production cases pass
+1,055 actual row/clock/geometry/pixel assertions, and all eight compiling causal
+controls fail at their intended oracles. Unity2021.3.5f1 uses llvmpipe
+(LLVM20.1.2,256bits); elapsed69.646seconds. All19 source/native/toolchain pins
+remain unchanged. The suite report/log hash is retained in
+`initiative-row-suite/results.json`, with independently checked counts/pins in
+`initiative-row-qualified.json`. This is one complete affected suite, not a
+complete local gate or Android/headset acceptance.
+
 ## Validation record
 
 Test class: B for the bounded fixture dependency repair; reviewed rebase is C.
 Final production binding: initial e19d919f7 SHA and the four-revision source matrix.
 Executed: full source/asset hash matrix, 15-overlap review, parsed suite inventory,
-strict fixture compile closure and the two partial non-Unity production proofs.
+16 fixture-overlap/control-retention review, strict fixture compile closure, two
+partial non-Unity production proofs, and complete initiative-row 1,055/8controls.
 Inherited: no full runtime/golden proof claimed by this worker.
 Failed/pending: initial missing diagnostic-port compile failure and intentional
-compile-only Unity stops preserved; affected actual Unity execution and integrator
-class C gate remain pending. Native Android startup, paired multiplayer, audible
+compile-only Unity stops preserved; integrator class C gate remains pending.
+Native Android startup, paired multiplayer, audible
 figure timing and final headset pixels remain unverified.
 Elapsed validation: per-attempt seconds in `compile-only-initial.json` and
-`compile-only-second.json`; source matrix took 7.65 seconds.
+`compile-only-second.json`; source matrix took 7.65 seconds and affected Unity
+suite69.646seconds.
 Cleanup: every owned runner calls `cleanup_completed_run` after its children are
 reaped; retained report trees contain source/log/manifest evidence, not usable
 bin/obj caches. No default config is synthesized and read-only references remain
-unchanged. Final affected-run and cleanup receipts will be added after execution.
+unchanged. The actual affected run removes400,249,189bytes without skipped paths;
+the final owned-process audit is empty. All owned logs/results/source/assemblies/
+captures/receipts are moved intact under `parity/fixture-evidence`; the original
+and archive paths are bound by `archive-location.json`. The single private Unity
+slot is released and the AOT worker notified before final handoff.
