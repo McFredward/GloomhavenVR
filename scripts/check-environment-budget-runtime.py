@@ -7,15 +7,49 @@ cloning and pixels for the fixture, not native-game artwork, HMD parity or FPS.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import re
+from town_run_retention import cleanup_completed_run
 
 ROOT = Path(__file__).resolve().parents[1]
+EDITOR_TOOLS = ROOT/'scripts/menu-depth-character/project_compilers.py'
+editor_spec = importlib.util.spec_from_file_location('environment_editor_tools', EDITOR_TOOLS)
+editor_tools = importlib.util.module_from_spec(editor_spec); editor_spec.loader.exec_module(editor_tools)
+
+
+def complete_editor_run(run, project, unity, status, completion):
+    # xvfb-run's exit does not establish that its escaped native editor stopped.
+    # Pin uncertain ownership so the outer suite cannot delete live caches either.
+    try:
+        editors = editor_tools.cleanup_project_editors(project, unity, launcher_reaped=True)
+        (run/'editor-cleanup.json').write_text(json.dumps(editors, indent=2)+'\n')
+        editor_reaped = not editors['remaining']
+        if not editor_reaped: raise RuntimeError('Exact environment editor failed to stop')
+    except BaseException:
+        (run/'.keep').write_text('Exact editor cleanup requires review; preserve active project caches.\n')
+        raise
+    receipt = cleanup_completed_run('environment-budget-runtime', status, completion, ROOT, process_reaped=editor_reaped)
+    (run/'cleanup.json').write_text(json.dumps(receipt, indent=2)+'\n')
+
+
+def editor_command(command, project, unity, run, environment, timeout=240):
+    # Native warning logs can exceed retention's bounded locator size. This small
+    # explicit receipt locates only our run, including timeout/nonzero completion.
+    completion = run/'completion.log'; completion.write_text(__doc__+'\nEvidence: '+str(run)+'\n')
+    status = 1
+    try:
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=timeout, env=environment)
+        status = result.returncode
+        return result
+    finally:
+        complete_editor_run(run, project, unity, status, completion)
 
 
 def native_masonry(root, run):
@@ -74,6 +108,8 @@ def wall_delivery(source):
 
 
 def main():
+    def terminated(signum, frame): raise SystemExit(128+signum)
+    signal.signal(signal.SIGTERM, terminated)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT/'.planning/debug/environment-budget-runtime')
@@ -363,7 +399,7 @@ def main():
         bound_sources[bank_path] = bank_path.read_text()
     json_source = args.source_root/'src/GloomhavenVR/Core/SelfUpdate/SelfUpdateRelease.cs'
     bound_sources[json_source] = json_source.read_text()
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'fixture_sha256':fixture_hashes,'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'runner_sha256':{str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (Path(__file__),EDITOR_TOOLS,ROOT/'scripts/town_run_retention.py')},'fixture_sha256':fixture_hashes,'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
@@ -444,13 +480,8 @@ def main():
     (unity_project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     command = [str(args.unity),'-batchmode','-force-glcore','-projectPath',str(unity_project),'-executeMethod','EnvironmentRunner.Start','-environmentManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run','-a']+command
-    try:
-        environment = os.environ.copy(); environment["GHVR_ENVIRONMENT_NATIVE_MESH"] = str(native_mesh); environment["GHVR_ENVIRONMENT_EVIDENCE"] = str(run); environment["GHVR_ENVIRONMENT_STREAMING_ASSETS"] = str(args.source_root/"ressources/GH_Data/StreamingAssets"); environment["GHVR_ENVIRONMENT_BANK_FIXTURE"] = str(bank_fixture)
-        result = subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240,env=environment)
-    finally:
-        # Keep complete source, compiled test assemblies and logs; native API copies
-        # are disabled and disposable import caches never accumulate across runs.
-        for cache in ('Library','Temp'): shutil.rmtree(unity_project/cache,ignore_errors=True)
+    environment = os.environ.copy(); environment["GHVR_ENVIRONMENT_NATIVE_MESH"] = str(native_mesh); environment["GHVR_ENVIRONMENT_EVIDENCE"] = str(run); environment["GHVR_ENVIRONMENT_STREAMING_ASSETS"] = str(args.source_root/"ressources/GH_Data/StreamingAssets"); environment["GHVR_ENVIRONMENT_BANK_FIXTURE"] = str(bank_fixture)
+    result = editor_command(command,unity_project,args.unity,run,environment)
     report = Path(manifest['result'])
     if report.is_file(): print(report.read_text(),end='')
     print('PASS native material-repair readiness binding and removed-edge negative control')

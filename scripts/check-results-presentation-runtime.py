@@ -7,6 +7,9 @@ import argparse,hashlib,importlib.util,json,os,re,shutil,signal,subprocess,tempf
 from pathlib import Path
 from town_run_retention import cleanup_completed_run
 ROOT=Path(__file__).resolve().parents[1]
+EDITOR_TOOLS=ROOT/'scripts/menu-depth-character/project_compilers.py'
+editor_spec=importlib.util.spec_from_file_location('results_editor_tools',EDITOR_TOOLS)
+editor_tools=importlib.util.module_from_spec(editor_spec);editor_spec.loader.exec_module(editor_tools)
 def method(s,k):
  a=s.index(k);p=s.index('{',a)+1;d=1
  while d:d+=(s[p]=='{')-(s[p]=='}');p+=1
@@ -24,6 +27,26 @@ def command(cmd,log,timeout=240):
    try:os.killpg(p.pid,signal.SIGKILL)
    except ProcessLookupError:pass
    p.wait()
+def complete_editor_run(folder,project,unity,status,log):
+ # A reaped xvfb-run can leave Unity in another session. Its exact project and
+ # executable must be gone before either this runner or the suite removes caches.
+ try:
+  editors=editor_tools.cleanup_project_editors(project,unity,launcher_reaped=True)
+  (folder/'editor-cleanup.json').write_text(json.dumps(editors,indent=2)+'\n')
+  editor_reaped=not editors['remaining']
+  if not editor_reaped:raise RuntimeError('Exact Results editor failed to stop')
+ except BaseException:
+  (folder/'.keep').write_text('Exact editor cleanup requires review; preserve active project caches.\n')
+  raise
+ receipt=cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=editor_reaped)
+ (folder/'cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
+def required_followup(folder,label,child,started):
+ child_code=-1
+ try:child_code=command(child,folder/(label+'-followup.log'),timeout=600)
+ finally:
+  report=json.loads((folder/'result.json').read_text());report.update(exit_code=child_code,elapsed_seconds=time.monotonic()-started);report['required_'+label+'_exit_code']=child_code;report['required_'+label+'_command']=child;(folder/'result.json').write_text(json.dumps(report,indent=2))
+ print((folder/(label+'-followup.log')).read_text(),end='')
+ assert child_code==0,'Required Results '+label+' integration failed'
 def main():
  def terminated(signum,frame):raise SystemExit(128+signum)
  signal.signal(signal.SIGTERM,terminated)
@@ -33,7 +56,7 @@ def main():
  if args.head_only:os.environ['RESULTS_HEAD_ONLY']='1'
  if args.widget_state_only:os.environ['RESULTS_WIDGET_STATE_ONLY']='1'
  out=ROOT/'.planning/debug/results-presentation-runtime';out.mkdir(parents=True,exist_ok=True);folder=Path(tempfile.mkdtemp(prefix='run-',dir=out));print('Evidence: '+str(folder),flush=True);status=1;log=folder/'completion.log';log.write_text(__doc__+'\nEvidence: '+str(folder)+'\n')
- fixture=args.fixture_source_root/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=args.source_root/'src/GloomhavenVR';pins=[]
+ fixture=args.fixture_source_root/'scripts/results-presentation-runtime';managed=ROOT/'ressources/GH_Data/Managed';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');base=args.source_root/'src/GloomhavenVR';pins=[];project=folder/'unity'
  try:
   inputs=folder/'inputs';inputs.mkdir();assert command([str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'export-native.py'),str(ROOT),str(inputs)],folder/'export.log')==0,'Original export failed'
   paths=[base/'Net/ScenarioResultsPresentation.cs',base/'WorldUI/Modal/ScenarioResultsNative.cs',base/'WorldUI/Modal/ScenarioResultsVisualLease.cs',base/'WorldUI/Composites/ScenarioResultsReadyPark.cs',base/'WorldUI/Composites/MovedSubtreeLayers.cs']+[base/'Net/TownServices'/name for name in ['TownServiceBinding.cs','TownServiceMaterial.cs','TownServiceFlameClock.cs','TownServiceNeutralize.cs','TownServiceAssets.cs','TownServiceAssets.PackedSprites.cs']]
@@ -103,7 +126,6 @@ def main():
   if args.footer_only:cases=[x for x in cases if x[0] in {'production','old-fitted-footer','footer-mount-lost','footer-sibling-lost','footer-takeover-receipt','footer-overwrites-successor'}]
   if args.widget_state_only:cases=[x for x in cases if x[0] in {'production','widget-source-canvas-omitted','widget-private-graphic-flags-retained'}]
   if args.case:assert set(args.case)<={x[0] for x in cases};cases=[x for x in cases if x[0] in args.case]
-  project=folder/'unity'
   for d in ['Assets/Editor','Assets/Plugins','Assets/Resources/OriginalShaders','Packages','ProjectSettings']:(project/d).mkdir(parents=True,exist_ok=True)
   manifest={'result':str(folder/'results.txt'),'evidence':str(folder/'captures'),'cases':[]}
   for name,file,before,after,expected in cases:
@@ -128,7 +150,7 @@ def main():
   overlay=base.parent.parent/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader';shutil.copy2(overlay,project/'Assets/Resources/OriginalShaders/GrabBarOverlay.shader');pins += [overlay,base/'Assets/grabbar_generic.png']
   for name in ['TMPro.cginc','TMPro_Properties.cginc']:shutil.copy2(shaders/name,project/'Assets/Resources/OriginalShaders'/name)
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{k:'1.0.0' for k in ['com.unity.modules.ui','com.unity.modules.imgui','com.unity.modules.imageconversion','com.unity.modules.physics','com.unity.modules.jsonserialize']+(['com.unity.modules.audio','com.unity.modules.animation'] if args.head_only else [])}}));(project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');mf=folder/'manifest.json';mf.write_text(json.dumps(manifest,indent=2))
-  pins += [frame,native,runner,Path(__file__),ROOT/'scripts/results-window-runtime/Boundary.cs',*fixture.glob('*'),*shaders.glob('*.cginc'),shaders/'ActorBarSDF.shader']
+  pins += [frame,native,runner,Path(__file__),EDITOR_TOOLS,ROOT/'scripts/town_run_retention.py',ROOT/'scripts/results-window-runtime/Boundary.cs',*fixture.glob('*'),*shaders.glob('*.cginc'),shaders/'ActorBarSDF.shader']
   (folder/'source-pins.json').write_text(json.dumps({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()},indent=2));(folder/'source-content-hashes.json').write_text(json.dumps({k:hashlib.sha256(v.encode()).hexdigest() for k,v in sources.items()},indent=2))
   cmd=[str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod',('HeadRunner.Start' if args.head_only else 'ProgressionRunner.Start'),'-progressionManifest',str(mf),'-logFile',str(folder/'unity.log')]
   if not os.environ.get('DISPLAY'):cmd=['xvfb-run','-a']+cmd
@@ -137,7 +159,9 @@ def main():
   assert code==0 and result.exists(),'Unity failed: '+str(folder)
   status=0
  finally:
-  (folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only or args.head_only or args.widget_state_only,'elapsed_seconds':time.monotonic()-started},indent=2));(folder/'cleanup.json').write_text(json.dumps(cleanup_completed_run('results-presentation-runtime',status,log,ROOT,process_reaped=True),indent=2))
+  try:complete_editor_run(folder,project,unity,status,log)
+  except BaseException:status=1;raise
+  finally:(folder/'result.json').write_text(json.dumps({'exit_code':status,'limits':__doc__,'partial':bool(args.case) or args.footer_only or args.head_only or args.widget_state_only,'elapsed_seconds':time.monotonic()-started},indent=2))
  if status==0 and not args.case and not args.footer_only and not args.head_only and not args.widget_state_only and os.environ.get('RESULTS_WIDGET_STATE_ONLY')!='1':
   # A complete Results pass binds the exact real sampler outputs to the actual
   # scheduler regression, then exercises the unported head compositor. Focused
@@ -146,10 +170,5 @@ def main():
   transport=[os.sys.executable,str(args.transport_source_root/'scripts/check-results-transport-runtime.py'),'--native-samples',str(samples/'sampler-enabled-full.bin'),str(samples/'sampler-disabled-full.bin')]
   head=[os.sys.executable,str(Path(__file__).resolve()),'--head-only','--source-root',str(args.source_root),'--fixture-source-root',str(args.fixture_source_root),'--bar-source-root',str(args.bar_source_root),'--codec-source-root',str(args.codec_source_root)]
   for label,child in [('native_transport',transport),('head',head)]:
-   child_code=-1
-   try:child_code=command(child,folder/(label+'-followup.log'),timeout=600)
-   finally:
-    report=json.loads((folder/'result.json').read_text());report.update(exit_code=child_code,elapsed_seconds=time.monotonic()-started);report['required_'+label+'_exit_code']=child_code;report['required_'+label+'_command']=child;(folder/'result.json').write_text(json.dumps(report,indent=2))
-   print((folder/(label+'-followup.log')).read_text(),end='')
-   assert child_code==0,'Required Results '+label+' integration failed'
+   required_followup(folder,label,child,started)
 if __name__=='__main__':main()
