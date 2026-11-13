@@ -34,12 +34,61 @@ exclusive-FD retirement, preserve a live compiler holding foreign input, and
 reject an omitted compiler teardown before cache deletion. Evidence is copied to
 `/home/claw/quest3-local/build/evidence/quest-v1.2.4-rebase-20261113/editor-cleanup/`.
 `git diff --check` passes. No Unity, C# build or complete runtime suite ran in
-this worker; complete affected Results/environment qualification remains with
-the integrator after the frozen integration gate. This record claims process
-unit proof only, with no native-game or headset acceptance.
+the initial implementation worker. Subsequent runtime qualification is recorded
+below; this initial record remains process unit proof, without headset acceptance.
 
 The patch belongs on both `dev` and `feature/quest3-standalone`. When resolving the
 environment manifest hunk on Quest, retain its existing Quest source/fixture
 bindings and add the runner/helper/retention fingerprints. Do not replace the
 Quest production inputs with the desktop roster. Cross-platform runtime evidence
 reuse still follows the separately recorded input-closure audit.
+
+## Final input-bound runtime qualification, 2026-11-13
+
+Main remains clean at `8cf9028c9ef4cf9e1131257d632d85fe7614324d`. No Main build
+output or config was written. All build flags, original oracles, GL backend and
+timeout budgets are unchanged.
+
+- Dev environment: all 96 cases, 11,478 production assertions and 95 controls
+  pass with native exit zero. The 271.879-second invocation includes compilation;
+  its Unity deadline remains 240 seconds. All 22 Main source pins, four runner
+  pins and 15 byte-identical Main fixture pins match. Editor/compiler cleanup
+  reports no remaining/refused process.
+- Dev actual Results head: 55 coordinator/final-head pixel assertions and one
+  causal control pass in 46.279 seconds. Strict Release passes with zero warnings
+  and errors in 16.17 seconds. The private source/output root holds exactly 1,208
+  byte-identical Main C#/project files (40,968,338 bytes), with read-only Asset
+  and reference links. Supported `--source-root` relocation preserves the build
+  parameters and instrumentation. Only the bound private Git build stamp may
+  differ. The run pins 1,416 source/dependency inputs and the actual DLL.
+
+Preserved plugin SHA256:
+`6414cb39d1273f21a551ccb9d6ea22354adb7190d7d1b8e71a3b5624b25ae090`.
+Plugin/preloader DLLs and build logs were hash-preserved before cleanup. All four
+private build `bin`/`obj` caches are absent. The API initially retained copied
+movie inputs exceeding its report bound; those exact duplicates were verified
+against unchanged read-only Main Assets and removed, then the remaining bin
+passed the unchanged cleanup API. No original input, capture or DLL proof was lost.
+
+Preserved unsuccessful attempts are explicitly separate: sparse worker fixture
+absence (zero tests); a collector failing to recognize the environment suffix
+evidence path despite all 96 native passes; and an initially missing transitive
+`catalogue.py` input in the private head layout (zero tests). Materializing the
+unchanged fixtures/read-only helper resolved setup. Read-only reconciliation
+verified the complete environment manifest, source/fixture pins and cleanup;
+the collector defect caused no native rerun or test-boundary change.
+
+Quest manifest coverage qualifies in aggregate: level-up 94 cases (2,218
+assertions / 89 controls), desktop 118 (5,327 / 84), flat confirmation 35
+(228 / 29). Only missing tails ran after input-bound successful prefixes.
+The full ordinary uGUI consumer passes 56 assertions / 10 controls across all
+11 cases. Already-qualified common-pointer coverage was not repeated. Case
+names, mutation messages and entry methods match the original manifests.
+Aggregate coverage is not a new successful complete local invocation.
+
+Exact commands, source/fixture pins, original failures, counts and cleanup proof:
+`/home/claw/quest3-local/build/evidence/quest-v1.2.4-rebase-20261113/editor-audit/`
+contains `dev-qualification-proof.json`, `quest-continuation-union.json` and
+`final-proof-file-sha256.json`. Successful serial wrappers report no remaining
+owned processes or wrapper pins and remove private TMP. Native game bootstrap
+and headset acceptance remain outside these fixtures.
