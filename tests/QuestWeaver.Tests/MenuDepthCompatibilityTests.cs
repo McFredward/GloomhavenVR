@@ -39,7 +39,7 @@ internal static class MenuDepthCompatibilityTests
                 "UIReward::Awake", "UICharacterCreatorClassRosterSlot::Awake", "UIPartyCharacterEquippementSlot::Awake",
                 "UIEnhancementButtonHighlight::Awake", "UIPartyCharacterEnhancementAbilityCardsDisplay::Awake", "UnityEngine.UI.UITab::OnEnable",
                 "FullAbilityCard::OnEnable", "MiniAbilityCard::Awake", "ItemCardUI::OnEnable", "MonsterRoundCardUI::Awake",
-                "UIPerkAttackModifier::Awake", "UIScenarioAttackModifier::Awake", "AbilityCardUI::Awake", "AbilityCardUI::OnEnable",
+                "UIPerkAttackModifier::Awake", "UIScenarioAttackModifier::Awake", "AbilityCardUI::Awake", "AbilityCardUI::OnEnable", "UIPerksWindow::Show",
                 "UnityEngine.UI.Graphic::OnEnable", "UnityEngine.UI.Graphic::OnDestroy", "UnityEngine.UI.Graphic::OnTransformParentChanged",
                 "UnityEngine.UI.Graphic::OnCanvasHierarchyChanged", "UnityEngine.UI.RawImage::set_texture", "UnityEngine.UI.UIWindow::OnEnable",
                 "Character3DDisplayManager::Start" };
@@ -118,10 +118,10 @@ internal static class MenuDepthCompatibilityTests
                 .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
             closure.Fields.Single(f => f.Name == "field").IsStatic = true;
         });
-        Negative("stale Quest743 original-reader generated closure identity", a => {
+        Negative("stale Quest754 original-reader generated closure identity", a => {
             TypeDefinition closure = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes
                 .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
-            closure.Name = "<>c__DisplayClass85_0";
+            closure.Name = "<>c__DisplayClass112_0";
         });
         Negative("readonly closure semantics", a => {
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacters").NestedTypes.SelectMany(t => t.Methods)
@@ -153,6 +153,8 @@ internal static class MenuDepthCompatibilityTests
         });
         Negative("original bool field type", a => NativeManager(a).Fields.Single(f => f.Name == "isHidden").FieldType = a.MainModule.TypeSystem.String);
         Negative("original reference field authority", a => NativeManager(a).Fields.Single(f => f.Name == "character3D").IsStatic = true);
+        Negative("native perks Show signature", a => a.MainModule.GetTypeReferences().First(t => t.FullName == "UIPerksWindow")
+            .Resolve().Methods.Single(m => m.Name == "Show").Parameters.RemoveAt(5));
         foreach (var input in immutable) check(Hash(input.Key) == input.Value, "Metadata-only conversion wrote an immutable original input: " + input.Key);
 
         TypeDefinition NativeManager(AssemblyDefinition a) => a.MainModule.GetType(menu + "MenuDepthCharacters").Methods.Single(m => m.Name == "CreateHiddenReader")

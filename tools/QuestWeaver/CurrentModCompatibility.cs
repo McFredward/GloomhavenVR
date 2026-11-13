@@ -18,6 +18,7 @@ internal static class CurrentModCompatibility
             NativeMovieBoundary.Apply(model, report, find, track);
             MenuDepthCompatibility.Apply(model, report, find);
             NativeConfirmationBoundary.Apply(model, report, find, track);
+            NativeRaycastBoundary.Apply(model, report, find, track);
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or AssemblyResolutionException)
         { report.Issues.Add(new IntegrationIssue("CURRENT_MOD_AOT_UNSUPPORTED", model.Mod.Name.Name, error.Message)); }

@@ -131,9 +131,16 @@ try
     entry.GetMethod("Remove")!.Invoke(null, null); trace.Clear(); input[0] = 1;
     Check((int)calculate.Invoke(target, input)! == 43, "UnpatchSelf did not restore vanilla behavior.");
     Check(string.Join(",", trace) == "original", "Inactive hooks remained active.");
+    entry.GetField("PreparationAllowed")!.SetValue(null, false);
+    entry.GetMethod("InstallDynamic")!.Invoke(null, null);
+    Check((int)targetType.GetMethod("Dynamic")!.Invoke(target, new object[] { 2 })! == 4
+        && (int)entry.GetField("Preparations")!.GetValue(null)! == 1
+        && (int)entry.GetField("Selections")!.GetValue(null)! == 0,
+        "Attributed Prepare-false must preserve native behavior without evaluating the selector.");
+    entry.GetField("PreparationAllowed")!.SetValue(null, true);
     entry.GetMethod("InstallDynamic")!.Invoke(null, null);
     Check((int)targetType.GetMethod("Dynamic")!.Invoke(target, new object[] { 2 })! == 14, "Metadata-derived dynamic target did not run compiled hooks.");
-    Check((int)entry.GetField("Preparations")!.GetValue(null)! == 1 && (int)entry.GetField("Selections")!.GetValue(null)! == 1, "Prepare/TargetMethod side effects were lost.");
+    Check((int)entry.GetField("Preparations")!.GetValue(null)! == 2 && (int)entry.GetField("Selections")!.GetValue(null)! == 1, "Attributed Prepare/TargetMethod side effects were lost.");
     entry.GetMethod("InstallDirect")!.Invoke(null, null); input[0] = 2;
     Check((int)targetType.GetMethod("Direct")!.Invoke(target, input)! == 11 && (int)input[0]! == 9, "Direct custom-named prefix/postfix/finalizer registration failed.");
     entry.GetMethod("Remove")!.Invoke(null, null);
@@ -221,6 +228,7 @@ try
     HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
     RuntimeRegistrationTests.RunFixture(Path.Combine(temp, "runtime-registration"), Check, fixtureDir);
     NativeConfirmationBoundaryTests.RunFixture(fixtureDir, Path.Combine(temp, "confirmation-boundary"), Check);
+    NativeRaycastBoundaryTests.RunFixture(fixtureDir, Path.Combine(temp, "raycast-boundary"), Check);
     if (args.Length == 1 && args[0] == "--weaver-core-only")
     {
         TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);

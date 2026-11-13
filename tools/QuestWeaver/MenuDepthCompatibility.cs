@@ -22,15 +22,16 @@ internal static class MenuDepthCompatibility
         ["MenuDepthCards::.cctor"] = "9cdd9cd93f5a05d4fa250f084c987c7025a6e47adae34b6f892598ed4f9cddbe" };
     static readonly Dictionary<string, string> Types = new(StringComparer.Ordinal) {
         ["MenuDepthLifecycleObserver/<Targets>d__1"] = "b0e23458bf3addbd4614c97778da2a66fb918843011f46b2b8c7360e3faa4963",
-        ["MenuDepthDriver/<NativeOwnerLifecycles>d__49"] = "72041c4d0d31d5a82044731ff8def0a53d5aca7a8d78336f2e3d5298a36bb439",
+        // Build759 adds the original UIPerksWindow.Show observation after the
+        // complete existing owner/card enumeration and its deduplication.
+        ["MenuDepthDriver/<NativeOwnerLifecycles>d__49"] = "00690fa5eea555aba23a0f49a100f3149316d25751254531f2a3c4ec7bade48a",
         ["MenuDepthDriver/Spec"] = "2f65c9450084ba7d47eb18c70164a9f0e03f3a8dc292d0eaa72b6dafa054235c",
         ["MenuDepthCards/<NativeTypes>d__6"] = "679aedea1b15737575257ade0d3f0e098a11464ebfcd1c24d0e6322c511d2599",
         ["MenuDepthCards/Kind"] = "4ffc579e808cfaa079dd88958557865d946aa710adec19af13c97298bf4ec52e",
         ["MenuDepthCharacters/<>c__DisplayClass32_0"] = "ebf1a06fd6602d707052d6381981c338ff5664a40a7884c0102139544194b52d",
-        // Builds744–753 add character ray members before the factory. Complete
-        // comparison with qualified Quest743 proves only this generated-name
-        // change; native readonly access and both entire bodies remain exact.
-        ["MenuDepthCharacterSource/<>c__DisplayClass112_0"] = "961396fa5e70cbd2a7bc75fcb9782ce50e7c3a307df64990c580b06acf08573c" };
+        // Complete comparison with qualified Quest754 proves only the generated
+        // 112→113 identity change; factory and entire readonly closure are exact.
+        ["MenuDepthCharacterSource/<>c__DisplayClass113_0"] = "19bbaa2a04c2dee32fe28ab2f8c0696ecd190bc595cd099e11b4929a937fddac" };
     // These literal names come from the completely pinned descriptor tables.
     // Resolve exact owner assembly and inherited no-argument members, then apply
     // the original native-assembly filter and method-handle deduplication.
@@ -51,7 +52,7 @@ internal static class MenuDepthCompatibility
         var readers = new[] {
             PrepareReader(module, find, "MenuDepthCharacters", "CreateHiddenReader", "isHidden", "System.Boolean", "b5aa95b6621865760a421305cd960f8293b0ce75934cee88b40ba6084bf42b7b"),
             PrepareReader(module, find, "MenuDepthCharacterSource", "CreateOriginalReader", "character3D",
-                "Character3DDisplayManager/Character3D", "19ca5210bc92d761d9899c8198b7b638ab6963d90019e1e95d0efb307806b14e") };
+                "Character3DDisplayManager/Character3D", "a59bdab0e538403c98a845431a1fa09cdf952029b06239b69086d376c726ae07") };
         MethodDefinition directory = module.GetType(Prefix + "MenuDepthCatalogue").Methods.Single(m => m.Name == "get_DirectoryPath");
         RequireHash(directory, "91dd0e6a45b336572ce7054c7b3da6ef5192da7ef77e96ad7f3c570721e428fb");
         MethodDefinition resourceRoot = module.GetType("GloomhavenVR.Core.QuestStandalonePlatform").Methods.Single(m =>
@@ -107,6 +108,16 @@ internal static class MenuDepthCompatibility
             if (owner == null) continue; // Same optional original-type behavior as the verified native iterator.
             Add(FindMethod(owner, "Awake"), true); Add(FindMethod(owner, "OnEnable"), true);
         }
+        // The original iterator intentionally uses Method(type, "Show") without
+        // Type.EmptyTypes. This native declaration has six arguments; the
+        // Awake/OnEnable no-argument resolver would silently drop the observer.
+        TypeDefinition perks = find("UIPerksWindow") ?? throw new InvalidDataException("Original perks owner is absent.");
+        MethodDefinition show = perks.Methods.Single(m => m.Name == "Show");
+        if (show.IsStatic || show.ReturnType.FullName != "System.Void" || !show.Parameters.Select(p => p.ParameterType.FullName).SequenceEqual(new[] {
+            "ICharacterService", "UnityEngine.RectTransform", "System.Boolean", "System.Action`1<ScenarioRuleLibrary.YML.AttackModifierYMLData>",
+            "System.Boolean", "System.Action" }))
+            throw new InvalidDataException("Original perks Show signature changed.");
+        Add(show);
         TypeDefinition graphic = find("UnityEngine.UI.Graphic") ?? throw new InvalidDataException("Original Graphic is absent.");
         foreach (string name in new[] { "OnEnable", "OnDestroy", "OnTransformParentChanged", "OnCanvasHierarchyChanged" })
             Add(FindMethod(graphic, name));

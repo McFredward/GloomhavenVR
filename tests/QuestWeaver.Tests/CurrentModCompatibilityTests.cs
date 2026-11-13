@@ -31,9 +31,11 @@ internal static class CurrentModCompatibilityTests
             if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMovies") != null) expected++;
             if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthLifecycleObserver") != null) expected++;
             if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.ConfirmationIdentityWritePatch") != null) expected++;
+            if (model.Mod.MainModule.GetType("GloomhavenVR.Hands.Interact.GraphicRaycaster_SyntheticCoordinates") != null) expected++;
             check(report.StaticSubstitutions.Count == expected, "Current mod did not qualify its known AOT substitutions.");
             NativeMovieBoundaryTests.Verify(model, managed, check);
             NativeConfirmationBoundaryTests.Verify(model, managed, check);
+            NativeRaycastBoundaryTests.Verify(model, managed, check);
             check(mainBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_Main")))
                 && enumBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_ProjectionCameras")))
                 && applyBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "Apply"))), "Camera resolver/suspension semantics changed.");
@@ -127,6 +129,7 @@ internal static class CurrentModCompatibilityTests
             il.Emit(OpCodes.Ldstr, "_version"); il.Emit(OpCodes.Call, resolver.Body.Instructions.Select(i => i.Operand).OfType<GenericInstanceMethod>().Single(c => c.Name == "FieldRefAccess")); il.Emit(OpCodes.Ret);
         });
         NativeConfirmationBoundaryTests.Controls(modPath, managed, Path.Combine(output, "confirmation-controls"), check);
+        NativeRaycastBoundaryTests.Controls(modPath, managed, Path.Combine(output, "raycast-controls"), check);
 
         void Negative(string label, Action<AssemblyDefinition> alter)
         {

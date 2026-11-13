@@ -46,6 +46,10 @@ namespace HarmonyLib
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPrefix : Attribute { }
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPostfix : Attribute { }
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyFinalizer : Attribute { }
+    // Metadata only. Registry.PatchAll still executes the original named
+    // Prepare/TargetMethod methods; these attributes do not bypass either gate.
+    [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPrepare : Attribute { }
+    [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyTargetMethod : Attribute { }
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyTargetMethods : Attribute { }
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public sealed class HarmonyPriority : Attribute { public HarmonyPriority(int priority) { } }

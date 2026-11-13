@@ -9,6 +9,7 @@ public static class Entry
     public static void Install() { Owner.PatchAll(typeof(CalculatePatch)); Owner.PatchAll(typeof(SimplePatch)); Owner.PatchAll(typeof(MutatingPatch)); Owner.PatchAll(typeof(CleanupPatch)); }
     public static void Remove() => Owner.UnpatchSelf();
     public static int Preparations, Selections;
+    public static bool PreparationAllowed = true;
     public static int FinalizerFailures;
     public static void InstallDynamic() => Owner.PatchAll(typeof(DynamicPatch));
 #if QUEST_FIXTURE_NEXT
@@ -65,7 +66,9 @@ internal static class CleanupPatch
 [HarmonyPatch]
 internal static class DynamicPatch
 {
-    private static bool Prepare() { Entry.Preparations++; return true; }
+    [HarmonyPrepare]
+    private static bool Prepare() { Entry.Preparations++; return Entry.PreparationAllowed; }
+    [HarmonyTargetMethod]
     private static System.Reflection.MethodInfo TargetMethod() { Entry.Selections++; return typeof(Target).GetMethod(nameof(Target.Dynamic))!; }
     private static void Prefix(ref int value) => value +=
 #if QUEST_FIXTURE_NEXT
