@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection.Emit;
+using System.Text;
 using HarmonyLib;
 using InControl;
 using UnityEngine;
@@ -36,7 +37,34 @@ internal static class NativeMouse760
 public static class UguiCoordinates760Program
 {
     private static int checks;
-    private static void Check(bool value, string message) { checks++; if (!value) throw new Exception(message); }
+    private static Action<string>? failureWitness;
+    private static bool witnessedFailure;
+    private static void Check(bool value, string message)
+    {
+        checks++;
+        if (value) return;
+        if (!witnessedFailure)
+        {
+            witnessedFailure = true;
+            try { failureWitness?.Invoke(message); }
+            catch (Exception error) { Console.WriteLine("Pointer fixture witness failed: " + error); }
+        }
+        throw new Exception(message);
+    }
+    private static List<RaycastResult> CapturedHits(EventSystem system, Vector2 point)
+    {
+        var data = new PointerEventData(system) { position = point };
+        var hits = new List<RaycastResult>();
+        using (UguiRaycastCoordinates.EnterCaptured(data)) system.RaycastAll(data, hits);
+        return hits;
+    }
+    private static void AppendBounds(StringBuilder text, string label, Vector3[] corners, Camera camera)
+    {
+        text.Append(label).Append(" world/screen corners:");
+        foreach (Vector3 corner in corners)
+            text.Append(" ").Append(corner.ToString("F3")).Append("/").Append(camera.WorldToScreenPoint(corner).ToString("F3"));
+        text.AppendLine();
+    }
     private static RectTransform Rect(string name, Transform? parent, Vector2 size)
     {
         var rect = (RectTransform)new GameObject(name, typeof(RectTransform)).transform;
@@ -56,7 +84,7 @@ public static class UguiCoordinates760Program
 
     public static IEnumerator Run(Action<int> report)
     {
-        checks = 0; NativeMouse760.Calls = 0;
+        checks = 0; NativeMouse760.Calls = 0; witnessedFailure = false; failureWitness = null;
         string runtime = Path.Combine(Environment.GetEnvironmentVariable("GHVR_COORDINATES760_EVIDENCE")!, "executed-runtime");
         Directory.CreateDirectory(runtime);
         foreach (Type type in new[] { typeof(GraphicRaycaster), typeof(PointerInputModuleExtended), typeof(Utilities.InputSystemUtilities), typeof(Mouse) })
@@ -87,10 +115,47 @@ public static class UguiCoordinates760Program
             var secondRect = Rect("Other Options", root, new Vector2(140, 80)); secondRect.anchoredPosition = new Vector2(550, 600);
             secondRect.gameObject.AddComponent<Image>();
             var flat = new FlatScreen(); flat.BindFixture(camera, target);
+            Vector2 witnessPoint = default;
+            bool hasWitnessPoint = false, hasWheelBounds = false, hasOverlayBounds = false, retainedScrollFixture = false;
+            float wheelDeltaTime = float.NaN, wheelNormalized = float.NaN;
+            int finalNativeCallsBefore = -1, finalNativeCallsAfter = -1;
+            PointerEventData? witnessPointer = null;
+            var wheelCorners = new Vector3[4]; var overlayCorners = new Vector3[4];
+            failureWitness = message =>
+            {
+                // One bounded record per failing case, including intentional causal controls.
+                // The original failed run did not retain its production delta or actual top hit.
+                var text = new StringBuilder();
+                text.AppendLine("Assertion: " + message);
+                text.AppendLine($"checks={checks} frame={Time.frameCount} dt={Time.unscaledDeltaTime:R} wheelDt={wheelDeltaTime:R} wheelNormalized={wheelNormalized:R}");
+                text.AppendLine($"storedPixel={witnessPoint:F3} hasPixel={hasWitnessPoint} currentOptionsPixel={camera.WorldToScreenPoint(buttonRect.position):F3}");
+                text.AppendLine($"captureOwned={FlatScreen.OwnsNativeUiPixels(canvas, camera)} canvasMode={canvas.renderMode} raycasterEnabled={raycaster.isActiveAndEnabled} raycasterRegistered={RaycasterManager.GetRaycasters().Contains(raycaster)} buttonInteractable={button.interactable} retainedScrollFixture={retainedScrollFixture}");
+                text.AppendLine($"simulatedFullscreen={NativeMouseScreen.fullScreen} simulatedRender={NativeMouseDisplay.main.renderingWidth}x{NativeMouseDisplay.main.renderingHeight} simulatedSystem={NativeMouseDisplay.main.systemWidth}x{NativeMouseDisplay.main.systemHeight} target={camera.targetTexture?.width}x{camera.targetTexture?.height}");
+                text.AppendLine($"currentMouse={Mouse.current?.name} fixtureMouse={mouse?.name} added={mouse?.added} enabled={mouse?.enabled} processedPosition={(mouse != null && mouse.added ? mouse.position.ReadValue().ToString("F3") : "unavailable")} ownsStoredPosition={hasWitnessPoint && VirtualMouse.OwnsProcessedPosition(witnessPoint)}");
+                text.AppendLine($"lastNativePointerPosition={witnessPointer?.position} lastNativePointerHit={witnessPointer?.pointerCurrentRaycast.gameObject?.name} nativeCallsBeforeFinal={finalNativeCallsBefore} nativeCallsAfterFinal={finalNativeCallsAfter}");
+                if (hasWheelBounds) AppendBounds(text, "After original wheel", wheelCorners, camera);
+                if (hasOverlayBounds) AppendBounds(text, "Controlled overlap", overlayCorners, camera);
+                if (hasWitnessPoint)
+                {
+                    var hits = CapturedHits(es, witnessPoint);
+                    text.AppendLine("Captured hit count=" + hits.Count);
+                    for (int i = 0; i < Math.Min(8, hits.Count); i++)
+                        text.AppendLine($"hit[{i}]={hits[i].gameObject?.name} depth={hits[i].depth} sortingLayer={hits[i].sortingLayer} sortingOrder={hits[i].sortingOrder} distance={hits[i].distance:R}");
+                }
+                for (int i = Math.Max(0, GloomhavenVR.Core.VRLog.DebugLines.Count - 8); i < GloomhavenVR.Core.VRLog.DebugLines.Count; i++)
+                    text.AppendLine("log: " + GloomhavenVR.Core.VRLog.DebugLines[i]);
+                for (int i = Math.Max(0, GloomhavenVR.Core.VRLog.Warnings.Count - 8); i < GloomhavenVR.Core.VRLog.Warnings.Count; i++)
+                    text.AppendLine("warning: " + GloomhavenVR.Core.VRLog.Warnings[i]);
+                string evidence = Environment.GetEnvironmentVariable("GHVR_COORDINATES760_EVIDENCE")!;
+                string path = Path.Combine(evidence, "failure-witness-" + typeof(UguiCoordinates760Program).Assembly.GetName().Name + ".txt");
+                File.WriteAllText(path, text.ToString());
+                Console.WriteLine("Pointer fixture failure witness: " + path);
+            };
             yield return null; yield return null; Canvas.ForceUpdateCanvases();
             Check(ReferenceEquals(es.currentInputModule, module), "real EventSystem selects the native mouse module under test");
             Check(FlatScreen.OwnsNativeUiPixels(canvas, camera), "actual capture producer admits its current native UI camera and render target");
             Vector2 a = camera.WorldToScreenPoint(buttonRect.position), b = camera.WorldToScreenPoint(secondRect.position);
+            witnessPoint = a; hasWitnessPoint = true;
             Check(a.y > 1080f, "canonical capture provides a legitimate UI point beyond the physical desktop window");
             mouse = InputSystem.AddDevice<Mouse>("ConsoleVirtualMouse760"); physical = InputSystem.AddDevice<Mouse>("PhysicalMouse760");
             Configure(mouse, a);
@@ -101,6 +166,7 @@ public static class UguiCoordinates760Program
             flat.ClickFixture(a);
             Check(clicks == 1, "explicit captured-screen click reaches its original button immediately");
             var current = module.ReadOriginal(); module.HoverOriginal(current);
+            witnessPointer = current;
             Check(current.pointerCurrentRaycast.gameObject == button.gameObject && hover.Enters == 1,
                 "actual original native mouse module hovers the same button immediately");
             Check(current.position == a, "native module retains its own processed pointer position");
@@ -156,10 +222,23 @@ public static class UguiCoordinates760Program
             Canvas.ForceUpdateCanvases(); scroll.verticalNormalizedPosition = 1f; Canvas.ForceUpdateCanvases();
             Check(FlatScreen.OwnsNativeUiPixels(canvas, camera), "restored native capture still owns the original list pixel domain");
             var hand = new VRHand { Side = HandSide.Right, Thumbstick = new Vector2(0, -1) };
+            wheelDeltaTime = Time.unscaledDeltaTime;
             flat.ScrollFixture(camera.WorldToScreenPoint(card.position), hand);
+            wheelNormalized = scroll.verticalNormalizedPosition; card.GetWorldCorners(wheelCorners); hasWheelBounds = true;
             Check(scroll.verticalNormalizedPosition < .999f, "original flat starter-card list scrolls while a pointer-only adapter is hovered; "
                 + flat.ScrollWitnessFixture() + " normalized=" + scroll.verticalNormalizedPosition + " dt=" + Time.unscaledDeltaTime);
             Check(flat.DragHandlerFixture(camera.WorldToScreenPoint(list.position)), "captured native list still owns its actual drag gesture");
+            // This unmasked list belongs only to the completed wheel/drag subtest. A slow
+            // wheel frame can move its later-sibling card over Options. Force that native
+            // state independently of frame timing, then retire it before the separate click
+            // checks. This proves fixture isolation, not the unmeasured original failure's dt.
+            scroll.verticalNormalizedPosition = .5f; Canvas.ForceUpdateCanvases();
+            card.GetWorldCorners(overlayCorners); hasOverlayBounds = true;
+            var overlayHits = CapturedHits(es, a);
+            Check(overlayHits.Count > 0 && overlayHits[0].gameObject == card.gameObject,
+                "controlled unmasked scroll card is the Options pixel's actual top hit before teardown");
+            Object.DestroyImmediate(list.gameObject);
+            Canvas.ForceUpdateCanvases();
             var sliderRoot = Rect("Native slider", root, new Vector2(300, 50)); sliderRoot.anchoredPosition = new Vector2(800, 0);
             sliderRoot.gameObject.AddComponent<Image>(); var slider = sliderRoot.gameObject.AddComponent<Slider>();
             var container = Rect("Handle area", sliderRoot, new Vector2(280, 50));
@@ -176,7 +255,17 @@ public static class UguiCoordinates760Program
             Check(clicks == oldClicks, "original disabled native raycaster remains unreachable"); raycaster.enabled = true;
             NativeMouseDisplay.main.renderingWidth = NativeMouseDisplay.main.systemWidth;
             NativeMouseDisplay.main.renderingHeight = NativeMouseDisplay.main.systemHeight; NativeMouseScreen.fullScreen = true;
+            if (retainedScrollFixture)
+            {
+                // The skip-teardown control qualifies only when the original card really
+                // intercepts this exact final query; a setup error has a different oracle.
+                var retainedHits = CapturedHits(es, a);
+                Check(retainedHits.Count > 0 && retainedHits[0].gameObject == card.gameObject,
+                    "retained scroll control has the full card as the final click's actual top hit");
+            }
+            finalNativeCallsBefore = NativeMouse760.Calls;
             flat.ClickFixture(a);
+            finalNativeCallsAfter = NativeMouse760.Calls;
             Check(clicks == oldClicks + 1, "fullscreen captured native click retains ordinary behavior");
             var nativeRaycast = AccessTools.Method(typeof(EventSystem), nameof(EventSystem.RaycastAll), new[] { typeof(PointerEventData), typeof(List<RaycastResult>) });
             var originalCall = new CodeInstruction(OpCodes.Callvirt, nativeRaycast);
@@ -190,6 +279,7 @@ public static class UguiCoordinates760Program
         }
         finally
         {
+            failureWitness = null;
             legacy?.Stop(); harmony.UnpatchAll(harmony.Id); FlatScreen.ClearFixture();
             if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
             if (physical != null && physical.added) InputSystem.RemoveDevice(physical);
