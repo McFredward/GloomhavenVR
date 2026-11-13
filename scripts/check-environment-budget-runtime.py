@@ -22,6 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EDITOR_TOOLS = ROOT/'scripts/menu-depth-character/project_compilers.py'
 editor_spec = importlib.util.spec_from_file_location('environment_editor_tools', EDITOR_TOOLS)
 editor_tools = importlib.util.module_from_spec(editor_spec); editor_spec.loader.exec_module(editor_tools)
+RUN_TOOLS = ROOT/'scripts/check-environment-menu-scope.py'
+run_spec = importlib.util.spec_from_file_location('environment_run_tools', RUN_TOOLS)
+run_tools = importlib.util.module_from_spec(run_spec); run_spec.loader.exec_module(run_tools)
 
 
 def complete_editor_run(run, project, unity, status, completion):
@@ -32,8 +35,14 @@ def complete_editor_run(run, project, unity, status, completion):
         (run/'editor-cleanup.json').write_text(json.dumps(editors, indent=2)+'\n')
         editor_reaped = not editors['remaining']
         if not editor_reaped: raise RuntimeError('Exact environment editor failed to stop')
+        # Normal Unity exit can orphan Roslyn with private Bee descriptors. The
+        # FD-aware helper also refuses a process borrowing another private run.
+        compilers = run_tools.cleanup_run_compilers(run, editor_reaped=editor_reaped)
+        (run/'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2)+'\n')
+        if compilers['remaining'] or compilers['refused']:
+            raise RuntimeError('Private environment compiler ownership/exit unresolved')
     except BaseException:
-        (run/'.keep').write_text('Exact editor cleanup requires review; preserve active project caches.\n')
+        (run/'.keep').write_text('Private editor/compiler cleanup requires review; preserve active project caches.\n')
         raise
     receipt = cleanup_completed_run('environment-budget-runtime', status, completion, ROOT, process_reaped=editor_reaped)
     (run/'cleanup.json').write_text(json.dumps(receipt, indent=2)+'\n')
@@ -390,7 +399,7 @@ def main():
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'runner_sha256':{str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (Path(__file__),EDITOR_TOOLS,ROOT/'scripts/town_run_retention.py')},'fixture_sha256':fixture_hashes,'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'runner_sha256':{str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (Path(__file__),EDITOR_TOOLS,RUN_TOOLS,ROOT/'scripts/town_run_retention.py')},'fixture_sha256':fixture_hashes,'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
