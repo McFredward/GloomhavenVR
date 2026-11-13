@@ -14,6 +14,14 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Cards
 {
+    // Android-only passive artwork diagnostics do not participate in the row
+    // coordinator's layout, input or pixel proof. Keep this observation port
+    // explicit while executing the production coordinator without alteration.
+    internal static class QuestArtworkEvidence
+    {
+        internal static void Raw(Component? owner, string role) { }
+    }
+
     internal sealed class PlayTray
     {
         internal static PlayTray? Current;
