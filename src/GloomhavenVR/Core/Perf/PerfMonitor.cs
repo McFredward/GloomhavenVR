@@ -462,6 +462,7 @@ internal static partial class PerfMonitor
     /// <summary>Drop the host and every record (hot-reload teardown; never throws).</summary>
     internal static void Shutdown()
     {
+        QuestPerformanceEvidence.Clear();
         StepsActive = false;
         PerfSceneProfile.Cancel();
         FigureMeasurement.Clear();
@@ -841,7 +842,9 @@ internal static partial class PerfMonitor
         }
 
         AppendFigureMeasurement(sb);
-        VRLog.Info(Scope0, sb.ToString());
+        string retainedSummary = sb.ToString();
+        QuestPerformanceEvidence.RetainTiming(retainedSummary);
+        VRLog.Info(Scope0, retainedSummary);
         LogSteps(windowSeconds);
         LogCounters(windowSeconds);
         LogSplit(windowSeconds, mean);
@@ -889,7 +892,9 @@ internal static partial class PerfMonitor
             else
                 PerfFrameSplit.AppendSceneCensus(sb);
         }
-        VRLog.Info(Scope0, sb.ToString());
+        string retainedSummary = sb.ToString();
+        QuestPerformanceEvidence.RetainTiming(retainedSummary);
+        VRLog.Info(Scope0, retainedSummary);
         if (includeNativeCapture)
             PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
     }
@@ -983,7 +988,9 @@ internal static partial class PerfMonitor
                 sb.Append(", calls ").Append(s.WindowCalls);
         }
         sb.Append(" | (").Append(Ranked.Count).Append(" named steps measured)");
-        VRLog.Info(Scope0, sb.ToString());
+        string retainedSummary = sb.ToString();
+        QuestPerformanceEvidence.RetainTiming(retainedSummary);
+        VRLog.Info(Scope0, retainedSummary);
         LogStepTail(windowSeconds, top);
     }
 
@@ -1123,7 +1130,9 @@ internal static partial class PerfMonitor
         }
         sb.Append(" | a counter that CLIMBS window over window while the scenario stands still is an "
                   + "accumulation — that is the shape to look for, not the absolute value.");
-        VRLog.Info(Scope0, sb.ToString());
+        string retainedSummary = sb.ToString();
+        QuestPerformanceEvidence.RetainTiming(retainedSummary);
+        VRLog.Info(Scope0, retainedSummary);
     }
 
     /// <summary>

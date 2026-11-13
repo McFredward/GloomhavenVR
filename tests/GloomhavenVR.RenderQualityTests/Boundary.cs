@@ -15,6 +15,7 @@ namespace BepInEx.Configuration
 }
 namespace UnityEngine
 {
+    public static class Debug { public static void Log(string message) { } }
     public class Object { public static T[] FindObjectsOfType<T>() => Array.Empty<T>(); }
     public class Camera : Object
     {
@@ -157,13 +158,22 @@ namespace UnityEngine.XR
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool FixedEyeTextureAllocation = false;
+        internal static int StandaloneMsaaDefault => 2;
+        internal static float StandaloneEyeResolutionDefault => FrameDefaults.EyeResolutionScale;
+    }
     internal static class PerfTextureCensus { }
     internal static class PerfMonitor { internal static void MarkChange(string reason) { } }
     internal static class ModuleConfig { internal static BepInEx.Configuration.ConfigFile Create(string module) => new(); }
     internal static class VRSession { internal static bool IsRunning = false; }
+    internal enum VRLogLevel { Debug }
+
     internal static class VRLog
     {
         internal static readonly List<string> Lines = new();
+        internal static bool Wants(VRLogLevel level) => false;
         internal static void Info(string area,string text) => Lines.Add(text);
         internal static void Note(string area,string text) => Lines.Add(text);
         internal static void Warn(string area,string text) => Lines.Add(text);

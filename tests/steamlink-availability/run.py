@@ -38,6 +38,7 @@ def main():
         ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.MixedReality.cs',
         ROOT / 'src/GloomhavenVR/Defaults/Defaults.Core.cs', HERE / 'Program.cs',
         HERE / 'Fixture.csproj', Path(__file__),
+        ROOT / 'src/GloomhavenVR/WorldUI/Options/QuestOptionVisibility.cs',
         ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.4.Curated.cs']
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
@@ -69,6 +70,9 @@ def main():
     project = run / 'owned-project'; project.mkdir()
     shutil.copyfile(HERE / 'Fixture.csproj', project / 'Fixture.csproj')
     shutil.copyfile(HERE / 'Program.cs', project / 'Program.cs')
+    # The shared row predicate now names the real platform-specific option mask;
+    # compile it unchanged, with the explicit desktop capability port above.
+    shutil.copyfile(ROOT / 'src/GloomhavenVR/WorldUI/Options/QuestOptionVisibility.cs', project / 'QuestOptionVisibility.cs')
     env = dict(os.environ); env['PATH'] = str(Path.home() / '.dotnet') + os.pathsep + env.get('PATH', '')
     code = 1
     results = []

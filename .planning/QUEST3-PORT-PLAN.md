@@ -54,7 +54,7 @@ scope and platform clarifications on 2026-10-02.
 | Distribution | Distribute the converter and permitted mod/tool components. Read the player's acquired PC installation and build their APK locally. Do not distribute an APK containing the original game or its exported content. |
 | Campaign | Include the base game campaign. Preserve its rules, progression, saves, tutorials, map, town services and existing VR interactions. |
 | DLCs | Plan optional support for Jaws of the Lion and Solo Scenarios when the player owns the necessary content. Establish base game feasibility first. |
-| Guildmaster | Exclude Guildmaster. Its Quest menu entries remain visible, grey and non-activatable, with an explanatory hover tooltip. |
+| Guildmaster | Include Guildmaster, superseding the earlier exclusion by maintainer correction on2026-10-06. Retain original menu, saves and multiplayer admission; mobile procedural-engine execution remains a hardware gate. |
 | Workshop | Exclude Steam Workshop. Its Quest entries remain visible, grey and non-activatable, with an explanatory hover tooltip. |
 | Profile | Embed the Steam logo, original PC Steam display name and stable full ID during the local build. Use the existing PC client or verified account data; no personal-avatar lookup or live Steam login on Quest. |
 | Horizon services | Never register a Meta app or depend on Horizon account, entitlement or social services. Use native OpenXR passthrough independently of these services. |
@@ -178,7 +178,7 @@ produce a real Android Unity player and usable Android content.
 | Procedural presentation | Existing Apparance runtime | Exported presentation assets and compatible lifecycle adapter |
 | Mod integration | BepInEx and HarmonyX runtime integration | AOT-compatible integration established during the local build |
 | Gameplay and multiplayer | Original rules and network implementation | Preserve original logic, protocol and identifiers |
-| Feature availability | Existing desktop availability | Campaign enabled; Guildmaster and Workshop disabled with hover explanations |
+| Feature availability | Existing desktop availability | Campaign and Guildmaster enabled; Workshop disabled with a hover explanation |
 
 These are proposed seams, not committed class names. Choose actual ownership
 and interfaces after auditing the current source. Keep desktop initialization
@@ -409,6 +409,13 @@ composition path. On a passthrough failure, give an actionable explanation and
 preserve a functioning VR view; do not silently call that successful MR support.
 
 ## Guildmaster and Workshop availability
+
+The2026-10-06 maintainer correction supersedes the historical Guildmaster
+exclusions below: Guildmaster is included with native admission/loading/save
+validation and native tooltips. Only Workshop remains unavailable. The original
+engine is retained through an isolated compatibility worker; no complete static
+bake replaced it. Successful Android engine execution and generation performance
+are still open hardware acceptance gates.
 
 Introduce a Quest-only availability decision shared by native menu presentation,
 VR conversion and actual entry paths. It must not alter desktop availability.

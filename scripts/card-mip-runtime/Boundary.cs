@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; internal static string ResourceDirectory => ""; }
     internal static class VRLog
     {
         internal static bool WantsDebug => false;

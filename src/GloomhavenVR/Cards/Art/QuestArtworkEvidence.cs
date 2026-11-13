@@ -1,0 +1,339 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Reflection;
+using System.Text;
+using GloomhavenVR.Core;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace GloomhavenVR.Cards;
+
+/// <summary>At most eight Debug observations of actual scenario artwork sources/draw crops.
+/// Texture samples and passive consumer state are not proof of final headset output. Each
+/// role keeps at most two observed generations. No frame watcher or native mutation.</summary>
+internal static class QuestArtworkEvidence
+{
+    private static readonly Dictionary<string, HashSet<int>> Seen = new();
+    private static int _records;
+    private static string _caller = "consumer";
+    private static string _abilityContour = "not-offered";
+
+    // Share the existing eight/two-per-role records. A successful APK sidecar
+    // install is not proof that the real card consumer found or applied it.
+    internal static void Contour(CardBodyKind kind, string status)
+    {
+        if (QuestStandalonePlatform.Enabled && VRLog.WantsDebug && kind == CardBodyKind.Ability)
+            _abilityContour = status;
+    }
+
+    /// <summary>Read the native sources from the already bounded scenario census.
+    /// B680's three consumer branches emitted no records although the scenario
+    /// Debug census ran. Those branches depend on adoption/conversion callbacks;
+    /// this independent original-component lookup must also report a missing or
+    /// disabled source. It shares the SAME eight records/two per-role ceiling,
+    /// never activates a widget and introduces no per-frame watcher.</summary>
+    internal static void ScenarioSources()
+    {
+        if (!QuestStandalonePlatform.Enabled || !VRLog.WantsDebug || _records >= 8) return;
+        string prior = _caller;
+        _caller = "scenario-census";
+        try
+        {
+            FullAbilityCard? chosen = null;
+            int best = -1;
+            foreach (FullAbilityCard face in UnityEngine.Object.FindObjectsOfType<FullAbilityCard>(true))
+            {
+                if (face == null || !face.gameObject.scene.IsValid() || !face.gameObject.scene.isLoaded) continue;
+                Image? header = face.headerImage;
+                // Prefer the actual live card over parked pool/prewarm templates,
+                // including a live card whose header has not arrived yet. Otherwise
+                // a healthy hidden template would conceal the user's missing art.
+                int score = (face.gameObject.activeInHierarchy ? 16 : 0)
+                    + (face.gameObject.activeSelf ? 4 : 0)
+                    + (header != null && header.overrideSprite != null ? 2 : 0)
+                    + (header != null && header.enabled ? 1 : 0);
+                if (score > best) { best = score; chosen = face; }
+            }
+            Image(chosen != null ? chosen.headerImage : null, "ability-header");
+
+            InitiativeTrack? track = InitiativeTrack.Instance;
+            Raw(track, "initiative-avatar");
+            InitiativeTrackActorAvatar? avatar = track != null
+                ? track.GetComponentInChildren<InitiativeTrackActorAvatar>() : null;
+            Image(avatar != null ? avatar.selectionImage : null, "initiative-frame");
+
+            if (Singleton<ActorStatPanel>.IsInitialized)
+                Image(Singleton<ActorStatPanel>.Instance.characterPortrait, "stat-portrait");
+        }
+        catch (Exception error) { Failed("native-sources", error); }
+        finally { _caller = prior; }
+    }
+
+    internal static void SpriteField(Component? owner, string fieldName, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (owner == null) { Missing(role, "owner"); return; }
+            FieldInfo? field = null;
+            for (Type? type = owner.GetType(); type != null && field == null; type = type.BaseType)
+                field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic
+                    | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            if (field == null) { Missing(role, "field"); return; }
+            Image(field.GetValue(owner) as Image, role);
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    internal static void Image(Image? image, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (image == null) { Missing(role, "image"); return; }
+            Sprite? drawn = image.overrideSprite;
+            if (drawn == null || drawn.texture == null)
+            {
+                if (Admit(role, 0)) State(" role=" + role + " unavailable=sprite" + DrawState(image));
+                return;
+            }
+            Sprite source = CardFaceMipBake.OriginalFor(drawn);
+            Texture2D texture = source.texture;
+            if (texture == null) { Missing(role, "texture"); return; }
+            // A native offscreen-capture host is intentionally inactive between
+            // draws. Its Image/texture is still the real source and must remain
+            // observable. Do not change native visibility to obtain a reading.
+            if (!Admit(role, Identity(drawn, image))) return;
+            Rect crop = source.textureRect;
+            Rect outputCrop = drawn.textureRect;
+            Vector4 outerUv = UnityEngine.Sprites.DataUtility.GetOuterUV(drawn);
+            string detail = " role=" + role + " sprite=" + Name(source.name) + " source=" + Label(texture)
+                + " crop=" + Geometry(crop) + " output=" + Label(drawn.texture)
+                + " outputCrop=" + Geometry(outputCrop) + " outerUv=" + outerUv;
+            detail += DrawState(image);
+            Emit(role, detail, image, texture, crop, drawn.texture, outputCrop);
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    internal static void Raw(Component? owner, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (owner == null) { Missing(role, "owner"); return; }
+            RawImage? fallback = null;
+            foreach (RawImage image in owner.GetComponentsInChildren<RawImage>(true))
+            {
+                if (image == null) continue;
+                if (fallback == null) fallback = image;
+                if (image.texture == null || !image.gameObject.activeSelf) continue;
+                RawImage(image, role);
+                return;
+            }
+            RawImage(fallback, role);
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    internal static void RawImage(RawImage? image, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (image == null) { Missing(role, "image"); return; }
+            Texture? drawn = image.texture;
+            if (drawn == null)
+            {
+                if (Admit(role, 0)) State(" role=" + role + " unavailable=texture" + DrawState(image));
+                return;
+            }
+            if (!Admit(role, Identity(drawn, image))) return;
+            Texture source = WorldUI.PanelMipBake.OriginalFor(drawn);
+            Rect crop = image.uvRect;
+            string detail = " role=" + role + " source=" + Label(source) + " uv=" + Geometry(crop)
+                + " output=" + Label(drawn);
+            detail += DrawState(image);
+            Emit(role, detail, image, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    private static int Identity(UnityEngine.Object textureOrSprite, Graphic image) => unchecked(
+        textureOrSprite.GetInstanceID() * 31 + (image.enabled ? 1 : 0));
+
+    private static void Missing(string role, string what)
+    {
+        if (Admit(role, 0)) State(" role=" + role + " unavailable=" + what);
+    }
+
+    // GH.Runtime also defines a GLOBAL Debug class whose Log has
+    // [Conditional("ENABLE_LOGS")]. The mod does not define that game symbol:
+    // unqualified Debug.Log erased the previous log calls. Readbacks prepared
+    // before those calls could still run, so silence did not prove an unreachable
+    // consumer. Use the actual Unity sink explicitly; an alias
+    // also conflicts with that global type in the real game compilation.
+    private static void State(string detail) => UnityEngine.Debug.Log("[Quest startup] artwork" + detail + " caller=" + _caller);
+
+    private static bool CanObserve(string role) => QuestStandalonePlatform.Enabled && VRLog.WantsDebug
+        && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
+
+    // These three consumers call from Update/LateUpdate. Camera.current is not a
+    // phase marker on MultiPass: Unity may leave the last rendered camera there
+    // between frames (the same B23 finding retained in WorldUIModule). Requiring
+    // null can suppress all observations despite these known lifecycle callers;
+    // B678's capture contains no artwork records, so it cannot expose that state.
+    private static string DrawState(Graphic image)
+    {
+        CanvasRenderer renderer = image.canvasRenderer;
+        Material? material = renderer.materialCount > 0 ? renderer.GetMaterial(0) : null;
+        string shader = material != null && material.shader != null ? Name(material.shader.name) : "none";
+        Color tint = renderer.GetColor();
+        string detail = " graphic=" + Name(image.name) + " enabled=" + image.enabled
+            + " self=" + image.gameObject.activeSelf + " hierarchy=" + image.gameObject.activeInHierarchy + " shader=" + shader
+            + " rect=" + Geometry(image.rectTransform.rect) + " rectClip=" + renderer.hasRectClipping
+            + " cull=" + renderer.cull + " tint=" + tint.r.ToString("F2", CultureInfo.InvariantCulture)
+            + "," + tint.g.ToString("F2", CultureInfo.InvariantCulture) + "," + tint.b.ToString("F2", CultureInfo.InvariantCulture)
+            + "," + tint.a.ToString("F2", CultureInfo.InvariantCulture)
+            + " inheritedA=" + renderer.GetInheritedAlpha().ToString("F2", CultureInfo.InvariantCulture);
+        if (image is Image sprite) detail += " type=" + sprite.type + " aspect=" + sprite.preserveAspect
+            + " mesh=" + sprite.useSpriteMesh + " fill=" + sprite.fillAmount.ToString("F2", CultureInfo.InvariantCulture);
+        if (material != null && material.HasProperty("_ClipRect")) detail += " shaderClip=" + material.GetVector("_ClipRect");
+        // Disabling a native capture host clears CanvasRenderer's actual binding.
+        // Keep the current source material distinct from that empty draw binding.
+        Material sourceMaterial = image.material;
+        if (sourceMaterial != null && !ReferenceEquals(sourceMaterial, material))
+            detail += " sourceShader=" + (sourceMaterial.shader != null ? Name(sourceMaterial.shader.name) : "none");
+        Canvas? canvas = image.GetComponentInParent<Canvas>(true);
+        detail += " canvas=" + (canvas != null ? canvas.enabled + "," + canvas.renderMode : "none");
+        return detail;
+    }
+
+    private static bool Admit(string role, int identity)
+    {
+        if (!Seen.TryGetValue(role, out HashSet<int> seen)) Seen[role] = seen = new HashSet<int>();
+        if (!seen.Add(identity)) return false;
+        _records++;
+        return true;
+    }
+
+    private static void Failed(string role, Exception error)
+    {
+        // A tight sprite's rectangular crop can be unavailable. Its exact original
+        // remains untouched; record that failure once rather than retrying readbacks.
+        if (_records >= 8) return;
+        _records++;
+        if (!Seen.TryGetValue(role, out HashSet<int> seen)) Seen[role] = seen = new HashSet<int>();
+        seen.Add(int.MinValue); seen.Add(int.MaxValue);
+        UnityEngine.Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name + " caller=" + _caller);
+    }
+
+    private static void Emit(string role, string detail, Graphic image, Texture source, Rect crop, Texture output, Rect outputCrop)
+    {
+        // Keep BOTH real6x6 pixel observations even when actual Android instance IDs,
+        // long native names, clipping and current material metadata exceed one logcat
+        // record. B679's missing observations cannot be diagnosed by dropping the
+        // very samples once we finally reach a parked capture source. Compress only
+        // metadata; no extra GPU readback, log record or quota is introduced.
+        string sourcePixels = Sample(source, crop, out string sourceRead);
+        string outputPixels = Sample(output, outputCrop, out string outputRead);
+        detail += " reads=" + sourceRead + "/" + outputRead;
+        string contour = role == "ability-header" ? " cpuAlpha=" + QuestCardAlpha.Availability(source)
+            + " contour=" + _abilityContour : string.Empty;
+        detail += contour;
+        // B681 records sampled the SAME header texture/crop twice and got different
+        // pixels. Such a pair cannot establish damaged source art: retain that
+        // distinction without a third GPU readback or another protected log record.
+        if (ReferenceEquals(source, output) && crop == outputCrop)
+            detail += " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal);
+        string samples = " rgba6=" + sourcePixels + " outputRgba6=" + outputPixels;
+        string message = "[Quest startup] artwork" + detail + " caller=" + _caller + samples;
+        if (Encoding.UTF8.GetByteCount(message) > 1000)
+        {
+            Material sourceMaterial = image.material;
+            string shader = sourceMaterial != null && sourceMaterial.shader != null ? Name(sourceMaterial.shader.name) : "none";
+            string compact = " role=" + Name(role) + " metadataCompressed=true source=" + Label(source)
+                + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
+                + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
+                + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader
+                + " reads=" + sourceRead + "/" + outputRead + contour
+                + (ReferenceEquals(source, output) && crop == outputCrop
+                    ? " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal) : string.Empty);
+            message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;
+        }
+        UnityEngine.Debug.Log(message);
+    }
+
+    private static string Sample(Texture texture, Rect pixels, out string read)
+    {
+        // The GPU path returned different pixels for an identical input in B681,
+        // then uninitialized 0xCD regions in B682. Read original readable mip zero
+        // directly where possible so those diagnostics can distinguish intact
+        // source data from a broken GPU copy. The label states this independent
+        // nearest-texel sampling method; it is not a final-camera pixel comparison.
+        if (texture is Texture2D image && image.isReadable)
+        {
+            try
+            {
+                Color32[] original = image.GetPixels32(0);
+                var samples = new Color32[36];
+                for (int y = 0; y < 6; y++) for (int x = 0; x < 6; x++)
+                {
+                    int sx = Mathf.Clamp(Mathf.FloorToInt(pixels.x + pixels.width * (x + .5f) / 6), 0, image.width - 1);
+                    int sy = Mathf.Clamp(Mathf.FloorToInt(pixels.y + pixels.height * (y + .5f) / 6), 0, image.height - 1);
+                    samples[y * 6 + x] = original[sy * image.width + sx];
+                }
+                read = "cpu0";
+                return Encode(samples);
+            }
+            catch (UnityException) { /* Unsupported CPU compressed format: label the GPU observation. */ }
+        }
+        read = "gpu2d";
+        RenderTexture target = RenderTexture.GetTemporary(6, 6, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        RenderTexture prior = RenderTexture.active;
+        Texture2D? readback = null;
+        try
+        {
+            QuestTextureCopy.Copy(texture, target, new Vector2(pixels.width / texture.width, pixels.height / texture.height),
+                new Vector2(pixels.x / texture.width, pixels.y / texture.height));
+            RenderTexture.active = target;
+            readback = new Texture2D(6, 6, TextureFormat.RGBA32, false, false);
+            readback.ReadPixels(new Rect(0, 0, 6, 6), 0, 0);
+            return Encode(readback.GetPixels32());
+        }
+        finally
+        {
+            RenderTexture.active = prior;
+            RenderTexture.ReleaseTemporary(target);
+            if (readback != null) UnityEngine.Object.Destroy(readback);
+        }
+    }
+
+    private static string Encode(Color32[] values)
+    {
+        var bytes = new byte[values.Length * 4];
+        for (int i = 0; i < values.Length; i++)
+        {
+            bytes[i * 4] = values[i].r; bytes[i * 4 + 1] = values[i].g;
+            bytes[i * 4 + 2] = values[i].b; bytes[i * 4 + 3] = values[i].a;
+        }
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static Rect PixelRect(Texture texture, Rect uv) =>
+        new(uv.x * texture.width, uv.y * texture.height, uv.width * texture.width, uv.height * texture.height);
+    private static string Name(string name)
+    {
+        int count = Mathf.Min(name.Length, 24);
+        while (count > 0 && Encoding.UTF8.GetByteCount(name.Substring(0, count)) > 24) count--;
+        if (count > 0 && char.IsHighSurrogate(name[count - 1])) count--;
+        return count == name.Length ? name : name.Substring(0, count);
+    }
+    private static string Label(Texture texture) => Name(texture.name) + "#" + texture.GetInstanceID()
+        + "@" + texture.updateCount + ":" + texture.width + "x" + texture.height
+        + ",f" + (int)texture.graphicsFormat + ",r" + (texture is Texture2D image && image.isReadable ? "1" : "0");
+    private static string Geometry(Rect rect) => rect.x.ToString("F3", CultureInfo.InvariantCulture) + ","
+        + rect.y.ToString("F3", CultureInfo.InvariantCulture) + "," + rect.width.ToString("F3", CultureInfo.InvariantCulture)
+        + "," + rect.height.ToString("F3", CultureInfo.InvariantCulture);
+}

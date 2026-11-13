@@ -51,6 +51,9 @@ class CardEffects {
 namespace GloomhavenVR.Core { static class VRLog { internal static bool WantsDebug; internal static readonly List<string> Lines=new(); internal static void Info(string scope,string text)=>Lines.Add(text); internal static void Warn(string scope,string text){} } }
 namespace GloomhavenVR.Net { static class CardAppearanceSampler { internal static int Starts; internal static void ObserveNativeBurnStart(CardEffects fx)=>Starts++; } }
 namespace GloomhavenVR.Cards {
+ // Quest hardware evidence is a passive external observer. This desktop timeline
+ // fixture executes the production burn trace but does not collect headset facts.
+ static class QuestCardFireEvidence { internal static void Observe(CardEffects? fx,string transition){} }
  static class CardFace {internal static AbilityCardUI? Owner;internal static AbilityCardUI? OwnerOf(FullAbilityCard? full)=>Owner!=null&&ReferenceEquals(Owner.fullAbilityCard,full)?Owner:null;}
  partial class BurnArtwork {
  internal const float FinishedGreyOut=.98f;

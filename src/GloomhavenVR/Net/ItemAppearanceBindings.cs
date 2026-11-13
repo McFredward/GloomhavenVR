@@ -132,16 +132,17 @@ internal sealed class ItemAppearanceBindings
             if ((node.Mask & support & 1u << 17) != 0) NativePlaybackWrites.TextureScale(material, CardAppearanceBindings.Noise, new Vector2(V(31), V(32)));
             if (node.Role == 11)
             {
-                if (graphic is Image flame) flameQueue?.Invoke(flame, material);
                 if ((support & NativePlaybackProperties.ParticleMask) != 0)
                     NativePlaybackWrites.Texture(material, CardAppearanceBindings.Particle, (node.Flags & 8) != 0 ? Effects.overlayFrameGhost : Effects.overlayFrameBurn);
+                if (graphic is Image flame) flameQueue?.Invoke(flame, material);
             }
         }
         return true;
     }
-    internal void Destroy()
+    internal void Destroy(Action<Material>? releasing = null)
     {
-        foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
+        foreach (Material material in _materials.Values)
+            if (material != null) { releasing?.Invoke(material); UnityEngine.Object.Destroy(material); }
         _materials.Clear();
     }
 }

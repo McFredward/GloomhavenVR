@@ -25,6 +25,51 @@ namespace GloomhavenVR.Quest.Editor
                 removed += RemoveUnusedRequirements(manifest);
             }
             Debug.Log("[GloomhavenVR Quest] manifest removed unused eye-tracking declarations=" + removed);
+            RemoveLargeCachedApks(path);
+        }
+
+        public static int RemoveLargeCachedApks(string unityLibrary)
+        {
+            // AGP 4's incremental ZIP reader fails on signed offsets in an old
+            // >2 GiB APK. The actual 096d warm build failed at offset 2161209521;
+            // rebuilding only the generated APK from unchanged native inputs
+            // succeeds. Preserve every import, C++ object and other Gradle task.
+            string module = Path.GetFullPath(unityLibrary);
+            if (Path.GetFileName(module) != "unityLibrary")
+                throw new InvalidOperationException("Generated Unity Gradle module path is unrecognized.");
+            string root = Path.GetDirectoryName(module);
+            string output = root;
+            foreach (string component in new[] { "launcher", "build", "outputs", "apk" })
+            {
+                output = Path.Combine(output, component);
+                if (!Directory.Exists(output)) return 0;
+                if ((File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidOperationException("Generated APK cache contains a linked directory.");
+            }
+            int removed = 0;
+            var directories = new System.Collections.Generic.Stack<string>();
+            directories.Push(output);
+            while (directories.Count != 0)
+            {
+                string directory = directories.Pop();
+                foreach (string child in Directory.GetDirectories(directory))
+                {
+                    if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidOperationException("Generated APK cache contains a linked directory.");
+                    directories.Push(child);
+                }
+                foreach (string apk in Directory.GetFiles(directory, "*.apk"))
+                {
+                    if ((File.GetAttributes(apk) & FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidOperationException("Generated APK cache contains a linked file.");
+                    if (new FileInfo(apk).Length < 2147483648L) continue;
+                    File.Delete(apk);
+                    removed++;
+                }
+            }
+            if (removed != 0)
+                Debug.Log("[Quest Campaign] Fresh packaging for large cached APKs=" + removed + "; native build cache retained.");
+            return removed;
         }
         static int RemoveUnusedRequirements(string manifest)
         {

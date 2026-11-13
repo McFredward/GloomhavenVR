@@ -36,6 +36,7 @@ internal static class ScenarioFigureDetailBudget
     private const int ActorsPerFrame = 2;
     private const int LoadingActorsPerFrame = 16;
     private static Driver? _driver;
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers() : "figureDetail driver=unavailable";
     private static readonly FieldInfo? NativeRoot = typeof(ActorBehaviour).GetField(
         "m_RootGameObject", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
     private static readonly FieldInfo? ForcingPosition = typeof(ActorBehaviour).GetField(
@@ -288,6 +289,28 @@ internal static class ScenarioFigureDetailBudget
     [DefaultExecutionOrder(29900)]
     private sealed class Driver : MonoBehaviour
     {
+        internal string DescribeConsumers()
+        {
+            int lods = 0, capped = 0, meshes = 0, derivatives = 0, far = 0;
+            long originalVertices = 0, currentVertices = 0;
+            foreach (ActorRecord actor in _actors)
+            {
+                foreach (LodRecord lod in actor.Lods)
+                { lods++; if (!lod.Foreign && lod.Selected > 0) capped++; }
+                foreach (ScenarioFigureMeshBank.Record mesh in actor.MeshDetails)
+                {
+                    Mesh? current = mesh.Current;
+                    if (current == null || mesh.Original == null) continue;
+                    meshes++; originalVertices += mesh.Original.vertexCount; currentVertices += current.vertexCount;
+                    if (mesh.UsesDerivative) { derivatives++; if (current.name.EndsWith("-5", StringComparison.Ordinal)) far++; }
+                }
+            }
+            // Maintained admitted records only. No discovery, isVisible, LOD
+            // table read or authored mesh array allocation in a support poll.
+            return "figureDetail actors=" + _actors.Count + " pending=" + _pending.Count + " nativeCaps=" + capped + "/" + lods
+                + " bodies=" + meshes + " derivatives=" + derivatives + " far5=" + far
+                + " admittedVertices=" + originalVertices + "/" + currentVertices + " distance=" + _distance;
+        }
         private readonly List<ActorRecord> _actors = new();
 
         internal Mesh? OriginalMeshFor(Renderer renderer)

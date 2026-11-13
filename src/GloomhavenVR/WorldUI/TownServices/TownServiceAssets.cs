@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -52,7 +51,7 @@ internal static class TownServiceAssets
                 if (String.Equals(bundle.name, VoiceBundleName, StringComparison.OrdinalIgnoreCase)) _voiceBundle = bundle;
             }
 
-            string directory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+            string directory = RuntimeDepsLoader.PluginDir;
             string artPath = Path.Combine(directory, BundleName);
             if (_bundle == null && !File.Exists(artPath)) { _phase = LoadPhase.Missing; return; }
             if (_bundle == null) _bundleRequest = AssetBundle.LoadFromFileAsync(artPath);

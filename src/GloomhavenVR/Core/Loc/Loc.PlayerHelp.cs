@@ -16,6 +16,9 @@ internal static partial class Loc
     internal static string? ConfigHelpForPlayers(string section, string key)
     {
         if (string.IsNullOrEmpty(section) || string.IsNullOrEmpty(key)) return null;
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation
+            && section == "RenderQuality" && key == "EyeResolutionScale")
+            return QuestText.Get("fixedEyeResolution", CurrentLanguage == "German");
         var table = _playerConfigHelp ??= BuildPlayerConfigHelp();
         string address = section + "/" + key;
         if (!table.TryGetValue(address, out var value))
@@ -29,6 +32,8 @@ internal static partial class Loc
     internal static string? ModHelpForPlayers(string hintKey)
     {
         if (string.IsNullOrEmpty(hintKey)) return null;
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation && hintKey == "h_vr_o_eyeres")
+            return QuestText.Get("fixedEyeResolution", CurrentLanguage == "German");
         var table = _playerModHelp ??= BuildPlayerModHelp();
         return table.TryGetValue(hintKey, out var value) ? PlayerHelpLanguage(value) : null;
     }

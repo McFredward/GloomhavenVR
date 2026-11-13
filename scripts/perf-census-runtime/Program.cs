@@ -191,6 +191,8 @@ public static class InteractionProgram
             Check(!Pending()&&PerfFrameSplit.Roster==null,
                 "profile summary fault cancels pending job and completed roster");
             int faultLog=VRLog.Lines.Count;PerfMonitor.SplitSummary();
+            Check(QuestPerformanceEvidence.Timing.Count > 0 && QuestPerformanceEvidence.Timing[QuestPerformanceEvidence.Timing.Count - 1] == VRLog.Lines[VRLog.Lines.Count - 1],
+                "closed SPLIT report is retained exactly alongside its original log");
             Check(!Pending()&&VRLog.Lines.Count>faultLog
                 &&VRLog.Lines[VRLog.Lines.Count-1].Contains("scene census n/a (diagnostic fault"),
                 "profile summary fault cannot schedule a new census");

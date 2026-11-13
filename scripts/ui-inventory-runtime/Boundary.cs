@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 namespace GloomhavenVR.Core {
+ internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
  internal static class PerfConfig { internal static bool SharedUiWindowReadsOn=true; }
  internal static class VRLog {
   internal static int Errors;

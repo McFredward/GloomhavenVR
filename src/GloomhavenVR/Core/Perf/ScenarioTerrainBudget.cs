@@ -38,6 +38,8 @@ internal static partial class ScenarioTerrainBudget
     // fade decision. Keep native sources as the only wall-table inputs on every OS.
     private static readonly HashSet<Renderer> PrivateRenderers = new();
     internal static bool IsPrivateRenderer(Renderer renderer) => PrivateRenderers.Contains(renderer);
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers()
+        : "terrain driver=unavailable failed=" + _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
 
     // A verified immutable original bank is required, even for geometry whose CPU copy
@@ -251,6 +253,50 @@ internal static partial class ScenarioTerrainBudget
         private float _nextReport;
         private bool _assetsWereReady = true, _assetFailureReported;
         private Shader? _shader;
+        private int _pairedFrame = -1, _pairedSurfaces, _pairedReduced, _pairedOriginals, _pairedTriangles;
+        private readonly CostWindow _updateCost = new(), _cameraCost = new();
+        private int _lastDrawFrame = -1, _lastDrawSurfaces, _lastDrawReduced, _lastDrawOriginals, _lastDrawTriangles;
+        // The capture often ends paused, after a zero-lease camera. Retain the last
+        // nonempty paired draw and bounded actual owner CPU timings independently of
+        // noisy text logs. This is not GPU timing or proof of headset FPS improvement.
+        private sealed class CostWindow
+        {
+            private readonly long[] _ticks = new long[64];
+            private int _next, _count;
+            private long _sum;
+            internal void Add(long elapsed)
+            {
+                _sum -= _ticks[_next]; _ticks[_next] = elapsed; _sum += elapsed;
+                _next = (_next + 1) % _ticks.Length; _count = Math.Min(_count + 1, _ticks.Length);
+            }
+            internal string Describe()
+            {
+                long maximum = 0;
+                for (int i = 0; i < _count; i++) maximum = Math.Max(maximum, _ticks[i]);
+                double factor = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                return (_count == 0 ? 0.0 : _sum * factor / _count).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                    + "/" + (maximum * factor).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "/" + _count;
+            }
+        }
+
+        // Read only when the existing bounded Debug hardware snapshot asks. This
+        // separates prepared wall geometry from actually paired camera leases;
+        // neither a ready bank nor structural batching proves LOD submission.
+        internal string DescribeConsumers()
+        {
+            int exact = 0, reduced = 0;
+            foreach (Surface surface in _surfaces.Values)
+            { if (surface.HasExactGeometry) exact++; if (surface.HasReducedGeometry) reduced++; }
+            return "terrain active=" + _active + " failed=" + _failed + " surfaces=" + _surfaces.Count
+                + " exact=" + exact + " reduced=" + reduced + " pending=" + _pending.Count
+                + " visited=" + _discovered.Count + " refusedScope/Floor/Identity/Bank=" + string.Join("/", _refusals)
+                + " assetsReady=" + _assetsWereReady + " assetsFailed=" + _assetFailureReported
+                + " pairedFrame=" + _pairedFrame + " pairedSurfaces/Reduced=" + _pairedSurfaces + "/" + _pairedReduced
+                + " pairedTriangles=" + _pairedTriangles + "/" + _pairedOriginals
+                + " lastDraw=" + _lastDrawFrame + ":" + _lastDrawSurfaces + "/" + _lastDrawReduced
+                + ":" + _lastDrawTriangles + "/" + _lastDrawOriginals
+                + " cpuMs(avg/max/n)Update=" + _updateCost.Describe() + " PreCull=" + _cameraCost.Describe();
+        }
 
         private void Awake()
         {
@@ -288,8 +334,11 @@ internal static partial class ScenarioTerrainBudget
         }
         private void Update()
         {
+            bool measure = VRLog.Level >= VRLogLevel.Debug && (Time.frameCount & 15) == 0;
+            long started = measure ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             try { Tick(Time.unscaledDeltaTime); }
             catch (Exception error) { FailOpen(error); }
+            finally { if (measure) _updateCost.Add(System.Diagnostics.Stopwatch.GetTimestamp() - started); }
         }
         private void Tick(float delta)
         {
@@ -496,7 +545,7 @@ internal static partial class ScenarioTerrainBudget
         private void HandlePostRender(Camera camera)
         {
             if (camera != _leaseCamera) return;
-            int originals = 0, submitted = 0, cheap = 0;
+            int originals = 0, submitted = 0, cheap = 0, surfaces = 0, reduced = 0;
             foreach (Surface surface in _leases)
             {
                 // A later native MPB/material/visibility writer can revoke a pre-cull
@@ -504,15 +553,27 @@ internal static partial class ScenarioTerrainBudget
                 // Frustum/occlusion and GPU execution remain outside this measurement.
                 if (!surface.IsMasked) continue;
                 originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
+                surfaces++; if (surface.HasReducedGeometry) reduced++;
                 if (surface.CheapLease) cheap++;
             }
             PerfMonitor.Count("Terrain.OriginalTriangles", originals);
             PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
             PerfMonitor.Count("Terrain.CheapSurfaces", cheap);
+            // These scalar facts piggyback the existing counted loop; no extra
+            // discovery, native material/pose access or GPU readback is introduced.
+            _pairedFrame = Time.frameCount; _pairedSurfaces = surfaces; _pairedReduced = reduced;
+            _pairedOriginals = originals; _pairedTriangles = submitted;
+            if (surfaces > 0)
+            {
+                _lastDrawFrame = _pairedFrame; _lastDrawSurfaces = surfaces; _lastDrawReduced = reduced;
+                _lastDrawOriginals = originals; _lastDrawTriangles = submitted;
+            }
             RecoverLeases();
         }
         private void HandlePreCull(Camera camera)
         {
+            bool measure = VRLog.Level >= VRLogLevel.Debug && camera == Rig.VRRigDriver.HeadCamera && (Time.frameCount & 15) == 0;
+            long started = measure ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             try
             {
                 // A nested/foreign camera cannot inherit a source mask. Command-buffer
@@ -599,6 +660,7 @@ internal static partial class ScenarioTerrainBudget
                 ClearMaterialReads();
             }
             catch (Exception error) { RecoverLeases(); FailOpen(error); }
+            finally { if (measure) _cameraCost.Add(System.Diagnostics.Stopwatch.GetTimestamp() - started); }
         }
         private Material CurrentCanonicalMaterial(Material material, bool shared)
         {
@@ -652,6 +714,8 @@ internal static partial class ScenarioTerrainBudget
             _cheap.Clear();
             _reportedSurfaces = -1;
             _reportedDiscovery = -1; _discovered.Clear(); Array.Clear(_refusals, 0, _refusals.Length);
+            _pairedFrame = -1; _pairedSurfaces = _pairedReduced = _pairedOriginals = _pairedTriangles = 0;
+            _lastDrawFrame = -1; _lastDrawSurfaces = _lastDrawReduced = _lastDrawOriginals = _lastDrawTriangles = 0;
         }
     }
 }

@@ -271,9 +271,9 @@ internal static class PerfNativeLoopProbe
         _mainThread = Thread.CurrentThread.ManagedThreadId;
         long started = Stopwatch.GetTimestamp();
         MethodInfo? prefix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Prefix),
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
         MethodInfo? postfix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Postfix),
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
         if (prefix == null || postfix == null)
             return;
         Array values = Enum.GetValues(typeof(CMessageData.MessageType));

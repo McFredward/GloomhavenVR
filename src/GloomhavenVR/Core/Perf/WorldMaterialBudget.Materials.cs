@@ -133,6 +133,7 @@ internal static partial class WorldMaterialBudget
         // Awake runs on Unity's main thread after the component has been created.
         private MaterialPropertyBlock _block = null!, _slotBlock = null!;
         private Shader? _shader;
+        private bool _unsupportedShaderNoted;
         internal bool IsVariant(Material material) => material != null && _originalByVariant.ContainsKey(material);
         internal Material Canonical(Material material) => material != null
             && _originalByVariant.TryGetValue(material, out Material original) ? original : material!;
@@ -154,6 +155,17 @@ internal static partial class WorldMaterialBudget
             _shader ??= BundleShaders.Resolve(ShaderName, "Perf", "World material shader available.",
                 "World material shader unavailable; original world materials retained.");
             if (_shader == null) { _prepared[original] = original; return original; }
+            // A retained bundle can resolve a shader compiled for another API.
+            // Presence is not support: keep originals instead of pink/error draws.
+            if (!_shader.isSupported)
+            {
+                if (!_unsupportedShaderNoted)
+                {
+                    _unsupportedShaderNoted = true;
+                    VRLog.Note("Perf", "World material shader unsupported by the current graphics API; original world materials retained.");
+                }
+                _prepared[original] = original; return original;
+            }
             if (!_variants.TryGetValue(original, out Material variant))
             {
                 variant = new Material(original) { name = original.name + " (VR world material)" };

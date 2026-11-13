@@ -55,6 +55,8 @@ backings = re.search(r'internal static bool BackingsWanted\s*=>(.*?);', mr, re.S
 assert backings is not None
 assert '_file != null && Enabled.Value && VRSession.IsRunning' in backings.group(1)
 assert '(!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)' in backings.group(1)
+assert '&& (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive)' in backings.group(1)
+assert 'key = QuestStandalonePlatform.MixedRealityClearColor(key);' in tick
 assert mr.count('"INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. "') == 7
 restore=mr[mr.index('private static void RestoreUnseenUnderlays('):mr.index('private static void RestoreSky(')]
 for name in ('plate', 'fill', 'rim'):

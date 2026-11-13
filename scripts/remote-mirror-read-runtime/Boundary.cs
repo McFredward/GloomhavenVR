@@ -5,6 +5,13 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.Core
 {
+    // The production counter report also forwards its existing text to a Quest
+    // support recorder. That recorder is disabled on this desktop UI fixture;
+    // native getter/write/callback counts and log-level controls remain real.
+    internal static class QuestPerformanceEvidence
+    {
+        internal static void RetainTiming(string summary) { }
+    }
     internal static partial class PerfMonitor
     {
         internal static bool StepsActive = true;

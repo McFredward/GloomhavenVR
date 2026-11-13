@@ -32,10 +32,13 @@ def method(source,signature):
 def xr_viewport_binding_contract(source):
     """The GPU analogue cannot create an XR provider; pin its real admission chain."""
     viewport=method(source,'private static Rect Viewport(')
-    assert 'Rect pixels = XrPixelViewport(parameter.viewport, width, height);' in viewport, 'XR provider viewport bypasses normalized-to-pixel admission'
+    assert 'Rect pixels = XrViewportPixels(parameter.viewport, pass.renderTargetDesc, ref width, ref height);' in viewport, 'XR provider viewport bypasses normalized-to-pixel admission'
+    converter=method(source,'private static Rect XrViewportPixels(')
+    assert 'width = target.width;' in converter and 'height = target.height;' in converter, 'XR conversion ignores its actual per-pass allocation'
+    assert 'return XrPixelViewport(normalized, width, height);' in converter, 'XR descriptor conversion bypasses normalized pixel math'
     assert 'return pixels;' in viewport, 'XR provider ignores converted pixel viewport'
     prepare=method(source,'internal static void Prepare(')
-    assert 'Rect viewport = Viewport(camera, width, height);' in prepare, 'Capture bypasses actual camera/XR viewport'
+    assert 'Rect viewport = Viewport(camera, ref width, ref height);' in prepare, 'Capture bypasses actual camera/XR viewport'
     assert prepare.count('capture.SetViewport(viewport);')==2, 'Capture and camera target must restore the same admitted viewport'
     assert 'new Vector4(viewport.x, viewport.y, viewport.width, viewport.height)' in prepare, 'Shader pixel mapping bypasses admitted viewport'
 

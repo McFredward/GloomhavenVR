@@ -206,6 +206,11 @@ internal static class MenuDepthCharacters
             FieldInfo? field = typeof(Character3DDisplayManager).GetField("isHidden",
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
             if (field == null || field.FieldType != typeof(bool)) return null;
+            // Quest's Android IL2CPP player cannot generate this accessor's IL.
+            // Cache the same validated native field in its read-only delegate;
+            // never let unavailable Reflection.Emit prevent source enrollment.
+            if (Application.platform == RuntimePlatform.Android)
+                return manager => (bool)field.GetValue(manager)!;
             // FieldInfo.GetValue boxes the bool on every readiness/eye pass. The
             // mod already runs on the native Mono runtime; one read-only accessor
             // preserves the original field and avoids that recurring allocation.

@@ -108,6 +108,14 @@ internal static class Program
 
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool FixedEyeTextureAllocation => false;
+    }
+    internal static class QuestText
+    {
+        internal static string Get(string key, bool german) => throw new NotSupportedException(key);
+    }
     internal static partial class Loc
     {
         internal static string CurrentLanguage { get; set; } = "English";

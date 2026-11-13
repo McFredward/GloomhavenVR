@@ -7,7 +7,7 @@ using UnityEngine;
 
 public static class EnvironmentRunner
 {
-    [Serializable] private class Case { public string name, dll, expected; }
+    [Serializable] private class Case { public string name, dll, expected; public bool questCallbacks; }
     [Serializable] private class Manifest { public string result; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran;
@@ -70,7 +70,7 @@ public static class EnvironmentRunner
                     assembly.GetType("EnvironmentProgram").GetField("NativeProbeFixture").SetValue(null,nativeProbeFixture);
                     assembly.GetType("GloomhavenVR.Core.BankFixtureAssets").GetField("Provider",BindingFlags.Static|BindingFlags.NonPublic)
                         .SetValue(null,new Func<string,TextAsset>(path => AssetDatabase.LoadAssetAtPath<TextAsset>(path)));
-                    int count = (int)assembly.GetType("EnvironmentProgram").GetMethod("Run").Invoke(null,null);
+                    int count = (int)assembly.GetType("EnvironmentProgram").GetMethod(entry.questCallbacks ? "RunQuestCameras" : "Run").Invoke(null,null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " runtime assertions");
                 }

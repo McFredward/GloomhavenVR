@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "wine": {
+    "url": "https://github.com/GameNative/proton-wine/releases/download/proton-11.0-2-20260928/proton-11.0-2-arm64ec.wcp",
+    "sha256": "fffa467241bdae3eacd6ceb7e8096bb7793d617ce53a198dae8bc63a3453f595",
+    "size": 98079159,
+    "version": "11.0-2-arm64ec-20260928",
+    "revision": "555aa70febb7d36e82d96697b554ff8f4fe0bb1a",
+    "source": "https://github.com/GameNative/proton-wine/tree/555aa70febb7d36e82d96697b554ff8f4fe0bb1a",
+    "buildRecipe": "https://github.com/GameNative/proton-wine/blob/555aa70febb7d36e82d96697b554ff8f4fe0bb1a/.github/workflows/build-proton.yml",
+    "staticNtsyncRevision": "7ce6435e5979b1cb5341aa4b299f31e8937fe121"
+  },
+  "fex": {
+    "url": "https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu/pool/main/f/fex-emu-wine/fex-emu-wine_2609.1-1~n_arm64.deb",
+    "sha256": "c62210a501153885dede187f433e9a107d8d7a91b6959ba17e8a35a05c62e7fa",
+    "size": 1693160,
+    "version": "2609.1-1~n",
+    "revision": "9fbdc00bd6401aff3b32d79e78ff98b8a13e4dcf",
+    "source": "https://github.com/FEX-Emu/FEX/tree/9fbdc00bd6401aff3b32d79e78ff98b8a13e4dcf",
+    "dllSha256": "89240b8cbc70703c7dc87739910d40fdc5c7ea004b2df5c8c47f607bd87a0c89",
+    "sourcePackage": "https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu/pool/main/f/fex-emu-wine/fex-emu-wine_2609.1.orig.tar.gz",
+    "sourcePackageSha256": "3e3a390f6237c7a6c655bae6ea50124ae38add7309650260eaf9ae613c384657",
+    "buildRecipe": "https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu/pool/main/f/fex-emu-wine/fex-emu-wine_2609.1-1~n.debian.tar.xz",
+    "buildRecipeSha256": "3dfdc11c7cad10260d63337864ff11790598ae558f34f5dfc7df6fe54a4104e1"
+  },
+  "licenses": {
+    "Wine-LGPL-2.1.txt": {
+      "url": "https://raw.githubusercontent.com/GameNative/proton-wine/555aa70febb7d36e82d96697b554ff8f4fe0bb1a/COPYING.LIB",
+      "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
+    },
+    "FEX-MIT.txt": {
+      "url": "https://raw.githubusercontent.com/FEX-Emu/FEX/9fbdc00bd6401aff3b32d79e78ff98b8a13e4dcf/LICENSE",
+      "sha256": "f34a779f56b36d22b20e1b990d23e583a6a7ca071331925fa46156441c77a1ee"
+    },
+    "ntsync-LGPL-3.0.txt": {
+      "url": "https://raw.githubusercontent.com/GameNative/ntsync-android/7ce6435e5979b1cb5341aa4b299f31e8937fe121/LICENSE",
+      "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+    }
+  }
+}

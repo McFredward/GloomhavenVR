@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
+import shutil
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,9 +72,15 @@ def main():
         # The original behavior must be observable, rather than this check
         # merely agreeing with a zero-geometry or malformed-source shortcut.
         text = generator.read_text()
-        binding = 'tiers = (100,) if "pillar" in source["signature"]["name"].casefold() else (100,50,0)'
+        binding = 'for tier in ((100,) if pillar else (100,50,0)):'
         assert text.count(binding) == 1, 'pillar retirement producer binding drift'
-        control = root / 'old-generator.py'; control.write_text(text.replace(binding, 'tiers = (100,50,0)'))
+        # The actual Quest generator imports roles/geometry relative to its root.
+        # Copy that same owned closure; a missing import is not a passing control.
+        control_root = root / 'control-source'
+        (control_root / 'scripts').mkdir(parents=True)
+        shutil.copytree(ROOT / 'tools/environment-mesh', control_root / 'tools/environment-mesh')
+        control = control_root / 'scripts/old-generator.py'
+        control.write_text(text.replace(binding, 'for tier in (100,50,0):'))
         result = subprocess.run([sys.executable, str(control), *arguments], capture_output=True, text=True)
         assert result.returncode == 0, 'old producer control failed for an unrelated reason: ' + result.stderr
         old = json.loads((target / 'index.json').read_text())['entries'][0]

@@ -133,6 +133,57 @@ public static class MenuRigLifecycleFixture
         Check(head.targetTexture.width == 256 && head.targetTexture.height == 256, why + ": no resolution substitution");
         Pair(why);
     }
+
+    private static void QuestEligibility(Camera anchor, Camera head, Component tracker, Transform root,
+                                         SceneHeadOutput source, int version, Vector3 position,
+                                         Quaternion rotation, Vector3 scale)
+    {
+        if (!MenuFixtureSource.QuestResolverAvailable) return;
+        Stage("Quest actual owned targets and native UI fallback preserve the same menu source");
+        QuestStandalonePlatform.Enabled = true;
+        anchor.enabled = false; NativeCameraRenderBudget.MainOverride = null;
+        var owned = Keep(new RenderTexture(32, 32, 0) { name = "fixture owned UI" });
+        var foreign = Keep(new RenderTexture(32, 32, 0) { name = owned.name });
+        Check(owned.Create() && foreign.Create(), "Quest eligibility actual target objects exist");
+        var ui = Keep(new GameObject("Quest native UI fallback")).AddComponent<Camera>();
+        ui.tag = "UICamera"; ui.depth = 100; ui.cullingMask = 0; ui.targetTexture = owned;
+        var spoof = Keep(new GameObject("same-name foreign preview")).AddComponent<Camera>();
+        spoof.depth = 200; spoof.cullingMask = 0; spoof.targetTexture = foreign;
+        var capture = new GloomhavenVR.WorldUI.FlatScreen(); capture.Capture(ui, owned, ui: true);
+        Check(GloomhavenVR.WorldUI.FlatScreen.OwnsPresentationTarget(ui), "actual Quest captured target predicate admits its target");
+        Check(!GloomhavenVR.WorldUI.FlatScreen.OwnsPresentationTarget(spoof), "actual target identity rejects same-name private preview");
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest UI-only native successor", true);
+        Check(driver.Anchor == ui && ui.enabled && ui.targetTexture == owned,
+            "Quest native UI fallback is reference-only and retains target identity");
+        NativeCameraRenderBudget.MainOverride = head;
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest owned head cannot self-anchor", true);
+        Check(driver.Anchor == ui, "Quest MainCamera observation cannot select the owned tracked head");
+        NativeCameraRenderBudget.MainOverride = null;
+        var world = Keep(new GameObject("Quest owned world capture")).AddComponent<Camera>();
+        world.depth = -20; world.cullingMask = 0; world.targetTexture = owned;
+        var worldCapture = new GloomhavenVR.WorldUI.FlatScreen(); worldCapture.Capture(world, owned);
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest world outranks UI", true);
+        Check(driver.Anchor == world, "eligible Quest world target outranks higher-depth native UI fallback");
+        world.targetTexture = foreign; world.enabled = false; NativeCameraRenderBudget.Suspended.Add(world);
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest budget-owned suspended world", true);
+        Check(driver.Anchor == world && !world.enabled && world.targetTexture == foreign,
+            "budget ownership preserves a suspended native vantage independently of capture membership");
+        world.gameObject.SetActive(false);
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest inactive owned native world", true);
+        Check(driver.Anchor == ui, "budget ownership cannot resurrect an inactive native camera");
+        ui.targetTexture = foreign;
+        Check(!GloomhavenVR.WorldUI.FlatScreen.OwnsPresentationTarget(ui), "native target reassignment revokes actual capture ownership");
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "Quest target ownership lost", true);
+        Check(VRRigDriver.ResolveAnchor() == null, "foreign target has no new menu-anchor eligibility after native reassignment");
+        ui.targetTexture = owned; QuestStandalonePlatform.Enabled = false;
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "desktop rejects Quest-only capture target", true);
+        Check(VRRigDriver.ResolveAnchor() == null, "Quest capture/UI fallback never widens desktop eligibility");
+        NativeCameraRenderBudget.Suspended.Clear(); anchor.enabled = true;
+        NativeCameraRenderBudget.MainOverride = anchor;
+        GloomhavenVR.WorldUI.FlatScreen.ResetCaptures();
+        StableStep(head, tracker, root, source, version, position, rotation, scale, "original native anchor restored", true);
+        Check(driver.Anchor == anchor, "Quest eligibility probe leaves original native anchor available");
+    }
     public static IEnumerator Run(string evidence, string bank)
     {
         output = evidence; report.unity = Application.unityVersion;
@@ -188,6 +239,7 @@ public static class MenuRigLifecycleFixture
                 Near(head.farClipPlane, Mathf.Max(anchor.farClipPlane, 100), "successor native far metadata");
                 Check(head.useOcclusionCulling == anchor.useOcclusionCulling, "successor occlusion metadata"); report.swaps++;
             }
+            QuestEligibility(anchor, head, tracker, root, source, version, position, rotation, scale);
             Stage("budget-owned suspension remains a live native reference");
             NativeCameraRenderBudget.Suspended.Add(anchor); anchor.enabled = false;
             StableStep(head, tracker, root, source, version, position, rotation, scale, "owned native suspension", true);
@@ -254,6 +306,7 @@ public static class MenuRigLifecycleFixture
         {
             if (driver != null) driver.Shutdown();
             SteamLinkSceneRuntime.Reset(); NativeCameraRenderBudget.Suspended.Clear();
+            GloomhavenVR.WorldUI.FlatScreen.ResetCaptures(); QuestStandalonePlatform.Enabled = false;
             VRCameraPolicy.AllowedHead = null;
             for (int i = Owned.Count - 1; i >= 0; i--) if (Owned[i]) Object.DestroyImmediate(Owned[i]);
             ScenePayloadAssets.Close();

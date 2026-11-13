@@ -2507,7 +2507,7 @@ internal static class CardMesh
     private const byte CacheVersion = 6;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
-        BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");
+        BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}{QuestArtworkRegion.CacheSuffix}.bin");
 
     /// <summary>Load and apply the persisted mask for one kind. Runs at most once per kind per
     /// session and is re-entrancy safe (it calls <see cref="SetSilhouette"/>, which calls back into

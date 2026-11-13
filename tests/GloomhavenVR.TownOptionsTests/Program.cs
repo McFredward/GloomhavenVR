@@ -40,6 +40,9 @@ namespace UnityEngine.UI
 namespace TMPro { internal sealed class TMP_Text { internal string text = ""; } }
 namespace GloomhavenVR.Core
 {
+    // These town-option cases run in the desktop configuration. Quest-specific
+    // eye-row drawing is covered independently by its actual platform/UI suites.
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
     internal static partial class Loc
     {
         internal static string CurrentLanguage = "English";
@@ -181,6 +184,7 @@ namespace GloomhavenVR.WorldUI
         private static string? VariantNote(List<ConfigCatalog.ConfigItem> items) => null;
         private static void BuildLinkRow(Transform parent, string label, Action action, bool asAction) => RenderOrder.Add("action:" + label);
         private static bool TryBuildVariantTiles(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hint) => false;
+        private static bool TryBuildQuestEyeResolutionRow(Transform parent, ConfigCatalog.ConfigItem item, string? hintKey) => false;
         private static GameObject StampRow(object template, Transform parent, out TMP_Text? title, out Transform? option)
         {
             title = new(); LastToggle = new(); option = new() { Child = LastToggle };

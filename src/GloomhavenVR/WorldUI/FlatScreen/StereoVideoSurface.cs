@@ -53,8 +53,9 @@ internal sealed class StereoVideoSurface : IDisposable
     internal static bool IsAvailable(out string reason)
     {
         StereoModeConfig.Mode mode = StereoModeConfig.Current;
-        if (mode != StereoModeConfig.Mode.MultiPass
+        if ((mode != StereoModeConfig.Mode.MultiPass
             || XRSettings.stereoRenderingMode != XRSettings.StereoRenderingMode.MultiPass)
+            && !QuestStandalonePlatform.SharedStereoEyeRouting)
         {
             reason = "Stereo movie surfaces require MultiPass rendering.";
             return false;
@@ -71,6 +72,16 @@ internal sealed class StereoVideoSurface : IDisposable
         }
         try
         {
+            if (QuestStandalonePlatform.Enabled)
+            {
+                Shader quest = QuestMovieAssets.Shader("GloomhavenVR/StereoVideoUI");
+                // Camera-plane playback needs its ordinary2D split shader as
+                // well. Refuse packed media before native Play if either fails.
+                QuestMovieAssets.Shader("Hidden/GloomhavenVR/QuestMovieEye");
+                _shader = quest;
+                reason = string.Empty;
+                return true;
+            }
             using Stream? resource = typeof(StereoVideoSurface).Assembly.GetManifestResourceStream(BundleResource);
             if (resource == null) throw new InvalidDataException("Embedded stereo movie shader bundle is missing.");
             using var bytes = new MemoryStream();

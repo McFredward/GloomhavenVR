@@ -37,8 +37,38 @@ namespace QuestWeaver.Runtime
                         while ((line = reader.ReadLine()) != null)
                         {
                             string[] row = line.Split('|');
-                            if (row.Length != 6) throw new InvalidDataException("Invalid Quest hook manifest row.");
+                            if (row.Length != 6 || row[3] is not ("prefix" or "postfix" or "finalizer"))
+                                throw new InvalidDataException("Invalid Quest hook manifest row.");
                             parsed.Add(new Hook { Class = row[0], Target = row[1], Patch = row[2], Kind = row[3], Priority = int.Parse(row[4], System.Globalization.CultureInfo.InvariantCulture), Slot = int.Parse(row[5], System.Globalization.CultureInfo.InvariantCulture) });
+                        }
+                    }
+                }
+                // B710 proved both native movie URL substitutions at build time
+                // and removed their transpilers, but left WorldUI's PatchAll calls
+                // alive. Keep explicit proof records instead of accepting arbitrary
+                // empty patch classes. They participate in owner bookkeeping only;
+                // no runtime body, emitted IL or executable hook slot is invented.
+                using (Stream? stream = assembly.GetManifestResourceStream("QuestWeaver.StaticPatches.v1"))
+                {
+                    if (stream != null)
+                    using (var reader = new StreamReader(stream))
+                    {
+                        string? line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            string[] row = line.Split('|');
+                            if (row.Length != 3 || row.Any(string.IsNullOrWhiteSpace)
+                                || !MethodKeyShape(row[1])
+                                || !row[2].StartsWith(assembly.GetName().Name + "/" + row[0] + "::Transpiler(", StringComparison.Ordinal)
+                                || !row[2].EndsWith(")", StringComparison.Ordinal)
+                                || parsed.Any(h => h.Class == row[0]))
+                                throw new InvalidDataException("Invalid static Quest patch proof.");
+                            Type? patchType = assembly.GetType(row[0].Replace('/', '+'), false);
+                            const BindingFlags declared = BindingFlags.DeclaredOnly | BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                            if (patchType == null || !patchType.IsAbstract || !patchType.IsSealed
+                                || patchType.TypeInitializer != null || patchType.GetMethods(declared).Length != 0)
+                                throw new InvalidDataException("Static Quest patch proof does not name its reviewed empty class.");
+                            parsed.Add(new Hook { Class = row[0], Target = row[1], Patch = row[2], Kind = "static", Slot = -1 });
                         }
                     }
                 }
@@ -117,7 +147,7 @@ namespace QuestWeaver.Runtime
         private static void Rebuild()
         {
             var replacement = new Dictionary<string, int[]>(StringComparer.Ordinal);
-            foreach (IGrouping<string, Hook> group in Hooks.Where(h => h.Active).GroupBy(h => h.Target + "|" + h.Kind))
+            foreach (IGrouping<string, Hook> group in Hooks.Where(h => h.Active && h.Kind != "static").GroupBy(h => h.Target + "|" + h.Kind))
                 replacement.Add(group.Key, group.OrderByDescending(h => h.Priority).ThenBy(h => h.Sequence).Select(h => h.Slot).ToArray());
             System.Threading.Volatile.Write(ref Orders, replacement);
         }
@@ -137,6 +167,12 @@ namespace QuestWeaver.Runtime
         }
         private static string Owner(object owner) => (string)(owner.GetType().GetProperty("Id")?.GetValue(owner, null)
             ?? throw new ArgumentException("Harmony owner ID is unavailable."));
+
+        private static bool MethodKeyShape(string value)
+        {
+            int assembly = value.IndexOf('/'), member = value.IndexOf("::", StringComparison.Ordinal), arguments = value.IndexOf('(');
+            return assembly > 0 && member > assembly + 1 && arguments > member + 2 && value.EndsWith(")", StringComparison.Ordinal);
+        }
 
         public static string Key(MethodBase method) => method.DeclaringType!.Assembly.GetName().Name + "/" + TypeKey(method.DeclaringType)
             + "::" + method.Name + "(" + string.Join(",", method.GetParameters().Select(p => TypeKey(p.ParameterType))) + ")";

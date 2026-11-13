@@ -101,9 +101,10 @@ internal sealed partial class FlatScreenStereo
     /// MultiPass renders the head camera twice per frame with
     /// <c>stereoActiveEye</c> = Left/Right; if a runtime ever reports Mono instead,
     /// a per-frame pass-parity fallback (first pass = Left) takes over seamlessly.
-    /// While the video depth shift is engaged, the first pass of each frame also
+    /// On desktop, while the video depth shift is engaged, the first pass also
     /// refreshes BOTH per-eye shifted copies of the left RT (class doc VIDEO DEPTH
     /// SHIFT — the freshest possible copy, one pair of blits per frame).
+    /// Quest prepares those copies at head pre-cull before stereo draw setup.
     /// Nothing is restored afterwards — the desktop mirror blits the left RT
     /// directly and every pass re-asserts its own texture.
     /// ALSO: for the mod albedo camera (campaign map), this is where the unlit worldMap
@@ -118,6 +119,17 @@ internal sealed partial class FlatScreenStereo
     {
         if (!_active)
             return;
+        // Quest movie completion and the two ordinary 2D depth copies must finish
+        // before Unity enters the head's stereo draw setup. They bind non-XR
+        // targets (and change the viewport); restoring RenderTexture.active alone
+        // is not a stereo render-state boundary. Source cameras have lower depth
+        // than the head, so their completed capture is already available here.
+        if (QuestStandalonePlatform.Enabled && cam == Rig.VRRigDriver.HeadCamera
+            && _quadMaterial != null)
+        {
+            if (_stereoMovie != null) PrepareStereoMovieEyes();
+            else PrepareVideoEyes();
+        }
         // Drive the real game map camera to our computed pose right before it culls/renders, so the game's
         // on-map marker projection and click raycasts (both via CameraController.m_Camera) align with our
         // render. Safe: the VR rig uses m_Camera only as a build-time anchor and never follows its transform.
@@ -244,23 +256,10 @@ internal sealed partial class FlatScreenStereo
 
         if (_stereoMovie != null && ShowStereoMovie(cam, mat)) return;
 
-        if (_videoShift && _shiftBlitFrame != Time.frameCount
-            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
-        {
-            _shiftBlitFrame = Time.frameCount;
-            // Behind-the-screen (uncrossed) disparity displaces each eye's IMAGE
-            // toward that eye — left −x, right +x — and a blit offset moves the
-            // SAMPLING window, i.e. the negative of the image shift, on top of the
-            // centered overscan margin.
-            float zoom = 1f / VideoOverscan;
-            float margin = (1f - zoom) * 0.5f;
-            float shift = _videoShiftUv;
-            var scale = new Vector2(zoom, zoom);
-            RenderTexture? previous = RenderTexture.active;
-            Graphics.Blit(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
-            Graphics.Blit(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
-            RenderTexture.active = previous;
-        }
+        // Desktop retains its existing timing. Quest already completed these
+        // target-changing draws at head pre-cull; this callback only routes eyes.
+        if (!QuestStandalonePlatform.Enabled)
+            PrepareVideoEyes();
 
         Camera.MonoOrStereoscopicEye eye = cam.stereoActiveEye;
         bool right;
@@ -309,6 +308,7 @@ internal sealed partial class FlatScreenStereo
         {
             if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
                 mat.mainTexture = Texture2D.blackTexture;
+            QuestStandalonePlatform.SetFlatScreenMono(mat, Texture2D.blackTexture);
             return;
         }
 
@@ -344,6 +344,7 @@ internal sealed partial class FlatScreenStereo
             // scenario-overlay branch above; the UI glass keeps compositing on top).
             if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
                 mat.mainTexture = Texture2D.blackTexture;
+            QuestStandalonePlatform.SetFlatScreenMono(mat, Texture2D.blackTexture);
             return;
         }
         else if (_videoSuspended || _mapBaseCapture)
@@ -356,6 +357,42 @@ internal sealed partial class FlatScreenStereo
             target = _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
+        // Desktop MultiPass keeps its original per-camera material swap above.
+        // Quest SinglePassInstanced draws both eyes together: bind the SAME live
+        // captures selected by that policy, then choose the eye in the GPU shader.
+        Texture? leftEye = _mapBaseCapture || _videoSuspended ? target
+            : _videoShift && _rtLeftShifted != null ? _rtLeftShifted : _leftRt;
+        Texture? rightEye = _mapBaseCapture || _videoSuspended ? target
+            : _rtRight != null ? _rtRight : _leftRt;
+        if (_mapBaseCapture || _videoSuspended || !QuestStandalonePlatform.SharedStereoEyeRouting)
+            QuestStandalonePlatform.SetFlatScreenMono(mat, target);
+        else
+            QuestStandalonePlatform.SetFlatScreenEyes(mat, leftEye, rightEye);
+        QuestStandalonePlatform.ObserveFlatScreenVideoSample();
+    }
+
+    private void PrepareVideoEyes()
+    {
+        // Complete the owned movie before copying its per-eye depth images.
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample();
+        if (_videoShift && _shiftBlitFrame != Time.frameCount
+            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
+        {
+            _shiftBlitFrame = Time.frameCount;
+            // Behind-screen disparity moves each image toward that eye; source
+            // sampling offsets have the opposite sign, within centered overscan.
+            float zoom = 1f / VideoOverscan;
+            float margin = (1f - zoom) * 0.5f;
+            float shift = _videoShiftUv;
+            var scale = new Vector2(zoom, zoom);
+            RenderTexture? previous = RenderTexture.active;
+            try
+            {
+                QuestTextureCopy.Copy(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
+                QuestTextureCopy.Copy(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
+            }
+            finally { RenderTexture.active = previous; }
+        }
     }
 
     /// <summary>

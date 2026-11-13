@@ -1,0 +1,203 @@
+"""Exact delivered source aliases preserve completed imports across this repair."""
+import copy
+import hashlib
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools/quest-builder"))
+import editor_overlay
+import preparation_identity
+import recovery_resume
+
+
+def reader_rows(profile):
+    # Earlier complete deliveries contain the old native reader too, although
+    # it was not a changing observer row in their historical profile constants.
+    return [*profile.values(), *([] if recovery_resume.NATIVE_AUDIT_READER_PREVIOUS["path"] in profile
+        else [recovery_resume.NATIVE_AUDIT_READER_PREVIOUS])]
+
+
+def normalized_reader_rows(profile):
+    # A manifest's path order is canonical; the historical profile dictionaries
+    # were assembled in different insertion orders across delivered versions.
+    return sorted(recovery_resume.preparation_source_rows(reader_rows(profile)), key=lambda row: row["path"])
+
+
+def editor_paths(*names):
+    return {editor_overlay.PREFIX + "Assets/Quest/Editor/" + name + ".cs" for name in names}
+
+
+class ImportMutationProfileTests(unittest.TestCase):
+    def test_current_reader_profile_matches_actual_delivered_source_bytes(self):
+        expected = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        actual = {name: {"path": name, "size": (ROOT / name).stat().st_size,
+                         "sha256": hashlib.sha256((ROOT / name).read_bytes()).hexdigest()}
+                  for name in expected}
+        self.assertEqual(actual, expected)
+
+    def test_previous_and_fixed_reader_profiles_keep_the_same_original_producers(self):
+        previous = recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS
+        current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        canonical = normalized_reader_rows(previous)
+        for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS,
+                        recovery_resume.OBSERVATION_SPRITE_IMPORT_PREVIOUS, current):
+            self.assertEqual(canonical, normalized_reader_rows(profile))
+        for name in current:
+            with self.subTest(changed=name):
+                changed = copy.deepcopy(current)
+                changed[name]["sha256"] = "f" * 64
+                rows = recovery_resume.preparation_source_rows(list(changed.values()))
+                self.assertIn(changed[name], rows)
+                self.assertIn(changed["tools/quest-builder/script_remap_resume.py"], rows)
+
+    def test_preceding_shipped_import_reader_profile_is_qualified_as_a_whole(self):
+        previous = recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS
+        current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        self.assertEqual(normalized_reader_rows(previous),
+                         normalized_reader_rows(current))
+        for name in previous:
+            with self.subTest(changed=name):
+                changed = copy.deepcopy(previous)
+                changed[name]["sha256"] = "f" * 64
+                rows = recovery_resume.preparation_source_rows(list(changed.values()))
+                self.assertIn(changed[name], rows)
+                self.assertIn(changed["tools/quest-builder/script_remap_resume.py"], rows)
+
+    def test_previous_profile_cannot_exclude_an_added_unknown_remap_reader(self):
+        rows = list(recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS.values())
+        extra = {"path": "tools/quest-builder/script_remap_resume.py", "size": 1, "sha256": "f" * 64}
+        self.assertIn(extra, recovery_resume.preparation_source_rows([*rows, extra]))
+
+    def test_preceding_profiles_cannot_hide_added_repair_or_editor_access_helpers(self):
+        for profile in (recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS):
+            for name in ("preparation_repair", "project_access"):
+                with self.subTest(profile=profile, helper=name):
+                    extra = {"path": "tools/quest-builder/" + name + ".py",
+                             "size": 1, "sha256": "f" * 64}
+                    self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
+
+    def test_previous_profiles_cannot_hide_an_unknown_unity_work_observer(self):
+        extra = {"path": "tools/quest-builder/unity_work.py", "size": 1, "sha256": "f" * 64}
+        for profile in (recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS):
+            self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
+
+    def test_latest_delivery_profile_matches_exact_current_consumer_bytes(self):
+        # Historical delivery constants remain intentionally pinned to earlier
+        # archives. The newest finite host pair is the current source contract.
+        profiles = {**preparation_identity.INSTALLED_UPDATE_DELIVERY_ROWS,
+                    **preparation_identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS}
+        for current, _ in profiles.values():
+            raw = (ROOT / current["path"]).read_bytes()
+            self.assertEqual(current, {"path": current["path"], "size": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest()})
+
+    def test_compute_owner_alias_matches_exact_current_late_consumer_bytes(self):
+        current = preparation_identity.COMPUTE_OWNER_DELIVERY_ROW
+        raw = (ROOT / current['path']).read_bytes()
+        self.assertEqual(current, {'path': current['path'], 'size': len(raw),
+            'sha256': hashlib.sha256(raw).hexdigest()})
+
+    def test_previous_shader_reader_and_counted_delivery_keep_same_producer_profile(self):
+        previous = recovery_resume.OBSERVATION_ZIP32_DELIVERY_PREVIOUS
+        current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        self.assertEqual(normalized_reader_rows(previous), normalized_reader_rows(current))
+        for name in current:
+            changed = copy.deepcopy(current)
+            changed[name]["sha256"] = "f" * 64
+            self.assertIn(changed[name], recovery_resume.preparation_source_rows(list(changed.values())))
+
+    def test_only_exact_reviewed_builder_repair_orchestration_keeps_producer_identity(self):
+        raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
+        # Several reviewed late delivery seams now follow the old portable
+        # seam. Check the final closed producer identity, not the intermediate
+        # pre-portable AST that an older version of this test expected.
+        for prefix, expected in ((False, "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+                                 (True, "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f")):
+            self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), expected)
+        changed = raw.replace(b'repair_guard=lambda: project_access.wait_for_editor(project, build_progress)',
+                              b'repair_guard=lambda: project_access.wait_for_editor(project, None)')
+        self.assertNotEqual(changed, raw)
+        for prefix in (False, True):
+            previous = preparation_identity.BUILDER_TARGETED_REPAIR_AST[prefix][1]
+            self.assertNotEqual(preparation_identity.builder_producer_digest(changed, original_prefix=prefix), previous)
+
+    def test_both_complete_late_editor_profiles_have_the_same_closed_owner_scope(self):
+        canonical = [pair[0] for pair in editor_overlay.REVIEWED.values()]
+        for profile in editor_overlay.source_profiles():
+            rows = list(profile.values())
+            self.assertEqual(preparation_identity._completed_editor_rows(rows), canonical)
+            changed = copy.deepcopy(rows)
+            changed[-1]["sha256"] = "f" * 64
+            self.assertEqual(preparation_identity._completed_editor_rows(changed), changed)
+        actual = {name: {"path": name, "size": (ROOT / name).stat().st_size,
+                         "sha256": hashlib.sha256((ROOT / name).read_bytes()).hexdigest()}
+                  for name in editor_overlay.TARGETS}
+        self.assertEqual(actual, editor_overlay.source_profiles()[0])
+
+    def test_preceding_bindings_and_progress_update_only_reviewed_consumers(self):
+        current = editor_overlay.source_profiles()[0]
+        previous = {**editor_overlay.MINIMUM_WORK_PREVIOUS, **editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS,
+                    editor_overlay.PREVIOUS_BINDINGS["path"]: editor_overlay.PREVIOUS_BINDINGS}
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result},
+                         editor_paths("QuestBuild", "QuestWizardProgress", "QuestStartupAddressablesBuild",
+                                      "QuestOriginalScriptBindings", "QuestCampaignShaderValidation"))
+
+    def test_preceding_complete_task_profile_updates_only_reviewed_consumers(self):
+        current = editor_overlay.source_profiles()[0]
+        previous = {**editor_overlay.MINIMUM_WORK_PREVIOUS, **editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS,
+                    **editor_overlay.PREVIOUS_TASK_SCRIPTS}
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, editor_paths("QuestBuild", "QuestWizardProgress",
+            "QuestStartupAddressablesBuild", "QuestCampaignSpriteValidation", "QuestCampaignShaderValidation"))
+
+    def test_preceding_complete_native_validation_profile_updates_only_reviewed_consumers(self):
+        current = editor_overlay.source_profiles()[0]
+        previous = {**editor_overlay.MINIMUM_WORK_PREVIOUS, **editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS,
+                    **editor_overlay.PREVIOUS_NATIVE_VALIDATION_SCRIPTS}
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, editor_paths("QuestBuild", "QuestWizardProgress",
+            "QuestStartupAddressablesBuild", "QuestCampaignComputeValidation", "QuestCampaignShaderValidation"))
+
+    def test_captured_closed_bank_profile_updates_only_late_addressables_consumer(self):
+        current = editor_overlay.source_profiles()[0]
+        previous = editor_overlay.NATIVE_CHECKPOINT_PREVIOUS
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, editor_paths("QuestStartupAddressablesBuild"))
+
+    def test_unknown_native_reader_never_claims_a_prior_completed_scope(self):
+        current = copy.deepcopy(recovery_resume.OBSERVATION_EDITOR_OVERLAY)
+        native = recovery_resume.NATIVE_AUDIT_READER_PREVIOUS["path"]
+        for profile in (recovery_resume.OBSERVATION_NATIVE_VALIDATION_PREVIOUS, current):
+            rows = reader_rows(profile)
+            unknown = {"path": native, "size": 1, "sha256": "f" * 64}
+            rows = [unknown if row["path"] == native else row for row in rows]
+            self.assertIn(unknown, recovery_resume.preparation_source_rows(rows))
+
+    def test_completed_loading_producer_alias_requires_exact_bytes_and_whole_editor_profile(self):
+        actual = ROOT / preparation_identity.LOADING_DRAWING_FIXED["path"]
+        self.assertEqual(preparation_identity.LOADING_DRAWING_FIXED,
+            {"path": preparation_identity.LOADING_DRAWING_FIXED["path"], "size": actual.stat().st_size,
+             "sha256": hashlib.sha256(actual.read_bytes()).hexdigest()})
+        rows = [*editor_overlay.source_profiles()[0].values(), preparation_identity.LOADING_DRAWING_FIXED]
+        self.assertIn(preparation_identity.LOADING_DRAWING_PREVIOUS, preparation_identity._completed_editor_rows(rows))
+        changed = copy.deepcopy(rows); changed[-1]["sha256"] = "f" * 64
+        self.assertIn(changed[-1], preparation_identity._completed_editor_rows(changed))
+        incomplete = [preparation_identity.LOADING_DRAWING_FIXED]
+        self.assertEqual(preparation_identity._completed_editor_rows(incomplete), incomplete)
+
+
+if __name__ == "__main__": unittest.main()

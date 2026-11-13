@@ -39,6 +39,7 @@ internal static class BurnPlaybackTrace
 
     internal static void Event(CardEffects fx, string transition, CardEffects.FXTask? effect = null, bool? active = null)
     {
+        QuestCardFireEvidence.Observe(fx, transition);
         if (!VRLog.WantsDebug || s_lines >= SessionLineLimit
             || !Traces.TryGetValue(fx, out var trace) || trace.Lines >= EpisodeLineLimit) return;
         bool important = transition == "native-terminal-step" || transition.StartsWith("renderer-", StringComparison.Ordinal);
@@ -75,6 +76,7 @@ internal static class BurnPlaybackTrace
 
     internal static void Sample(CardEffects? fx)
     {
+        QuestCardFireEvidence.Observe(fx, "sample");
         if (!VRLog.WantsDebug || s_lines >= SessionLineLimit || fx == null
             || !Traces.TryGetValue(fx, out var trace) || trace.Lines >= EpisodeLineLimit
             || Time.unscaledTime - trace.LastEvent > 3f && fx.coroutine == null) return;

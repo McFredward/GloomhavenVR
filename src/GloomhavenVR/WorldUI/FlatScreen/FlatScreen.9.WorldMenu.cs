@@ -195,6 +195,7 @@ internal sealed partial class FlatScreen
         Shader? shader = Cards.PlayTray.OverlayShader();
         if (shader == null)
             return;
+        SaveQuestWorldMenuMaterial(_screenMaterial);
         _worldMenuOriginalShader = _screenMaterial.shader;
         _worldMenuOriginalQueue = _screenMaterial.renderQueue;
         _worldMenuBackdropShader = shader;
@@ -218,6 +219,7 @@ internal sealed partial class FlatScreen
             _screenMaterial.shader = _worldMenuOriginalShader;
             _screenMaterial.renderQueue = _worldMenuOriginalQueue;
         }
+        RestoreQuestWorldMenuMaterial(_screenMaterial);
         _worldMenuBackdropDepth = false;
         if (_worldMenuRearRenderer != null) _worldMenuRearRenderer.enabled = false;
         _worldMenuOriginalShader = _worldMenuBackdropShader = null;

@@ -13,6 +13,11 @@ fixture inputs. Geometry, native GraphicRaycaster filtering, original pointer
 callbacks, source camera draws, sprite mip receipts and shader assets execute
 in Unity 2021.3.5f1 with OpenGLCore. This does not boot Gloomhaven or OpenXR.
 
+The Android platform flag and owned card-pixel sidecar are explicit desktop
+inputs: the flag is false and the sidecar port throws if reached. The fixture
+compiles and pins the actual shared `QuestTextureCopy` source, so desktop atlas
+readback keeps its original `Graphics.Blit` behavior.
+
 The positive case exercises raised cards, alpha holes through cropped atlas
 provenance, native masks and read-only input permission, real-Z confirmations,
 story relief from the mesh actually submitted by Unity's native Graphic pipeline,

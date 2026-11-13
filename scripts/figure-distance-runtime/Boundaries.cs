@@ -1,6 +1,13 @@
 using UnityEngine;
 namespace GloomhavenVR.Core
 {
+    // Resolve the fixture's installed native bank beside its loaded assembly,
+    // matching the ordinary desktop loader port without enabling Quest storage.
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => System.IO.Path.GetDirectoryName(
+            typeof(RuntimeDepsLoader).Assembly.Location) ?? string.Empty;
+    }
     internal static class PerfConfig
     {
         internal static bool FigureDistanceLodEnabled = true;

@@ -47,7 +47,8 @@ public static class MenuDepthRotationRunner
         }
         catch (Exception error)
         {
-            while (error is TargetInvocationException && error.InnerException != null) error = error.InnerException;
+            while ((error is TargetInvocationException || error is TypeInitializationException)
+                && error.InnerException != null) error = error.InnerException;
             if (!string.IsNullOrEmpty(item.expected) && error.Message.Contains(item.expected))
                 output.WriteLine("PASS negative control " + item.name + ": " + error.Message);
             else { passed = false; output.WriteLine("FAIL " + item.name + ": " + error); }

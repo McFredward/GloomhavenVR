@@ -51,7 +51,7 @@ public static class WallPerformanceProgram
     public static int Run()
     {
         assertions=0;Setup();
-        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Auto();Lifecycle();WireRecovery();ThresholdEdits();Exceptions();CommandDraw();return assertions;}
+        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();PostLoadGrace();Auto();Lifecycle();WireRecovery();ThresholdEdits();Exceptions();CommandDraw();return assertions;}
         finally{Cleanup();}
     }
     private static void Clock()
@@ -198,6 +198,65 @@ public static class WallPerformanceProgram
         }
         Object.DestroyImmediate(wall.gameObject);
     }
+    private static void PostLoadGrace()
+    {
+        var wall=Piece("Post-load wall");
+        using(var f=new WallSegmentFade.Fixture())
+        {
+            f.Add(wall);PerfConfig.WallVisibilityMode=2;
+            SceneController.Instance.IsLoading=true;
+            for(int i=0;i<100;i++)f.Frame(.2f);
+            SceneController.Instance.IsLoading=false;SceneController.Instance.ScenarioIsLoading=true;
+            for(int i=0;i<100;i++)f.Frame(.2f);
+            SceneController.Instance.ScenarioIsLoading=false;ScenarioRoomLoading.HasPendingReveal=true;
+            for(int i=0;i<100;i++)f.Frame(.2f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"neither native load flag nor pending reveal supplies Auto samples");
+            ScenarioRoomLoading.HasPendingReveal=false;f.Frame(.1f);
+            for(int i=0;i<49;i++)
+            {
+                f.Frame(.2f);
+                Check(!wall.forceRenderingOff&&!f.Latched,"all ten post-load seconds precede FPS measurement");
+            }
+            // A frame beginning inside grace may finish far beyond its deadline.
+            // Its old loading/stabilization cost must never be measured as gameplay.
+            f.Frame(5f);
+            for(int i=0;i<180;i++)f.Frame(1f/60);
+            Check(!wall.forceRenderingOff&&!f.Latched,"load spike and grace-crossing hitch followed by steady gameplay keep walls visible");
+            for(int i=0;i<14;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"Auto still needs a complete sustained slow gameplay window after grace");
+            for(int i=0;i<40;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"sustained low FPS after grace retains the existing automatic hide rule");
+
+            RestartAuto(f);f.Frame(.1f);
+            for(int i=0;i<49;i++)f.Frame(.2f);
+            f.Frame(5f);for(int i=0;i<19;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"frame overlapping grace is excluded from the entire two-second FPS window");
+            for(int i=0;i<20;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"crossing-frame exclusion still allows subsequent sustained low gameplay to hide walls");
+
+            // The original scenario can change while Unity reuses the scene and
+            // generator. Never transfer the old hidden latch or sampled duration.
+            ScenarioRuleLibrary.ScenarioManager.Scenario=new object();f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"same-scene same-generator new native scenario resets the old hidden policy");
+            for(int i=0;i<49;i++)f.Frame(.2f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"new scenario receives its own complete ten-second grace");
+            for(int i=0;i<30;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"new scenario eventually samples sustained slow gameplay after its fresh grace");
+
+            RestartAuto(f);f.Frame(.1f);
+            for(int i=0;i<45;i++)f.Frame(.2f);
+            SceneController.Instance.ScenarioIsLoading=true;f.Frame(.2f);
+            SceneController.Instance.ScenarioIsLoading=false;f.Frame(.1f);
+            for(int i=0;i<49;i++)f.Frame(.2f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"native reentry discards an almost completed post-load grace");
+            PerfConfig.WallVisibilityMode=0;for(int i=0;i<100;i++)f.Frame(.2f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"Regular disables automatic hiding independently of loaded low FPS");
+            PerfConfig.WallVisibilityMode=1;SceneController.Instance.IsLoading=true;f.Frame();
+            Check(wall.forceRenderingOff,"manual Hide all remains immediate and independent of automatic grace");
+            SceneController.Instance.IsLoading=false;PerfConfig.WallVisibilityMode=0;f.Frame();
+        }
+        Object.DestroyImmediate(wall.gameObject);
+    }
     private static void Auto()
     {
         var wall=Piece("Auto wall");
@@ -208,12 +267,12 @@ public static class WallPerformanceProgram
             {
                 // Start with an incomplete slow window. Every genuine loading/focus edge
                 // must discard it, even after100 low-FPS frames in the blocked state.
-                RestartAuto(f);for(int i=0;i<15;i++)f.Frame(.1f);
+                RestartAuto(f);PassGrace(f);for(int i=0;i<15;i++)f.Frame(.1f);
                 hold(true);for(int i=0;i<100;i++)f.Frame(.1f);
                 Check(!wall.forceRenderingOff&&!f.Latched,"native loading reveal or explicit XR focus loss does not trigger Auto");
-                hold(false);for(int i=0;i<21;i++)f.Frame(.1f);
+                hold(false);for(int i=0;i<100;i++)f.Frame(.1f);
                 Check(!wall.forceRenderingOff&&!f.Latched,"native loading reveal or XR focus recovery starts a fresh grace and full window");
-                for(int i=0;i<12;i++)f.Frame(.1f);
+                for(int i=0;i<30;i++)f.Frame(.1f);
                 Check(wall.forceRenderingOff&&f.Latched,"native loaded focused recovery eventually triggers Auto");
             }
             foreach(var policy in new (Action Start,Action Finish,string Assertion)[]{
@@ -222,7 +281,7 @@ public static class WallPerformanceProgram
                 (()=>WallFixtureFocus.isFocused=false,()=>WallFixtureFocus.isFocused=true,"desktop window focus is irrelevant to headset Auto"),
                 (()=>VRSession.InputFocus=null,()=>VRSession.InputFocus=true,"unknown XR focus does not permanently veto loaded Auto")})
             {
-                RestartAuto(f);policy.Start();for(int i=0;i<32;i++)f.Frame(i%2==0?.1f:.125f);
+                RestartAuto(f);policy.Start();PassGrace(f);for(int i=0;i<32;i++)f.Frame(i%2==0?.1f:.125f);
                 Check(wall.forceRenderingOff&&f.Latched,policy.Assertion);policy.Finish();
             }
             RestartAuto(f);
@@ -230,7 +289,7 @@ public static class WallPerformanceProgram
             // Replay the actual Frame653 policy inputs: native reveal settled, cosmetic
             // preparation ongoing, open VR Options, unfocused Wine desktop, focused XR.
             ScenarioInteractionPreparation.IsPreparing=true;VROptionsTab.IsOpen=true;WallFixtureFocus.isFocused=false;
-            for(int i=0;i<160;i++)f.Frame(1f/19);
+            PassGrace(f);for(int i=0;i<160;i++)f.Frame(1f/19);
             Check(!wall.forceRenderingOff&&!f.Latched,"first room at19FPS remains visible with Frame653 policy inputs");
             for(int i=0;i<32;i++)f.Frame(i%2==0?.1f:.125f);
             Check(wall.forceRenderingOff&&f.Latched,"Frame653 fully opened low-FPS room replay latches hidden policy");
@@ -238,7 +297,7 @@ public static class WallPerformanceProgram
             for(int i=0;i<300;i++)f.Frame(1f/90);Check(wall.forceRenderingOff&&f.Latched,"restored high FPS does not oscillate Auto walls");
             VROptionsTab.IsOpen=true;f.Frame();Check(wall.forceRenderingOff,"options opened after Auto trigger do not resurrect costly wallwork");VROptionsTab.IsOpen=false;
             PerfConfig.WallVisibilityMode=0;f.Frame();Check(!wall.forceRenderingOff&&!f.Latched,"manual Regular resets Auto latch immediately");
-            PerfConfig.WallVisibilityMode=2;for(int i=0;i<30;i++)f.Frame(.1f);Check(wall.forceRenderingOff,"new Auto window can trigger again");
+            PerfConfig.WallVisibilityMode=2;PassGrace(f);for(int i=0;i<30;i++)f.Frame(.1f);Check(wall.forceRenderingOff,"new Auto window can trigger again");
             var replacement=new GameObject("Replacement scenario generator");owned.Add(replacement);TilesOcclusionGenerator.s_Instance=replacement.AddComponent<TilesOcclusionGenerator>();TilesOcclusionGenerator.s_Instance.m_RoomRenderers.Add(new object());f.Frame();Check(!wall.forceRenderingOff&&!f.Latched,"new scenario identity resets Auto instead of inheriting old hidden latch");
         }
         Object.DestroyImmediate(wall.gameObject);
@@ -250,7 +309,7 @@ public static class WallPerformanceProgram
         {
             int key=f.Add(wall);f.Attach(key,shelf,"mounted");f.Add(door,gate:true);
             PerfConfig.WallAutoHideBelowFpsCount.Value=15;PerfConfig.WallVisibilityMode=2;
-            for(int i=0;i<32;i++)f.Frame(.1f);
+            PassGrace(f);for(int i=0;i<32;i++)f.Frame(.1f);
             Check(wall.forceRenderingOff&&shelf.forceRenderingOff&&f.Latched,"threshold case starts with hidden latched Auto");
             int ticks=f.Ticks,writes=ScenarioEnvironmentBudget.Writes,rebuilds=f.KeyRebuilds;
             PerfConfig.WallAutoHideBelowFpsCount.Value=15;f.Frame(.1f);
@@ -267,8 +326,8 @@ public static class WallPerformanceProgram
             f.Fade(key,.4f,false);var dest=new uint[4];
             Check(f.KeyRebuilds==rebuilds+1&&f.Sample(dest)==1&&dest[0]!=0,"threshold recovery rebuilds native sender keys exactly once");
             uint stable=dest[0];for(int i=0;i<20;i++)f.Frame(.1f);
-            Check(!wall.forceRenderingOff&&!f.Latched&&f.KeyRebuilds==rebuilds+1,"threshold edit requires new half-second grace");
-            for(int i=0;i<14;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched&&f.KeyRebuilds==rebuilds+1,"threshold edit requires new ten-second grace");
+            PassGrace(f);for(int i=0;i<25;i++)f.Frame(.1f);
             Check(wall.forceRenderingOff&&f.Latched,"edited Auto can relatch only after fresh sustained slow window");
             // Lowering while latched likewise restores first; old slow history cannot
             // immediately overrule the changed threshold. 10FPS is now above 5FPS.
@@ -278,18 +337,18 @@ public static class WallPerformanceProgram
             Check(!wall.forceRenderingOff&&!f.Latched,"new lower threshold keeps sufficiently fast gameplay visible");
             PerfConfig.WallAutoHideBelowFpsCount.Value=1000;f.Frame(.05f);
             Check(PerfConfig.WallAutoHideBelowFps==30,"out-of-range threshold uses thirty FPS effective maximum");
-            for(int i=0;i<55;i++)f.Frame(.05f);
+            PassGrace(f);for(int i=0;i<55;i++)f.Frame(.05f);
             Check(wall.forceRenderingOff&&f.Latched,"clamped high threshold still relatches after fresh slow observation");
             int clampedWrites=ScenarioEnvironmentBudget.Writes,clampedKeys=f.KeyRebuilds;
             PerfConfig.WallAutoHideBelowFpsCount.Value=31;f.Frame(.05f);
             Check(wall.forceRenderingOff&&f.Latched&&ScenarioEnvironmentBudget.Writes==clampedWrites&&f.KeyRebuilds==clampedKeys,"equivalent clamped threshold edit keeps latch without restoration work");
             // A threshold edit midway through an unlatched window discards elapsed samples.
             RestartAuto(f);PerfConfig.WallAutoHideBelowFpsCount.Value=15;
-            for(int i=0;i<18;i++)f.Frame(.1f);
+            PassGrace(f);for(int i=0;i<18;i++)f.Frame(.1f);
             PerfConfig.WallAutoHideBelowFpsCount.Value=20;f.Frame(.1f);
             for(int i=0;i<18;i++)f.Frame(.1f);
             Check(!wall.forceRenderingOff&&!f.Latched,"observing threshold edit discards earlier slow samples");
-            for(int i=0;i<14;i++)f.Frame(.1f);
+            PassGrace(f);for(int i=0;i<25;i++)f.Frame(.1f);
             Check(wall.forceRenderingOff&&f.Latched,"reset observing window eventually relatches on sustained slow gameplay");
             // Active manual hiding does not expose walls or rebuild wire keys for an
             // inactive Auto tuning change, including out-of-range values.
@@ -305,7 +364,7 @@ public static class WallPerformanceProgram
             SceneController.Instance.IsLoading=true;PerfConfig.WallAutoHideBelowFpsCount.Value=20;
             for(int i=0;i<35;i++)f.Frame(.1f);
             Check(!wall.forceRenderingOff&&!f.Latched,"threshold edit does not bypass native loading protection");
-            SceneController.Instance.IsLoading=false;for(int i=0;i<32;i++)f.Frame(.1f);
+            SceneController.Instance.IsLoading=false;PassGrace(f);for(int i=0;i<32;i++)f.Frame(.1f);
             Check(wall.forceRenderingOff&&f.Latched,"loaded recovery after threshold edit eventually resumes Auto");
             PerfConfig.WallAutoHideBelowFpsCount.Value=15;f.Frame(.1f);
         }
@@ -313,6 +372,10 @@ public static class WallPerformanceProgram
     }
     private static void RestartAuto(WallSegmentFade.Fixture f)
     {PerfConfig.WallVisibilityMode=0;f.Frame();PerfConfig.WallVisibilityMode=2;}
+    // Advance actual production policy time; the long boundary frame itself must
+    // not become an FPS sample. Detailed grace assertions execute separately.
+    private static void PassGrace(WallSegmentFade.Fixture f)
+    {f.Frame(.1f);f.Frame(10f);}
     private static void Exceptions()
     {
         var wall=Piece("Retry wall");

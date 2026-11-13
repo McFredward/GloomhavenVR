@@ -24,10 +24,33 @@ public sealed class IntroPlayer { }
 public sealed class UIManager { public static UIManager? Instance => null; }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled => false;
+        internal static bool SharedStereoEyeRouting => false;
+        internal static string ResourceDirectory => string.Empty;
+        internal static bool IsPreparationScene(string name) => false;
+        internal static bool SuppressStartupScreen(string name) => false;
+        internal static Shader? SelectFlatScreenShader(Shader? shader) => shader;
+        internal static Shader? SelectFlatScreenGlassShader(Shader? shader) => shader;
+        internal static void SetFlatScreenMono(Material? material, Texture? texture) { }
+        internal static void SetFlatScreenEyes(Material material, Texture? left, Texture? right) { }
+        internal static void ObserveFlatScreenVideoSample() { }
+    }
+    internal static class QuestMovieAssets
+    {
+        internal static Shader Shader(string name) => throw new InvalidOperationException("Android shaders have a separate GPU fixture.");
+    }
+
     internal static class StereoModeConfig
     {
         internal enum Mode { MultiPass, SinglePassInstanced }
         internal const Mode Current = Mode.MultiPass;
+    }
+    internal static class QuestPrimitiveMesh
+    {
+        internal static Mesh? Rebuild(Mesh? original, string purpose)
+        { if (!QuestStandalonePlatform.Enabled || original == null) return null; throw new Exception("Android mesh upload has its own fixture."); }
     }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLog
@@ -57,12 +80,15 @@ namespace GloomhavenVR.Core
         internal static void Install() => throw new NotSupportedException("Explicit built-in Camera.Render fallback boundary");
         internal static void Subscribe(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull subscription");
         internal static void Unsubscribe(Camera.CameraCallback callback) => throw new Exception("Unexpected final-cull subscription");
+        internal static void SubscribeUnavailable(System.Action<Camera> callback) => throw new Exception("Unexpected final-cull subscription");
+        internal static void UnsubscribeUnavailable(System.Action<Camera> callback) => throw new Exception("Unexpected final-cull subscription");
     }
     internal enum VRMode { Menu2D, ModalUI }
     internal static class VRModeStateMachine { internal static VRMode CurrentMode => VRMode.Menu2D; }
 }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.Hands.Interact { internal static class RayInteractor { internal static void RegisterUiTarget(Transform target) { } } }
+namespace GloomhavenVR.Cards { internal static class PlayTray { internal static Shader? OverlayShader() => throw new Exception("Desktop startup cannot load the Android overlay."); } }
 namespace GloomhavenVR.Cards.Patches { internal static class HandSuppression { internal static bool Active => false; internal static bool BurnActive => false; } }
 namespace GloomhavenVR.WorldUI.MapRoom { internal static class MapRoomDriver { internal static bool Active => false; } }
 namespace GloomhavenVR.WorldUI
@@ -112,6 +138,9 @@ namespace GloomhavenVR.WorldUI
         private void TickMenuDepthScreen() { }
         internal static bool ScreenVisible;
         internal FlatScreen() { _coverageOwner = this; }
+        private sealed class QuestMenuDrawWitness : MonoBehaviour { internal FlatScreen? Owner = null; }
+        private void ObserveQuestMenuProducer(Camera camera) { if (GloomhavenVR.Core.QuestStandalonePlatform.Enabled) throw new Exception("Android menu readiness has its own fixture."); }
+        private void TickQuestPresentationEvidence(bool wanted) { if (GloomhavenVR.Core.QuestStandalonePlatform.Enabled) throw new Exception("Android diagnostic sampling has its own fixture."); }
         private void TickDesktopMirrorMode() { }
         private void TickDesktopCameraScrub() { }
         private void ReleaseDesktopScrub(string reason) { }

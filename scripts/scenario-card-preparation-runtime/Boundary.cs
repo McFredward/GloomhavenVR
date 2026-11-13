@@ -6,6 +6,15 @@ using UnityEngine;
 // pin ownership, mip/readback/cache, and wrapper reservation code are full production files.
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
+    // Production now resolves the plugin directory through its loader. This focused
+    // preparation fixture intentionally has no installed hand bundle at that path.
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => System.IO.Path.Combine(Application.temporaryCachePath,
+            typeof(RuntimeDepsLoader).Assembly.GetName().Name!);
+    }
+
     internal static class VRLog
     {
         internal static bool WantsDebug = true;
@@ -28,6 +37,9 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI { internal static class FixtureNamespace { } }
 namespace GloomhavenVR.Cards
 {
+    // Exact owned Quest RGBA files are unavailable on this explicit desktop
+    // fixture port; production readback/mip/preparation still executes unchanged.
+    internal static class QuestCardPixels { internal static Color32[]? Read(Texture2D source) => null; }
     internal sealed class Setting<T> { internal T Value; internal Setting(T value) { Value = value; } }
     internal static class CardsConfig
     {

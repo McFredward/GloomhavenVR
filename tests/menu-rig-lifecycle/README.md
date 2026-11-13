@@ -1,6 +1,8 @@
 # Owned menu-head lifecycle
 
-Run `python3 tests/menu-rig-lifecycle/run.py`. Use `--output PATH` for retained
+Run `python3 tests/menu-rig-lifecycle/run.py`. Use `--source-root PATH` to execute
+the actual production fragments from a separate frozen integration checkout.
+Use `--output PATH` for retained
 evidence, or `--mode production` for a bounded positive rerun. The default runs
 production and three compiling causal controls serially in separate owned Unity
 projects. It requires the installed Unity2021.3.5 Editor and a Gamma Vulkan GPU;
@@ -15,6 +17,16 @@ AllowedHead, rig pose, scale and pose version must survive every native-anchor
 gap. Native suspension ownership remains distinct from native deactivation.
 Rebinding saves the successor's authored vantage for deliberate recenter while
 preserving current head render settings and updating native depth/far metadata.
+
+When the selected production tree includes Quest target routing, the fixture also
+compiles the complete `FlatScreen.NativeTargets.cs` and exact `TargetFor` method.
+Real Unity camera/RenderTexture objects test Quest's native UI fallback, world
+priority, owned-head exclusion, budget-owned suspension, inactive hierarchy and
+same-name foreign target rejection. Native target reassignment revokes candidate
+eligibility without tearing down the still-valid owned head. Switching the Quest
+boundary off must not widen desktop eligibility. Capture records and platform
+selection are explicit host inputs; their publication lifecycle is covered by
+the separate managed Quest menu-presentation fixture.
 
 All four shipping scene-source, coverage, ordinary-output and material classes
 execute against the actual scene shader bank and real `Camera.Render` callbacks.

@@ -1,0 +1,200 @@
+"""Responsive authenticated cleanup ownership; deletion safety has separate tests."""
+import http.client
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
+import server
+from state import Cancelled, Store, WizardError
+
+
+class StorageHttpTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.temp.name) / "state")
+        self.session = self.store.create(server.choices({"gameRoot": str(Path(self.temp.name) / "Game")}))["session"]
+        self.http = server.LocalServer(self.store, ROOT / "tools/quest-wizard-ui")
+        self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
+        self.thread.start()
+        self.release = threading.Event()
+        self.entered = threading.Event()
+        self.plan = {"id": "a" * 64, "mode": "duplicates", "paths": [], "bytes": 0, "files": 0, "exact": True}
+        self.helper = SimpleNamespace(plan=self.plan_action, execute=self.delete_action)
+        self.patch = mock.patch.dict(sys.modules, {"cleanup": self.helper})
+        self.patch.start()
+
+    def tearDown(self):
+        self.release.set()
+        self.http.shutdown()
+        self.http.close_owned()
+        self.thread.join(5)
+        self.patch.stop()
+        self.temp.cleanup()
+
+    def plan_action(self, root, mode, progress, cancel=None):
+        self.entered.set()
+        progress({"phase": "scan", "done": 3, "total": None, "detail": "Owned folder metadata"})
+        self.release.wait(5)
+        return {**self.plan, "mode": mode}
+
+    def delete_action(self, root, selected, progress, cancel=None):
+        self.assertEqual(selected, self.plan)
+        progress({"phase": "delete", "done": 2, "total": 2})
+        return {"freedBytes": 10, "deletedFiles": 2, "invalidatedStages": []}
+
+    def request(self, route, body=None, token=True):
+        connection = http.client.HTTPConnection(*self.http.server_address, timeout=3)
+        headers = {"Origin": self.http.origin, "X-Quest-Token": self.http.token if token else "wrong"}
+        if body is not None: headers["Content-Type"] = "application/json"
+        connection.request("GET" if body is None else "POST", route, None if body is None else json.dumps(body), headers)
+        response = connection.getresponse()
+        value = json.loads(response.read())
+        code = response.status
+        connection.close()
+        return code, value
+
+    def wait_status(self, wanted):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            value = self.request("/api/storage")[1]
+            if value["state"]["status"] == wanted: return value
+            time.sleep(.01)
+        self.fail("Storage job did not reach " + wanted)
+
+    def test_authenticated_storage_location_is_available_without_a_build_session(self):
+        code, value = self.request("/api/storage")
+        self.assertEqual(code, 200)
+        self.assertEqual(value["workspaceRoot"], str(self.store.root))
+        self.assertGreater(value["freeBytes"], 0)
+        self.assertEqual(self.request("/api/storage", token=False)[0], 403)
+        self.assertEqual(self.request("/api/storage/plan", {"mode": "duplicates"}, token=False)[0], 403)
+        self.assertIsNone(self.http.storage_job)
+
+    def test_scan_remains_responsive_and_cannot_delete_without_current_preview(self):
+        code, _ = self.request("/api/storage/plan", {"mode": "duplicates"})
+        self.assertEqual(code, 200)
+        self.assertTrue(self.entered.wait(2))
+        value = self.request("/api/storage")[1]
+        self.assertEqual(value["state"]["status"], "planning")
+        self.assertEqual(value["state"]["done"], 3)
+        self.assertEqual(self.request("/api/run", {"session": self.session})[0], 400)
+        self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"]})[0], 400)
+        self.release.set()
+        self.wait_status("preview")
+        self.assertEqual(self.request("/api/storage/clean", {"planId": "wrong"})[0], 400)
+        self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"], "path": "../Game"})[0], 400)
+        self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"]})[0], 200)
+        result = self.wait_status("complete")["state"]["result"]
+        self.assertEqual(result["freedBytes"], 10)
+        logged = (self.store.root / "logs/storage-cleanup.log").read_text()
+        self.assertIn('"event": "preview"', logged)
+        self.assertIn('"freedBytes": 10', logged)
+        self.assertNotIn(self.plan["id"], logged)
+        self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"]})[0], 400)
+
+    def test_active_build_blocks_cleanup_before_scanning(self):
+        active = threading.Thread(target=self.release.wait, args=(5,))
+        active.start()
+        self.http.jobs[self.session] = active
+        self.assertEqual(self.request("/api/storage/plan", {"mode": "duplicates"})[0], 400)
+        self.assertFalse(self.entered.is_set())
+        self.assertIsNone(self.http.storage_job)
+        self.release.set()
+        active.join(5)
+
+    def test_background_inventory_yields_to_cleanup_for_a_blocked_run(self):
+        saved = self.store.load(self.session); saved['status'] = 'blocked'; self.store.save(saved)
+        scanning = threading.Event(); stopped = threading.Event()
+        def inventory(root, *, progress, cancel):
+            scanning.set(); progress({'phase': 'storage-inventory', 'files': 100, 'done': 100})
+            if not cancel.wait(3): raise AssertionError('Cleanup did not pause its metadata scanner')
+            stopped.set(); raise Cancelled()
+        self.helper.inventory = inventory
+        self.helper.has_completed_build = lambda root: True
+        self.release.set()
+        self.assertEqual(self.request('/api/storage/inventory', {})[0], 200)
+        self.assertTrue(scanning.wait(2))
+        self.assertTrue(self.request('/api/storage')[1]['canDeleteBuildCache'])
+        self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
+        value = self.wait_status('preview')
+        self.assertTrue(stopped.is_set()); self.assertFalse(self.http.inventory_job.is_alive())
+        self.assertEqual(value['inventory']['status'], 'cancelled')
+        self.assertTrue(value['canDeleteBuildCache'])
+        self.assertEqual(self.request('/api/storage/clean', {'planId': self.plan['id']})[0], 200)
+        self.assertEqual(self.wait_status('complete')['state']['result']['deletedFiles'], 2)
+        logs = (self.store.root / 'logs/storage-cleanup.log').read_text()
+        self.assertIn('inventory-paused', logs); self.assertNotIn('failed', logs)
+
+    def test_actual_active_job_rejection_stays_visible_and_is_logged_before_a_cleanup_thread(self):
+        active = threading.Thread(target=self.release.wait, args=(5,)); active.start()
+        self.http.jobs[self.session] = active
+        code, reply = self.request('/api/storage/plan', {'mode': 'duplicates'})
+        self.assertEqual(code, 400); self.assertEqual(reply['code'], 'already_running')
+        for _ in range(3):
+            value = self.request('/api/storage')[1]['state']
+            self.assertEqual(value['status'], 'failed')
+            self.assertEqual(value['error']['code'], 'already_running')
+        self.assertFalse(self.entered.is_set()); self.assertIsNone(self.http.storage_job)
+        self.assertIn('already_running', (self.store.root / 'logs/storage-cleanup.log').read_text())
+        self.release.set(); active.join(5)
+        self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
+        self.assertEqual(self.wait_status('preview')['state']['plan']['id'], self.plan['id'])
+
+    def test_missing_confirmation_preview_is_persisted_in_utility_status(self):
+        code, reply = self.request('/api/storage/clean', {'planId': 'not-an-existing-preview'})
+        self.assertEqual(code, 400); self.assertEqual(reply['code'], 'cleanup_preview')
+        current = self.request('/api/storage')[1]['state']
+        self.assertEqual(current['status'], 'failed')
+        self.assertEqual(current['error']['code'], 'cleanup_preview')
+        self.assertIn('cleanup_preview', (self.store.root / 'logs/storage-cleanup.log').read_text())
+
+    def test_cleanup_failures_are_visible_and_a_fresh_preview_is_required(self):
+        self.release.set()
+        self.request("/api/storage/plan", {"mode": "duplicates"})
+        self.wait_status("preview")
+        def fail(*_args, **_kwargs):
+            raise WizardError("cleanup_changed", "Files changed; refresh the preview.", "Dateien geändert; Vorschau erneuern.")
+        self.helper.execute = fail
+        self.request("/api/storage/clean", {"planId": self.plan["id"]})
+        value = self.wait_status("failed")
+        self.assertEqual(value["state"]["error"]["code"], "cleanup_changed")
+        self.assertIn("Vorschau", value["state"]["error"]["message"]["de"])
+        self.assertIsNone(self.http.storage_plan)
+        self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"]})[0], 400)
+
+    def test_actual_http_cleanup_deletes_only_proven_duplicate_and_preserves_canonical_resume(self):
+        spec = importlib.util.spec_from_file_location("actual_storage_cleanup", ROOT / "tools/quest-wizard/cleanup.py")
+        actual = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(actual)
+        with mock.patch.dict(sys.modules, {"cleanup": actual}):
+            fixture_spec = importlib.util.spec_from_file_location("actual_cleanup_fixture", ROOT / "tests/quest-wizard/test_cleanup.py")
+            fixtures = importlib.util.module_from_spec(fixture_spec)
+            fixture_spec.loader.exec_module(fixtures)
+            fixture = fixtures.CleanupTests("test_duplicate_original_snapshot_and_matching_raw_stage_are_removed")
+            fixture.setUp()
+            self.addCleanup(fixture.doCleanups)
+            _, wrong = fixture.snapshots()
+            fixture.raw_recovery(wrong)
+            self.http.store = fixture.store
+            self.assertEqual(self.request("/api/storage/plan", {"mode": "duplicates"})[0], 200)
+            preview = self.wait_status("preview")["state"]["plan"]
+            self.assertEqual(len(preview["paths"]), 2)
+            self.assertEqual(self.request("/api/storage/clean", {"planId": preview["id"]})[0], 200)
+            result = self.wait_status("complete")["state"]["result"]
+            self.assertEqual(result["freedBytes"], preview["bytes"])
+            self.assertFalse((fixture.build / "inputs/game" / fixture.wrong).exists())
+            self.assertFalse(fixture.raw.exists())
+            self.assertTrue((fixture.build / "inputs/game" / fixture.correct / ".snapshot.json").is_file())
+            self.assertEqual((fixture.original / "leave-alone.bin").read_bytes(), b"owned original")
+
+
+if __name__ == "__main__": unittest.main()

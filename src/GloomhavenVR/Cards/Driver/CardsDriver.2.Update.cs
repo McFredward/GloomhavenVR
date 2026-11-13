@@ -934,6 +934,7 @@ internal sealed partial class CardsDriver
             _burnWatchHand = null; // tray hidden — re-baseline the burnt set when it returns
         }
         UpdateWantedSlots(_fakeActive ? null : hand); // test #28: steady "wanted slot" hint
+        QuestCardGuideEvidence.Observe(_fakeActive ? null : hand, _tray, _fieldCards.Count, _pickLockedCount, _overlayGateBlocked);
         UpdatePickStatus(_fakeActive ? null : hand);  // event-discard: pick banner + CONFIRM/UNDO keycap overrides
         // Item-surrender pick (event consume/refresh mali): pump runs whenever the tray exists,
         // independent of the pile-stack visibility gate inside _piles.TickStatus — the demand

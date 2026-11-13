@@ -28,7 +28,8 @@ def main():
     out=ROOT/'.planning/debug/menu-depth-cards';out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix='run-',dir=out));completion=run/'completion.log';completion.write_text('Evidence: '+str(run)+'\n')
     print('Evidence: '+str(run),flush=True)
-    source=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'; paths=[*source.glob('*.cs'),ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
+    source=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'; paths=[*source.glob('*.cs'),ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',
+        ROOT/'src/GloomhavenVR/Core/QuestTextureCopy.cs',ROOT/'scripts/menu-depth-capture/QuestDesktopBoundary.cs']
     sources={p.name:p.read_text()for p in paths}; fixture=ROOT/'tests/GloomhavenVR.MenuDepthCardTests'
     tooltip_path=ROOT/'src/GloomhavenVR/WorldUI/Tooltips/TooltipOnWindow.cs'
     tooltip_source=tooltip_path.read_text()

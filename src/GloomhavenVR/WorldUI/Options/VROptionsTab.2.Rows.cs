@@ -1307,6 +1307,9 @@ internal static partial class VROptionsTab
         if (component == 0 && TryBuildVariantTiles(parent, item, caption, hintKey))
             return;
 
+        if (component == 0 && TryBuildQuestEyeResolutionRow(parent, item, hintKey))
+            return;
+
         // A few entries' stored type says nothing useful about how they should be edited.
         if (component == 0 && TryBuildSpecialRow(parent, item, caption, hintKey))
             return;
@@ -1688,6 +1691,7 @@ internal static partial class VROptionsTab
         // labels, and without this the handle would sit where the last drag left it.
         BindValueLabels(row, title, item, component);
         Sliders.Add((slider, item, component));
+        QuestOptionsMask.ApplySlider(slider, QuestStandalonePlatform.Enabled);
 
         AttachTooltip(row, item, title, hintKey);
         return true;

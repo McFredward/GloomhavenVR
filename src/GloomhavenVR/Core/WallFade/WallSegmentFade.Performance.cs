@@ -21,6 +21,12 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static partial class WallSegmentFade
 {
+    // User hardware ruling, 2026-10-18: room-loading and its immediate aftermath are
+    // not representative gameplay. The old half-second delay let startup stalls
+    // remove otherwise affordable walls. This shared PC/Frame/Quest grace excludes
+    // ten whole seconds AFTER both native load flags and pending reveal clear,
+    // before the existing two-second FPS experiment starts. It adds no load wait.
+    internal const float PerformancePostLoadGraceSeconds = 10f;
     private static bool _performanceWallsHidden;
     private static Action<Renderer>? _performanceMaskRestored;
     internal static void ConfigurePerformanceMaskRestored(Action<Renderer> restored) =>
@@ -90,6 +96,7 @@ internal static partial class WallSegmentFade
         private readonly List<Renderer> _performanceRetired = new();
         private int _performanceMode = -1, _performanceScene = -1, _performanceAutoBelowFps = -1;
         private TilesOcclusionGenerator? _performanceGenerator;
+        private object? _performanceScenario;
         private bool _performanceAutoLatched;
         private uint _performanceRevision, _performanceCollectedRevision, _performanceCycleRevision;
         private int _performanceRoomCount = -1, _performanceWallCount = -1;
@@ -127,7 +134,8 @@ internal static partial class WallSegmentFade
             SceneController controller = SceneController.Instance;
             if (controller == null) return false;
             Scene scene = controller.GetCurrentScene;
-            return scene.IsValid() && scene.isLoaded && scene.handle == _performanceScene && scene.name == "Game";
+            return scene.IsValid() && scene.isLoaded && scene.handle == _performanceScene && scene.name == "Game"
+                && ReferenceEquals(ScenarioManager.Scenario, _performanceScenario);
         }
 
         private bool TickPerformanceVisibility()
@@ -164,16 +172,24 @@ internal static partial class WallSegmentFade
                 return false;
             }
             Scene scene = controller.GetCurrentScene;
-            if (!scene.IsValid() || !scene.isLoaded || scene.name != "Game" || ScenarioManager.Scenario == null)
+            if (!scene.IsValid() || !scene.isLoaded || scene.name != "Game")
             {
                 ResetPerformanceVisibility("outside scenario");
                 return false;
             }
-            if (_performanceScene != scene.handle || _performanceGenerator != gen)
+            object? scenario = ScenarioManager.Scenario;
+            if (scenario == null)
+            {
+                ResetPerformanceVisibility("outside scenario");
+                return false;
+            }
+            if (_performanceScene != scene.handle || _performanceGenerator != gen
+                || !ReferenceEquals(_performanceScenario, scenario))
             {
                 ResetPerformanceVisibility("scenario changed");
                 _performanceScene = scene.handle;
                 _performanceGenerator = gen;
+                _performanceScenario = scenario;
             }
 
             float now = Time.unscaledTime;
@@ -190,16 +206,27 @@ internal static partial class WallSegmentFade
                 // the cached OpenXR session signal; unknown focus adds no permanent veto.
                 // No desktop/UI poll, native focus query or extra per-eye work is introduced.
                 bool eligible = loaded && VRSession.InputFocus != false;
-                if (!eligible) _performanceReadySince = -1f;
-                else if (_performanceReadySince < 0f) _performanceReadySince = now;
-                // The first measured delta after a loading edge partly belongs to the old
-                // edge. Allow half a second of ordinary frames before observing gameplay.
-                bool settled = eligible && now - _performanceReadySince >= .5f;
+                if (!eligible)
+                {
+                    _performanceReadySince = -1f;
+                    _performanceClock.Reset();
+                }
+                else if (_performanceReadySince < 0f)
+                {
+                    _performanceReadySince = now;
+                    _performanceClock.Reset();
+                }
+                // The frame crossing the deadline still partly belongs to the grace.
+                // Exclude its whole delta as well: no loading/grace samples can leak into
+                // the fresh FPS window, even if that frame contains a long load-end hitch.
+                bool settled = eligible && now - Time.unscaledDeltaTime - _performanceReadySince
+                    >= PerformancePostLoadGraceSeconds;
                 if (_performanceClock.Observe(Time.frameCount, settled, Time.unscaledDeltaTime,
                     autoBelowFps))
                 {
                     _performanceAutoLatched = true;
-                    VRLog.Info(Name, $"PERFORMANCE WALLS AUTO: loaded gameplay stayed below {autoBelowFps} FPS for two seconds; walls remain absent until Regular is selected, the automatic threshold changes, or this scenario ends.");
+                    VRLog.Info(Name, $"PERFORMANCE WALLS AUTO: loaded gameplay stayed below {autoBelowFps} FPS for two seconds; walls remain absent until Regular is selected, the automatic threshold changes, or this scenario ends."
+                        + $" Post-load grace={PerformancePostLoadGraceSeconds}s.");
                 }
             }
             if (mode != 1 && !_performanceAutoLatched) return false;
@@ -417,7 +444,7 @@ internal static partial class WallSegmentFade
             foreach (Renderer renderer in _performanceRetired) ReleasePerformanceMask(renderer);
             _performanceMasks.Clear(); _performanceWanted.Clear(); _performanceProtected.Clear();
             _performanceRetired.Clear(); _performanceClock.Reset(); _performanceAutoLatched = false;
-            _performanceScene = -1; _performanceGenerator = null; _performanceReadySince = -1f;
+            _performanceScene = -1; _performanceGenerator = null; _performanceScenario = null; _performanceReadySince = -1f;
             _performanceRevision = _performanceCollectedRevision = _performanceCycleRevision = 0;
             _performanceHeldRoots.Clear(); _performanceHeldScratch.Clear();
             _performanceHeldNext.Clear(); _performanceHeldRenderers.Clear();

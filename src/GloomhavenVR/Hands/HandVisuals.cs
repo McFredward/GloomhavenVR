@@ -1,5 +1,4 @@
 using System.IO;
-using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -304,7 +303,9 @@ internal static class HandVisuals
     /// <summary>Full path of the shipped bundle, or null when it is not deployed.</summary>
     private static string? BundlePath()
     {
-        string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+        // IL2CPP has no managed assembly file; the shared root uses verified Quest
+        // extraction there and retains the plugin assembly directory on desktop.
+        string pluginDir = RuntimeDepsLoader.PluginDir;
         string bundlePath = Path.Combine(pluginDir, BundleFileName);
         return File.Exists(bundlePath) ? bundlePath : null;
     }
@@ -511,7 +512,7 @@ internal static class HandVisuals
             string? bundlePath = BundlePath();
             if (bundlePath == null)
             {
-                string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+                string pluginDir = RuntimeDepsLoader.PluginDir;
                 // ALERT, not Info: the bundle is a REQUIRED part of the install (hands, board,
                 // cards, heads, environments and every bundled shader live in it), and a missing
                 // one used to be logged on the DEBUG tier — invisible in the log a player sends.

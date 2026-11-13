@@ -255,3 +255,6 @@ PY
     fi
     echo "Movie review negative control: $mutation rejected."
 done
+
+# Source-bound Android camera-plane lifetime and consuming-owner controls.
+python3 "$repo_root/scripts/quest-movie-plane-lease-tests.py"

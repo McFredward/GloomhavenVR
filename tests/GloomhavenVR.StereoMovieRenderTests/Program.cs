@@ -73,6 +73,27 @@ public static class StereoVideoRenderProgram
                 }
                 target.Release(); Object.DestroyImmediate(target); target = null;
             }
+            foreach (var dimensions in new[] { new Vector2Int(320,180),new Vector2Int(320,240),new Vector2Int(420,180) })
+            {
+                target=new RenderTexture(dimensions.x,dimensions.y,0);target.Create();
+                for(int eye=0;eye<2;eye++)
+                {
+                    FlatScreenStereo.QuestPixels(packed,target,eye);
+                    pixels=Read(target,Path.Combine(output,"quest-"+dimensions.x+"x"+dimensions.y+"-eye"+eye+".png"));
+                    Color sample=pixels.GetPixel(dimensions.x/2+60,dimensions.y/2);
+                    Color expected=eye==0?(Color)new Color32(96,16,24,255):(Color)new Color32(16,112,32,255);
+                    Check(Math.Abs(sample.r-expected.r)<.02f&&Math.Abs(sample.g-expected.g)<.02f&&Math.Abs(sample.b-expected.b)<.02f,
+                        "Quest recorded eye retains original RGB through ordinary2D shader");
+                    Rect frame=FlatScreenStereo.MovieFrameRect(dimensions.x,dimensions.y,16f/9f);
+                    Color top=pixels.GetPixel(dimensions.x/2,(int)(dimensions.y*.5f+frame.height*.45f));
+                    Color bottom=pixels.GetPixel(dimensions.x/2,(int)(dimensions.y*.5f-frame.height*.45f));
+                    Check(top.g>.44f&&top.b>.5f&&top.r<.06f&&bottom.r>.6f&&bottom.b<.04f,"Quest eye preserves asymmetric vertical orientation");
+                    if(dimensions.y==240)Check(pixels.GetPixel(160,10).maxColorComponent<.01f,"Quest tall frame letterboxes");
+                    if(dimensions.x==420)Check(pixels.GetPixel(10,90).maxColorComponent<.01f,"Quest wide frame pillarboxes");
+                    Object.DestroyImmediate(pixels);pixels=null;
+                }
+                target.Release();Object.DestroyImmediate(target);target=null;
+            }
             EyeSelection(packed, output);
             PlaneLease(output, packed);
             File.WriteAllText(Path.Combine(output, "assertions.txt"), _count + " assertions\n");

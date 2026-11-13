@@ -9,5 +9,6 @@
   <ItemGroup>
     <Compile Include="$(MaterialSource)" Link="Production/PanelGraphicMaterial.cs" />
     <Compile Include="$(CaptureSource)" Link="Production/CaptureMaterial.cs" />
+    <Compile Include="$(PresentationSource)" Link="Production/PresentationMaterial.cs" />
   </ItemGroup>
 </Project>

@@ -26,6 +26,7 @@ internal static class ScenarioEnvironmentBudget
     private const int MaxBatchVertices = 48000;
     private const int MaxBatchMembers = 24;
     private static Driver? _driver;
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers() : "environment driver=unavailable failed=" + _failed;
     private static LeaseRecovery? _recovery;
     private static bool _failed;
     private static Func<bool>? _structuralEnabled;
@@ -121,6 +122,7 @@ internal static class ScenarioEnvironmentBudget
         {
             ScenarioCameraCullBoundary.Install();
             ScenarioCameraCullBoundary.Subscribe(AfterNativePreCull);
+            ScenarioCameraCullBoundary.SubscribeUnavailable(UnavailableCamera);
             VRSession.Harmony?.PatchAll(typeof(ProceduralBase_Placed_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(ProceduralMapTile_Show_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));
@@ -135,6 +137,7 @@ internal static class ScenarioEnvironmentBudget
     {
         if (_driver == null) return;
         ScenarioCameraCullBoundary.Unsubscribe(AfterNativePreCull);
+        ScenarioCameraCullBoundary.UnsubscribeUnavailable(UnavailableCamera);
         _driver.RestoreAll();
         UnityEngine.Object.Destroy(_driver);
         _driver = null;
@@ -156,6 +159,11 @@ internal static class ScenarioEnvironmentBudget
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
+    private static void UnavailableCamera(Camera camera)
+    {
+        try { _driver?.RecoverRenderLeases(); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
     private static void AfterNativePreCull(Camera camera)
     {
         try { if (!_failed) _driver?.FinishCameraPreCull(camera); }
@@ -728,8 +736,19 @@ internal static class ScenarioEnvironmentBudget
         private int _meshVisits, _nativeScopeRefusals, _nativeMaterialRefusals, _nativeWallChannelRefusals;
         private int _terrainRefusals, _mpbRefusals, _lightmapRefusals, _lodRefusals, _shadowRefusals, _geometryRefusals, _lightProbeFlagRefusals, _reflectionFlagRefusals;
         private Shader? _shader;
+        private bool _unsupportedShaderNoted;
 
         internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
+        internal string DescribeConsumers()
+        {
+            int chunkSources = 0, instanceSources = 0;
+            foreach (Batch batch in _batches) chunkSources += batch.MaskedSourceCount;
+            foreach (InstanceBatch batch in _instances) instanceSources += batch.MaskedSourceCount;
+            return "environment active=" + _active + " failed=" + _failed + " surfaces=" + _surfaces.Count
+                + " simpleShader=" + (_shader == null ? "unresolved" : _shader.isSupported ? "supported" : "unsupported-native-fallback")
+                + " chunks=" + _batches.Count + " instances=" + _instances.Count + " leasedSources=" + chunkSources + "/" + instanceSources
+                + " pending=" + _pending.Count + "/" + _parts.Count + " meshBank=" + _meshBankOn + " unreadable=" + _unreadable;
+        }
 
         private void Awake()
         {
@@ -1022,6 +1041,15 @@ internal static class ScenarioEnvironmentBudget
                 if (!CompatibleMaterial(original, surface.Floor || surface.Structural)) return;
             _shader ??= BundleShaders.Resolve(SimpleShader, Scope, "simpler scenario environment shader available", "original environment materials retained");
             if (_shader == null) return;
+            if (!_shader.isSupported)
+            {
+                if (!_unsupportedShaderNoted)
+                {
+                    _unsupportedShaderNoted = true;
+                    VRLog.Note(Scope, "Simpler scenario environment shader unsupported by the current graphics API; original environment materials retained.");
+                }
+                return;
+            }
             var changed = new Material[surface.Original.Length];
             for (int i = 0; i < changed.Length; i++)
             {
@@ -1338,6 +1366,7 @@ internal static class ScenarioEnvironmentBudget
         }
         private void HandlePreCull(Camera camera)
         {
+            if (!ScenarioCameraCullBoundary.CanFinalize(camera)) { RecoverRenderLeases(); return; }
             if (!isActiveAndEnabled || !_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
             // and precedes each camera's culling, including both eyes in MultiPass.

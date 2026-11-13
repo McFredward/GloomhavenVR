@@ -23,6 +23,8 @@ internal static class Program
         var sprite = new Material(new Shader("TextMeshPro/Sprite"));
         var pooled = new TMP_SubMeshUI();
         var text = new TMP_Text();
+        Check(GloomhavenVR.Quest.QuestGamePresentationEvidence.ReadAuthoredMaterial(pooled) == null, "presentation observer leaves unpopulated TMP submesh untouched");
+        Check(GloomhavenVR.Quest.QuestGamePresentationEvidence.ReadAuthoredMaterial(text) == null, "presentation observer leaves unpopulated font untouched");
         Check(PanelGraphicMaterial.Read(pooled) == null, "unpopulated submesh has no source material");
         Check(PanelGraphicMaterial.Read(text) == null, "unpopulated font has no source material");
         PanelSupersample.Capture(entry, pooled);
@@ -37,6 +39,8 @@ internal static class Program
             text.fontSharedMaterial = current;
             Check(ReferenceEquals(PanelGraphicMaterial.Read(pooled), current), "submesh observes native material repopulation without cloning");
             Check(ReferenceEquals(PanelGraphicMaterial.Read(text), current), "font observes native material repopulation without cloning");
+            Check(ReferenceEquals(GloomhavenVR.Quest.QuestGamePresentationEvidence.ReadAuthoredMaterial(pooled), current), "presentation observer tracks pooled submesh without cloning");
+            Check(ReferenceEquals(GloomhavenVR.Quest.QuestGamePresentationEvidence.ReadAuthoredMaterial(text), current), "presentation observer tracks pooled font without cloning");
             PanelSupersample.Capture(entry, pooled);
             PanelSupersample.Capture(entry, text);
         }
@@ -49,6 +53,7 @@ internal static class Program
             Check(ReferenceEquals(PanelGraphicMaterial.Read(graphic), Graphic.defaultGraphicMaterial), "ordinary graphics retain native default fallback");
             var authored = new Material(new Shader("Custom/Card"));
             graphic.material = authored;
+            Check(ReferenceEquals(GloomhavenVR.Quest.QuestGamePresentationEvidence.ReadAuthoredMaterial(graphic), authored), "presentation observer retains authored ordinary graphic material");
             int writes = graphic.MaterialWrites;
             int reads = graphic.MaterialReads;
             var color = graphic.color;

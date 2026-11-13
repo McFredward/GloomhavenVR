@@ -46,11 +46,11 @@ namespace GloomhavenVR.Core
     }
     internal static class BundleShaders
     {
-        internal static bool Missing,Throw=false,AttachmentPixels;
+        internal static bool Missing,Throw=false,AttachmentPixels,Unsupported;
         internal static Shader? Resolve(string name,string scope,string yes,string no)
         {
             if(Throw)throw new InvalidOperationException("fixture resolver failure");
-            return Missing?null:Shader.Find(AttachmentPixels?"GloomhavenVR/WorldSimpleMaterial":"Fixture/WorldMaterialBridge");
+            return Missing?null:Shader.Find(Unsupported?"Fixture/UnavailableWorld":AttachmentPixels?"GloomhavenVR/WorldSimpleMaterial":"Fixture/WorldMaterialBridge");
         }
     }
     internal static class PerfMonitor

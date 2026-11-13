@@ -62,6 +62,7 @@ namespace UnityEngine.XR.OpenXR.Features
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
     // Type-only dependencies of the actual VRSession source; no lifecycle is modeled here.
     internal sealed class CoreModule { }
     internal sealed class OpenXRBootstrap { }

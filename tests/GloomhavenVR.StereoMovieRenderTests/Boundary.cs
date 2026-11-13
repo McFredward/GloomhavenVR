@@ -3,6 +3,19 @@ using UnityEngine;
 using UnityEngine.Video;
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled => false;
+        internal static bool SharedStereoEyeRouting => false;
+        internal static string ResourceDirectory => string.Empty;
+        internal static void SetFlatScreenEyes(Material material, Texture? left, Texture? right) { }
+        internal static void SetFlatScreenMono(Material material, Texture? texture) { }
+    }
+    internal static class QuestMovieAssets
+    {
+        internal static Shader Shader(string name) => UnityEngine.Shader.Find(name) ?? throw new System.InvalidOperationException("Movie shader source was not imported.");
+    }
+
     internal static class StereoModeConfig
     {
         internal enum Mode { MultiPass, SinglePassInstanced }
@@ -10,6 +23,7 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog
     {
+        internal static bool WantsDebug => true;
         internal static readonly List<string> Messages = new List<string>();
         internal static void Note(string scope, string text) => Messages.Add(text);
         internal static void Warn(string scope, string text) => Messages.Add(text);
@@ -28,6 +42,7 @@ namespace GloomhavenVR.WorldUI
 {
     internal static class FlatScreen
     {
+        internal static bool OwnsCapturedMoviePlane(VideoPlayer player) => throw new System.InvalidOperationException("Quest capture ownership belongs to its exact policy fixture.");
         internal static bool OwnsStartupMovie(VideoPlayer player) => throw new System.InvalidOperationException(
             "Persistent studio ownership belongs to the automatic startup fixture.");
     }
@@ -49,6 +64,12 @@ namespace GloomhavenVR.WorldUI
         internal void Initialize(RenderTexture left, RenderTexture right, RenderTexture? background = null) { _rtLeftShifted = left; _rtRight = right; _leftRt = background; }
         internal void Draw(Camera camera, Material material) => ShowStereoMovie(camera, material);
         internal static void Pixels(Texture texture, RenderTexture target, int eye) => DrawMovieEye(texture, target, eye);
+        internal static void QuestPixels(Texture texture, RenderTexture target, int eye)
+        {
+            var owner=new FlatScreenStereo();
+            try { owner.DrawQuestMovieEye(texture,target,eye,1f,null); }
+            finally { if(owner._questMovieEye!=null) Object.DestroyImmediate(owner._questMovieEye); }
+        }
         internal void SourceChanged() => SyncStereoMovie();
     }
 }

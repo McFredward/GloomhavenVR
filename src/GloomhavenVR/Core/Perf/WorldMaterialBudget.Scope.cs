@@ -35,6 +35,19 @@ internal static partial class WorldMaterialBudget
         private readonly List<GameObject> _propVisuals = new();
         private bool _propRootsReady, _shareReads;
         private int _propRootReads, _scopeNodeReads;
+        // Actual rejected component identities, observed during the existing scope
+        // walk only. B716's final state had28 candidates, with no evidence whether
+        // the remaining rooms were hidden, outside this camera or rejected during
+        // discovery. Never relax an ownership guard merely to increase coverage.
+        private readonly HashSet<Type> _refusedTypes = new();
+        private string DescribeRefusedTypes()
+        {
+            if (_refusedTypes.Count == 0) return "none";
+            var names = new List<string>(_refusedTypes.Count);
+            foreach (Type type in _refusedTypes) names.Add(type.FullName ?? type.Name);
+            names.Sort(StringComparer.Ordinal);
+            return string.Join(",", names);
+        }
         private void InvalidateScopeReads()
         { _scopes.Clear(); _sceneScopes.Clear(); _propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false; }
         private void ReadPropRoots()
@@ -86,6 +99,7 @@ internal static partial class WorldMaterialBudget
                 foreach (Component component in _components)
                 {
                     if (component is null) continue;
+                    bool allowedBeforeComponent = allowed;
                     if (component is Canvas or ActorBehaviour or ProceduralProp or ProceduralDoorway
                         or UnityGameEditorDoorProp or CInteractable or Animator or Animation or Rigidbody
                         or SkinnedMeshRenderer or ParticleSystem or ParticleSystemRenderer or VideoPlayer
@@ -103,6 +117,10 @@ internal static partial class WorldMaterialBudget
                         && component is not TilesOcclusionVolume && component is not MaterialLoader
                         && component is not MapChoreographer && component is not ProceduralStyle
                         && component is not ApparanceEntity && !NativeWorldCoordinator(component)) allowed = false;
+                    if (allowedBeforeComponent && !allowed)
+                    {
+                        if (VRLog.Level >= VRLogLevel.Debug && _refusedTypes.Count < 16) _refusedTypes.Add(component.GetType());
+                    }
                     scope.Scenario |= component is ProceduralScenario;
                 }
                 _components.Clear();

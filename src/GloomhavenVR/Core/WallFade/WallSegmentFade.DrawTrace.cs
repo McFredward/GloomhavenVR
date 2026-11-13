@@ -23,8 +23,13 @@ internal static partial class WallSegmentFade
         private const int DrawTraceRouteEpisodes = 2;
         private readonly List<WallDrawEpisode> _wallDrawEpisodes = new(DrawTraceEpisodes);
         private readonly List<Material> _drawMaterials = new(8);
-        private readonly MaterialPropertyBlock _drawBlock = new();
-        private readonly MaterialPropertyBlock _drawSlotBlock = new();
+        // Capture135518: Unity rejects CreateImpl in the MonoBehaviour's
+        // constructor. A failed field initializer also leaves later scene
+        // ledgers uninitialized, causing a second exception on scene load.
+        // Allocate native diagnostic scratch only from the guarded render
+        // callback, after an actual eligible draw exists, never during load.
+        private MaterialPropertyBlock? _drawBlock;
+        private MaterialPropertyBlock? _drawSlotBlock;
         private int _drawEpisodeCount;
         private bool _drawTraceFailed;
 
@@ -182,6 +187,8 @@ internal static partial class WallSegmentFade
                 Renderer r = episode.Renderer;
                 if (episode.Complete || r == null || episode.LastDrawFrame == Time.frameCount
                     || episode.WriteFrame != Time.frameCount) continue;
+                _drawBlock ??= new MaterialPropertyBlock();
+                _drawSlotBlock ??= new MaterialPropertyBlock();
                 float fade = episode.Segment.Fade;
                 bool returning = fade < 1f && episode.WasReturning;
                 int bucket = Mathf.Clamp(Mathf.FloorToInt(fade * 4f), 0, 4);

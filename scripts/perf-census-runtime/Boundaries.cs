@@ -78,3 +78,5 @@ internal static class ScenarioSceneryBudget { internal static bool IsPreparingPr
 internal static class ScenarioEnvironmentBudget { internal static bool IsPreparingPresentation=>false; }
 internal static class ScenarioFigureDetailBudget { internal static bool IsPreparingPresentation=>false; }
 }
+
+namespace GloomhavenVR.Core { internal static class QuestPerformanceEvidence { internal static readonly System.Collections.Generic.List<string> Timing=new(); internal static void RetainTiming(string value)=>Timing.Add(value); } }

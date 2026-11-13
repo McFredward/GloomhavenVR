@@ -43,6 +43,9 @@ s += curated[start:end] + '        return false;\n    }\n'
 start = variants.index('    private sealed class VariantFamily')
 end = variants.index('\n    }', variants.index('private static bool IsShownForCurrentVariant')) + len('\n    }')
 s += variants[start:end] + '\n}\n}\n'
+# The dependency filter retains the production platform visibility predicate;
+# the named desktop platform input remains in Program.cs.
+s += read('WorldUI/Options/QuestOptionVisibility.cs').replace('using System;', '').replace('namespace GloomhavenVR.WorldUI;', 'namespace GloomhavenVR.WorldUI {') + '\n}\n'
 s += read('WorldUI/Options/VROptionsTab.8.Dependencies.cs').replace('using System;', '').replace('using System.Collections.Generic;', '').replace('using GloomhavenVR.Core;', '').replace('namespace GloomhavenVR.WorldUI;', 'namespace GloomhavenVR.WorldUI {') + '\n}\n'
 # Keep current availability helpers in the real bool binder. The fixture provides
 # the platform capability and hint-drawing ports; the town assertions stay intact.

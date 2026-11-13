@@ -10,7 +10,7 @@ internal static class ProtectedTypes
     internal static Dictionary<string, string> Snapshot(AssemblyDefinition assembly) => Discovery.AllTypes(assembly.MainModule)
         .Where(Discovery.Protected).ToDictionary(t => t.FullName, Fingerprint, StringComparer.Ordinal);
 
-    private static string Fingerprint(TypeDefinition type)
+    internal static string Fingerprint(TypeDefinition type)
     {
         var text = new StringBuilder(type.FullName).Append('|').Append(type.Attributes).Append('|').Append(type.BaseType?.FullName);
         foreach (FieldDefinition field in type.Fields) text.Append("\nf:").Append(field.FullName).Append('|').Append(field.Attributes);

@@ -14,6 +14,9 @@ namespace GloomhavenVR.Core;
 /// chroma-key it and composite the game over the real room — the diorama/table geometry
 /// keeps rendering, only the sky/background becomes the flat key color the compositor
 /// punches out.
+/// On the explicitly configured Quest standalone player, the same mode instead requests
+/// Unity's existing native passthrough underlay and clears the sky to transparent black.
+/// UI backing, scene geometry and element treatment keep their existing owners.
 ///
 /// HOW THE SKYBOX IS DISABLED WHILE THE DIORAMA STAYS VISIBLE
 /// ----------------------------------------------------------
@@ -439,6 +442,7 @@ internal static partial class MixedReality
     /// </summary>
     internal static bool BackingsWanted =>
         _file != null && Enabled.Value && VRSession.IsRunning
+        && (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive)
         && (!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)
         && (!SteamLink.SteamLinkSceneRuntime.Requested || SteamLink.SteamLinkSceneRuntime.Active);
 
@@ -668,6 +672,8 @@ internal static partial class MixedReality
         // an opaque black/green background or treating the pending write as a failure.
         bool want = requested && (native ? VRCameraPolicy.AllowedHead != null
             && FrameNativePassthrough.TryEnter() : !checkingStream && (!stream || streamReady));
+        if (QuestStandalonePlatform.Enabled)
+            want = QuestStandalonePlatform.SetPassthrough(requested) && requested;
         if (!want)
         {
             if (_active || CamOriginals.Count != 0)
@@ -700,7 +706,8 @@ internal static partial class MixedReality
         SkyBackdrop.Tick(skyOwnedElsewhere: true);
 
         Color key = native || stream ? Color.clear : KeyColor.Value;
-        if (!native && !stream)
+        key = QuestStandalonePlatform.MixedRealityClearColor(key);
+        if (!native && !stream && !QuestStandalonePlatform.Enabled)
             key.a = 1f; // The PC chroma key stays fully opaque.
 
         // 1) Kill the global skybox (ambient/reflection contributions + any Skybox clear).
@@ -753,7 +760,9 @@ internal static partial class MixedReality
         {
             _loggedActive = true;
             _loggedColor = key;
-            if (stream)
+            if (QuestStandalonePlatform.Enabled)
+                VRLog.Info("Core", "Quest mixed reality ON — native passthrough active, transparent sky clear; existing UI backings and scenery rules retained.");
+            else if (stream)
                 VRLog.Info("Core", "Mixed reality ON — Steam Link scene-contribution source; " +
                     "native composition requires the enabled Frame receiver.");
             else if (native)
@@ -2506,6 +2515,8 @@ internal static partial class MixedReality
     internal static void RestoreAll()
     {
         SteamLink.SteamLinkSceneRuntime.Exit();
+        if (QuestStandalonePlatform.Enabled)
+            QuestStandalonePlatform.SetPassthrough(false);
         int restored = 0;
         foreach (KeyValuePair<Camera, (CameraClearFlags Flags, Color Bg)> pair in CamOriginals)
         {

@@ -1,0 +1,303 @@
+# Original Quest startup recovery
+
+This target stages original owned game code and UI for an intermediate
+Bootstrap → Intro → Gloomhaven_unified → MainMenu test. It does not establish
+that campaign gameplay, multiplayer, native plugins or original graphics work
+on Android. `fullGameReady` stays false and the full recovery gate is retained.
+
+## Reproducible private inputs
+
+The real AssetRipper 2.0.0 recovery is `/home/claw/quest3-local/recovery/startup-source-project`.
+It was produced from the immutable owned `ressources/GH_Data`, loading the
+original core assets plus the exact dependency union of
+`always_loaded_base`, `always_loaded_standalone` and `always_loaded_base_high`.
+That union has **17 original bundles, 51,930,049 bytes**. The export reports
+260 shader placeholders, 16 serialized behaviour failures and 3,238 deferred
+bundles. None of the 16 failing behaviour types occurs in the staged closure.
+
+Stage a fresh private output with:
+
+```sh
+python3 tools/quest-recovery/startup.py \
+  --source-project /home/claw/quest3-local/recovery/startup-source-project \
+  --game-data /home/claw/gloomhaven_vr/ressources/GH_Data \
+  --output-project /home/claw/quest3-local/recovery/startup-project-v4 \
+  --tmp-source-archive /home/claw/quest3-tools/textmeshpro-3.0.6.tgz
+```
+
+Output must be fresh, outside the source recovery and owned game. The pipeline
+checks the recovery receipt, managed metadata hashes, each selected output
+hash, each retained original DLL against the actual owned Managed file, and
+filesystem rule data against the recovery source inventory. It copies the
+original assets and metadata; callbacks, scenes, asset GUIDs and managed DLL
+bytes are retained. Transitive assembly references, dynamic Resources except
+SRDebugger, and original Rulebase/GloomData filesystem inputs are included.
+The source projects are never edited.
+
+`quest-startup-report.json` schema 1 declares all output files and hashes,
+the four selected scene paths in execution order, all 13 original scene paths,
+source/recovery fingerprints, native imports, shader gaps, serialized failures,
+and readiness limits. `sourceBuilderFingerprint` uses the builder's canonical
+`{files:[{path,size,sha256}]}` format; `sourceFingerprint` retains the original
+recovery receipt's canonical list hash.
+
+The completed v4 stage contains **17,892 declared files / 1,802,443,349 bytes**.
+It has zero unresolved MonoScript identities, zero failing serialized behaviour
+types in closure, and **405 associated native Addressables locations** with
+1,308 serialized value locations explicitly excluded. Only the later-use
+AreaEffectSpriteAtlas sentinel remains unresolved; complete `closureReady`
+therefore stays false. These are source/staging facts, not headset evidence.
+
+## SDK script identity replacement
+
+`Assets/QuestOriginalStartup/script-bindings.json` records the exact original
+UGUI/InputSystem assembly, namespace/type, GUID and file ID for every affected
+serialized SDK reference. The builder disables the original UGUI, InputSystem,
+Addressables, ResourceManager and ScriptableBuildPipeline plugins before the
+first Unity compilation; their original byte/meta provenance remains available.
+
+`QuestOriginalScriptBindings.RemapAndValidate()` then resolves each affected
+type against the **actual imported SDK package MonoScript**, obtaining its
+GUID/local file ID through `AssetDatabase`. Missing/ambiguous types and unknown
+disabled-plugin script pointers fail. Only `m_Script` pointers may change;
+callbacks and all other serialized text must be identical after pointer
+normalization. The complete transaction validates before any asset is written.
+`QuestStartupEvidence/script-remap.json` records the old/new identities and
+per-asset before/after/non-script hashes. This does not establish compatibility
+of every InputSystem 1.4/1.7 serialized setting; actual Unity import/build and
+runtime input checks remain required.
+
+## Original Addressables associations
+
+`Assets/QuestOriginalStartup/startup-addressables.json` contains `entries[]`.
+Each row includes `entryIndex`, `originalAssetPath`, `assetPath`,
+`recoveredGuid`, nullable `recoveredFileId`, original `keys[]`, original
+`labels[]`, `resourceTypeName`, `provider`, `associationProof`,
+`requiredOriginalBundles`, `status`, and `initialObjectLoadEligible`.
+
+The source catalog has 1,713 locations in the selected label union. Most
+locations describe serialized value types inside prefabs, rather than native
+Unity objects: those are explicitly excluded from `LoadAssetsAsync<Object>`
+startup associations. Native object mappings use the original container path
+and object type. Standalone atlas sprites additionally prove their original
+identity with `m_RenderDataKey`, preserving the original sprite file ID.
+Converted JPG texture mapping requires the original sprite render key and its
+actual texture pointer. FBX maps only from the exact original container path
+to its exported prefab and, when unique, its referenced native Mesh. The
+FireBlend shader has a single full container-path case difference on the
+original Windows filesystem; this is recorded separately and requires an
+unambiguous complete path. No filename-wide matching is used.
+
+A genuine native Android catalog/bundle build remains necessary. Copying the
+original Windows catalog or returning synthetic successful preload handles
+does not satisfy that requirement. Preserve group label aliases such as
+`misc_gui` as well as the three initial preload labels. Texture and Sprite
+locations can legitimately share an original key: type-specific locations
+must be retained, not reduced to a single untyped GUID dictionary.
+
+## Shader source restoration and remaining blockers
+
+TMP shader source is restored from Unity's official public 3.0.6 package:
+`https://packages.unity.com/com.unity.textmeshpro/-/com.unity.textmeshpro-3.0.6.tgz`,
+archive SHA256
+`1ce172027b906a30be33cefe7b2ee46e1c8d35f729359b8b9785fc120d57b637`.
+Only shader/include source is used; no duplicate TMP runtime/package scripts
+are installed. Six recovered shader files retain their original paths/meta
+GUIDs. All original SDF properties (64 desktop, 34 mobile), Sprite properties,
+single-pass blend, cull, depth, stencil and color-mask settings are checked
+against the original parsed recipes before restoration. Neutral additions
+`_CullMode=0` and `_Sharpness=0`, and inspector range differences, are reported.
+Neither source compatibility nor a successful compile proves original pixel
+parity. Other custom shaders remain an explicit graphics blocker.
+
+`Assets/QuestOriginalStartup/shader-recipes.json` retains the actual parsed
+source shader property/state recipes and hashes for further controlled
+restoration. These and all original game exports are private generated data;
+no proprietary code/assets are tracked in Git.
+
+The remaining serialized missing GUID is the export sentinel
+`0000000deadbeef15deadf00d0000000`, assigned to
+`UIInfoTools.AreaEffectSpriteAtlas` in `Gloomhaven_unified`. Source reads occur
+in `EnhancedAreaHex.Init/ApplyEnhancement/RemoveEnhancement` and `CreateLayout`
+area ability/enhancement rendering, not Bootstrap/Intro/menu startup. It remains
+visible in the report and keeps complete `closureReady=false`; a menu-only
+diagnostic may explicitly guard the unavailable later feature. No substitute
+atlas is fabricated and the original serialized pointer is retained.
+
+Source-proven native imports include ApparanceEngine, steam_api64,
+AVProMovieCapture/kernel32, XInput/InControl, Photon voice/socket/encryption,
+EOSSDK-Win64-Shipping and EOS native helpers. Their original managed APIs still
+need platform-aware startup adapters. Windows native plugins are not staged.
+
+## Verification
+
+Focused Python recovery tests: **24 passed**, including real original TMP
+recipe/official source checks for all six variants, negative blend/property
+mutations, stale same-size asset detection, GUID collisions, path escapes,
+unknown SDK scripts, callback retention, exact source sprite render keys and
+ambiguous Windows path case controls. The managed metadata inventory builds
+with .NET 8, zero warnings/errors, and reports real original native imports
+without loading game code.
+
+Actual Unity import, SDK remap, Android catalog/player builds and headset
+results for the full original closure are separate integration evidence.
+
+The real Unity 2021.3.5f1 isolated SDK fixture passed **86 checks / four failure
+controls**, using all 28 original startup UGUI/InputSystem identities against
+actual imported packages. It produced 29 remapped pointers, imported the native
+prefab and ScriptableObjects, preserved all non-script bytes, callback method,
+target and RuntimeOnly state, and executed the retained Button callback on a
+disposable instance. Unknown file ID, missing exact typename, duplicate source
+identity, and an escaping asset path each rejected the complete transaction
+without modifying any fixture asset. Result:
+`/home/claw/quest3-local/recovery/startup-audit/sdk-bindings-fixture-plxbbzs1/fixture-result.json`.
+No Android preference was changed. Reproduce in a private project with:
+
+```sh
+python3 tests/quest-recovery/run_unity_bindings.py \
+  --unity /home/claw/unity-2021.3.5/Editor/Unity \
+  --startup-project /home/claw/quest3-local/recovery/startup-project-v4 \
+  --work-root /home/claw/quest3-local/recovery/startup-audit
+```
+
+This fixture establishes the SDK remap mechanism and fail-closed controls; it
+does not substitute for importing/building the complete original startup
+closure or testing its original code on Quest hardware.
+
+## Generated project case migration
+
+The real integration import reported that Unity ignores recovered paths which
+differ only in casing. The raw v4 stage has 33 collision groups: the
+`Resources/GenerateCompendium` and `Resources/generatecompendium` directories,
+four corresponding prefab/meta pairs, and twelve Sprite/meta pairs. The
+Compendium copies have distinct GUIDs and distinct sprite, font, material and
+audio-profile references. `Sprite/Brute.asset` and `Sprite/brute.asset` also
+have different original textures and geometry. They must remain separate
+objects; neither matching names nor normalized text justifies deduplication.
+
+The upper Compendium directory is associated by exact container path and GUID
+with the original catalog's `BundledAssetProvider` entries. The lower directory
+is the separately recovered, unaddressed Resources copy. Retain that lower
+directory at its existing Resources key and move the catalog-associated upper
+variant outside every Resources folder. No direct Compendium Resources.Load
+string was found in the provided decompiled runtime source; existing serialized
+references remain exact through their unchanged GUIDs. Ambiguous Resources
+collisions or directories mixing addressed and unaddressed content reject
+before mutation, instead of guessing which original key should survive.
+
+After validating the immutable startup source receipt and overlaying the Quest
+template, **before the first Unity import**, run:
+
+```sh
+python3 tools/quest-recovery/case_paths.py --project /private/generated/project
+```
+
+The tool requires `Assets/Quest` to reject raw recovery exports/stages. It
+relocates distinct variants under deterministic
+`Assets/QuestOriginalStartup/CaseVariants/case_<path hash>/` paths, retaining
+all original asset bytes, metadata bytes, GUIDs and callback pointers. Folder
+metadata moves with its owner. Only owned `startup-addressables.json` native
+`assetPath` fields and `script-bindings.json` `assetPaths` change. Original
+Addressables keys, labels, `originalAssetPath`, `recoveredGuid` and the input
+recovery receipt remain unchanged. `QuestStartupEvidence/case-path-migration.json`
+records path mappings, original/new file paths, hashes, GUIDs and manifest
+hashes; `fullGameReady` stays false. The raw receipt still describes immutable
+source input, not the transformed generated project.
+
+The actual private v4-copy run at
+`/home/claw/quest3-local/recovery/startup-audit/case-migration-real-vj5fmbid`
+retained **17,890 original input files byte-for-byte**, excluding the two owned
+path manifests. Thirteen units / 32 asset and metadata files moved; zero case
+collisions remain. Original Addressables keys, labels and GUIDs compare equal,
+the raw receipt compares equal, and an identical repeat retains the first
+receipt. Eleven focused controls cover the exact Resources folder defect,
+distinct sprite assets, metadata/folder movement, callbacks, determinism,
+idempotence and rejection of ambiguous keys, wrong GUIDs, orphan/missing
+metadata, escaping paths, symlinks and occupied/case-conflicting destinations.
+All 35 Python recovery checks pass. No Unity process was invoked for this
+change; the actual integration import must verify AssetDatabase availability.
+
+## Apparance startup audit
+
+None of the four selected scenes serializes ApparanceEntity, ApparanceLayer,
+ProceduralStyle or Choreographer. Unified's active `Apparance Engine` object
+contains enabled ApparanceEngine, ApparanceResources, ProceduralTileTracker,
+ApparanceAbout and ApparanceResourceListLoader components. Loader.Awake only
+gets the existing engine component and writes its public PrefabInstancing bool.
+Tracker.Start computes spacing from the original hex prefab's renderer bounds;
+it does not instantiate an entity or generate geometry. All ten actual
+ObjectPool startup prefabs were audited and contain no Apparance SDK entity.
+MainMenuUIManager waits for PersistentData.IsDataLoaded; SceneController waits
+for MainMenuUIManager.Initialised, rather than an Apparance generation gate.
+
+However, suppressing ApparanceEngine's Unity lifecycle alone is insufficient:
+SceneController.Start calls ClearAfterSceneUnloading at source line 579, which
+calls ApparanceResourceListLoader.UnloadAll at line 2737. After genuine managed
+asset release/clearing, that method calls ApparanceEngine.RefreshResources.
+It unconditionally calls Apparance.Net.Engine.AssetCacheClear, which invokes
+native ApparanceUpdateAsset even without an initialized engine or Instance.
+The startup diagnostic must narrowly guard this refresh call while preserving
+the actual managed cleanup. No PCG readiness or generated result may be
+fabricated. Gameplay entry/ProcGen stays unavailable; a full port must resolve
+the native generation requirement separately. Metadata evidence is private
+`startup-audit/apparance-scene-components.json` and
+`apparance-startup-pools.json`; exact SDK decompiles remain private in
+`apparance-source/`. These are source facts, not Android runtime evidence.
+
+## Legacy eye histogram compute source
+
+The real Android Player build crashed in compute variant serialization after
+`buildTarget.platform >= kFirstValidStandaloneTarget` assertions. The selected
+raw closure contains exactly one native ComputeShader dump:
+`Assets/Resources/shaders/EyeHistogram.asset`, GUID
+`14b830dd8a5381e4399cfe161a01662f`, local object ID 7200000, SHA-256
+`18348db1beec6ab43f07ded89f3dcc9815d196d8d87d6527ba6365afd04bd0de`.
+Its compilation platform is zero, source/sourceFile are empty, and the dumped
+native object cannot supply Android shader source. No selected serialized
+asset references its GUID and it is absent from the startup Addressables
+entries. Its actual runtime association is legacy
+`UnityEngine.PostProcessing.EyeAdaptationComponent.Prepare` in the owned
+`GH.Runtime.FirstPass.dll`: Resources.Load("Shaders/EyeHistogram"), kernel
+`KEyeHistogram`, ComputeBuffer(64, 4), `_Histogram`, `_Source`, float4
+`_ScaleOffsetRes`, and ceil(width/16), ceil(height/16), 1 dispatch.
+
+The compatible source is Unity's official PostProcessing **v1** branch at
+commit `933df236f509ed64ae5763ed57af33f2342cd1c2`, rather than the unrelated
+v2/v3 package source. `compute_sources.py` pins SHA-256 for EyeHistogram.compute,
+Common.cginc, EyeAdaptation.cginc and the upstream MIT LICENSE. It verifies the
+transitive private include closure, declaring UnityCG.cginc as the Unity editor
+builtin compiler boundary, and verifies both the recovered native ABI and
+official source ABI. Upstream also includes the unused additive
+`KEyeHistogramClear` kernel; it is recorded explicitly. This establishes source
+compatibility, not original output pixel parity.
+
+After immutable source validation and template overlay, before Unity import:
+
+```sh
+python3 tools/quest-recovery/compute_sources.py \
+  --project /private/generated/project --cache /private/tool-cache
+```
+
+The helper automatically obtains exact official files from the pinned commit,
+verifies every source/license hash before project writes, and restores real
+`.compute` source at the existing Resources path. It preserves the GUID and
+native compute object identity, replacing only the invalid NativeFormatImporter
+with a ComputeShaderImporter. Original asset/meta bytes move outside Assets to
+`QuestStartupEvidence/OriginalComputeShader/`. A receipt records original/runtime
+hashes, source hashes, license, include boundary, exact ABI, preserved Resources
+key and any owned script-path mapping. Unchanged script bindings retain their
+original bytes. Unknown compute objects, new serialized/Addressables references,
+occupied destinations, changed source/runtime identities and ambiguous retry
+evidence reject without writing; partial IO failure restores original bytes.
+`fullGameReady`, `originalPixelParityVerified` and `androidShaderCompiled` remain
+false in this source restoration receipt; an actual compilation requires separate
+evidence.
+
+All 22 focused controls pass, including the actual private raw-object ABI and
+official pinned-cache validation. Portable controls cover unknown native/source
+compute objects, GUID, callbacks, raw-project/symlink rejection, shader/runtime
+hash corruption, unpinned downloads, kernel/buffer/constant-layout/thread-group
+differences, include/ABI mismatch despite matching hashes, addressable/serialized
+references, rollback, idempotence and retry provenance. Neither original owned
+source nor public downloaded shader files are committed. The isolated Android
+shader bundle check is separate from the full original startup Player build.

@@ -1,0 +1,521 @@
+using System;
+using System.Collections;
+using System.IO;
+using System.Reflection;
+using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI;
+using GloomhavenVR.Quest.Editor;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.Sprites;
+using UnityEngine.UI;
+using Debug = UnityEngine.Debug;
+
+namespace GloomhavenVR.Core
+{
+    internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    internal static class QuestLoadingAssets { internal static Shader? ResolveShader() => null; }
+    internal enum VRLogLevel { Debug }
+    internal static class VRLog
+    {
+        internal static bool Wants(VRLogLevel level) => false;
+        internal static void Info(string category, string text) => UnityEngine.Debug.Log(text);
+        internal static void Error(string category, string text) => UnityEngine.Debug.LogError(text);
+    }
+}
+
+// Actual loading witness is debug-only; this isolated geometry fixture has no
+// tracked head. Its visibility lifecycle is exercised by the separate suite.
+namespace Rig { internal static class VRRigDriver { internal static Camera? HeadCamera => null; } }
+
+namespace GloomhavenVR.Quest.Editor
+{
+    // Only product progress reporting is outside this native geometry fixture.
+    internal static class QuestWizardProgress
+    {
+        internal sealed class Counter
+        {
+            internal Counter(string name, string phase, int total, string unit, string label) { }
+            internal void Report(int done, string detail) { }
+            internal void Complete(string detail) { }
+        }
+    }
+}
+
+public static class InteractionProgram
+{
+    private static int checks;
+    private static void Check(bool value, string message)
+    {
+        checks++;
+        if (!value) throw new Exception(message);
+    }
+    private static void Close(float left, float right, string message) => Check(Math.Abs(left - right) < 0.00003f, message);
+    private static void AtlasCopy()
+    {
+        var texture = new Texture2D(16, 16, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point };
+        var pixels = new Color[256];
+        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = x >= 8 && y >= 8
+                ? new Color(x < 12 ? 1 : .5f, y < 12 ? .25f : .75f, .5f, x < 12 ? .25f : .75f) : Color.blue;
+        texture.SetPixels(pixels); texture.Apply(false);
+        var target = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        target.Create();
+        var roundtrip = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        roundtrip.Create();
+        RenderTexture previousTarget = RenderTexture.active;
+        bool previousColor = GL.sRGBWrite;
+        try
+        {
+            QuestStandalonePlatform.Enabled = false;
+            Check(QuestTextureCopy.AcceptCache(null) && QuestTextureCopy.AcceptCache("desktop-v2"), "desktop cache compatibility preserved");
+            QuestStandalonePlatform.Enabled = true;
+            Check(!QuestTextureCopy.AcceptCache(null) && !QuestTextureCopy.AcceptCache("old-builtin-copy"), "Quest rejects previous builtin-copy cache");
+            Check(QuestTextureCopy.AcceptCache(QuestTextureCopy.Recipe), "Quest accepts its exact copy recipe");
+            // Copies execute with XR keywords present but consume an ordinary atlas.
+            Shader.EnableKeyword("STEREO_INSTANCING_ON");
+            GL.sRGBWrite = !target.sRGB;
+            QuestTextureCopy.Copy(texture, target, new Vector2(.5f, .5f), new Vector2(.5f, .5f));
+            Check(GL.sRGBWrite == !target.sRGB && RenderTexture.active == previousTarget, "Quest copy restores render state");
+            Color[] copied = Pixels(target);
+            Debug.Log("Quest ordinary atlas copy: api=" + SystemInfo.graphicsDeviceType + " first=" + copied[0]
+                + " last=" + copied[copied.Length - 1] + " srgb=" + target.sRGB + " activeColor=" + QualitySettings.activeColorSpace);
+            for (int index = 0; index < copied.Length; index++)
+            {
+                Color pixel = copied[index]; int x = index % 8, y = index / 8;
+                Check(Math.Abs(pixel.r - (x < 4 ? 1 : .5f)) < .02f && Math.Abs(pixel.g - (y < 4 ? .25f : .75f)) < .02f
+                    && Math.Abs(pixel.b - .5f) < .02f && Math.Abs(pixel.a - (x < 4 ? .25f : .75f)) < .02f,
+                    "Quest atlas copy retains crop pixels and alpha");
+            }
+            // The owned sprite copy is itself an ordinary RT. Diagnostics and
+            // subsequent copies must sample it without assuming an eye array.
+            QuestTextureCopy.Copy(target, roundtrip, Vector2.one, Vector2.zero);
+            Color[] retained = Pixels(roundtrip);
+            for (int index = 0; index < retained.Length; index++)
+                Check(Math.Abs(retained[index].r - copied[index].r) < .02f && Math.Abs(retained[index].g - copied[index].g) < .02f
+                    && Math.Abs(retained[index].a - copied[index].a) < .02f, "Quest RT copy retains actual source pixels and alpha");
+            try { QuestTextureCopy.Copy(target, target, Vector2.one, Vector2.zero); throw new Exception("self copy accepted"); }
+            catch (ArgumentException) { checks++; }
+        }
+        finally
+        {
+            Shader.DisableKeyword("STEREO_INSTANCING_ON"); GL.sRGBWrite = previousColor; RenderTexture.active = previousTarget;
+            target.Release(); UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(texture);
+            roundtrip.Release(); UnityEngine.Object.DestroyImmediate(roundtrip);
+        }
+    }
+    private static Color[] Pixels(RenderTexture source)
+    {
+        RenderTexture previous = RenderTexture.active;
+        var copy = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false, false);
+        try
+        {
+            RenderTexture.active = source;
+            copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0, false);
+            copy.Apply(false, false);
+            return copy.GetPixels();
+        }
+        finally { RenderTexture.active = previous; UnityEngine.Object.DestroyImmediate(copy); }
+    }
+    private static double Variance(Color[] pixels)
+    {
+        double sum = 0, square = 0;
+        foreach (Color pixel in pixels) { sum += pixel.r; square += pixel.r * pixel.r; }
+        return square / pixels.Length - Math.Pow(sum / pixels.Length, 2);
+    }
+    private static RenderTexture Target(bool quest, int size)
+    {
+        QuestStandalonePlatform.Enabled = quest;
+        RenderTexture rt = FlatScreenStereo.CreateColorRt(size, size, 24, "fixture-menu");
+        Check(rt.Create(), "capture allocation");
+        return rt;
+    }
+    private static Image Image(Sprite sprite, Vector2 dimensions, Vector2 pivot, bool preserve)
+    {
+        var go = new GameObject("authored-loading-image", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        Image image = go.GetComponent<Image>();
+        image.sprite = sprite; image.preserveAspect = preserve;
+        image.rectTransform.sizeDelta = dimensions; image.rectTransform.pivot = pivot;
+        return image;
+    }
+    private static void CompareImage(Image image, Image basis, bool boot = false)
+    {
+        MethodInfo populate = typeof(Image).GetMethod("OnPopulateMesh", BindingFlags.Instance | BindingFlags.NonPublic,
+            null, new[] { typeof(VertexHelper) }, null)!;
+        using (var helper = new VertexHelper())
+        {
+            populate.Invoke(image, new object[] { helper });
+            var original = new Mesh(); helper.FillMesh(original);
+            Rect actual = LoadingIconGeometry.DrawingRect(image);
+            Vector3[] vertices = original.vertices;
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            foreach (Vector3 vertex in vertices)
+            {
+                minX = Math.Min(minX, vertex.x); minY = Math.Min(minY, vertex.y);
+                maxX = Math.Max(maxX, vertex.x); maxY = Math.Max(maxY, vertex.y);
+            }
+            Close(actual.xMin, minX, "native Image trim and preserveAspect drawing bounds");
+            Close(actual.xMax, maxX, "native Image trim and preserveAspect drawing bounds");
+            Close(actual.yMin, minY, "native Image trim and preserveAspect drawing bounds");
+            Close(actual.yMax, maxY, "native Image trim and preserveAspect drawing bounds");
+            var indicator = new LoadingIndicator();
+            GameObject quad = indicator.Build(image, basis, boot);
+            if (boot)
+                Check(quad.GetComponent<Renderer>().sharedMaterial.mainTexture is RenderTexture,
+                    "Quest boot renderer owns its GPU source through original scene teardown");
+            Mesh convertedMesh = quad.GetComponent<MeshFilter>().sharedMesh;
+            if (QuestStandalonePlatform.Enabled)
+            {
+                Check(convertedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color),
+                    "Quest spinner owns explicit vertex color inputs");
+                foreach (Color color in convertedMesh.colors)
+                    Check(color == Color.white, "Quest spinner vertex colors preserve authored tint and alpha");
+            }
+            Vector3[] converted = convertedMesh.vertices;
+            float units = Mathf.Max(basis.rectTransform.rect.width, basis.rectTransform.rect.height);
+            Vector2 centre = basis.rectTransform.rect.center;
+            foreach (Vector3 vertex in vertices)
+            {
+                Vector3 local = basis.rectTransform.InverseTransformPoint(image.rectTransform.TransformPoint(vertex));
+                Vector3 expected = (local - new Vector3(centre.x, centre.y, 0)) * (.25f / units);
+                bool found = false;
+                foreach (Vector3 point in converted)
+                {
+                    Vector3 drawn = quad.transform.TransformPoint(point);
+                    if ((drawn - expected).sqrMagnitude < 0.000000001f) found = true;
+                }
+                Check(found, "converted spinner quad preserves original trim scale and pivot");
+            }
+            SpinnerPixels(original, quad, image, basis, units, centre, boot);
+            indicator.ReleaseCopies();
+            UnityEngine.Object.DestroyImmediate(original);
+        }
+    }
+    private static void SpinnerOpacityLifecycle()
+    {
+        // Exercise the original game's actual coroutine, not a second fixture
+        // implementation of the glow. The retained Intro scene authors min=0,
+        // glow=.07 and spin=-6. Acquiring the live Image at the minimum phase
+        // must not make that animated zero a permanent multiplier.
+        Type animatorType = Type.GetType("AnimateLoadingIcon, GH.Runtime")!;
+        Check(animatorType != null, "original native spinner animator loads");
+        var texture = new Texture2D(16, 16, TextureFormat.RGBA32, false, false)
+            { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color[256];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = new Color(1, .75f, .5f, i % 16 < 8 ? .6f : 1);
+        texture.SetPixels(pixels); texture.Apply(false);
+        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, 16, 16), new Vector2(.5f, .5f));
+        foreach (bool quest in new[] { false, true }) foreach (bool boot in new[] { false, true })
+        {
+            QuestStandalonePlatform.Enabled = quest;
+            Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+            Image overlay = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+            basis.color = new Color(.953f, .867f, .671f, .42f);
+            overlay.color = Color.white;
+            var go = new GameObject("native-original-spinner-animator"); go.SetActive(false);
+            var animator = (MonoBehaviour)go.AddComponent(animatorType!);
+            void Set(string field, object value) => animatorType!.GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(animator, value);
+            Set("m_LoadingIconBase", basis.gameObject); Set("m_LoadingIconOverlay", overlay.gameObject);
+            Set("m_IconSpinSpeed", -6f); Set("m_IconGlowSpeed", .07f);
+            Set("m_IconUpdateSpeed", .07f); Set("m_IconOverlayMinAlpha", 0f);
+            go.SetActive(true); animator.StopAllCoroutines();
+            // The minimum is a normal native animation phase. Begin there so
+            // the prior sampled-alpha defect deterministically reproduces.
+            overlay.color = new Color(.9f, .8f, .7f, 0);
+            overlay.rectTransform.localRotation = Quaternion.identity;
+            basis.rectTransform.localRotation = Quaternion.identity;
+            Set("m_IncreaseAlpha", true);
+            var native = (IEnumerator)animatorType!.GetMethod("AnimateIcon", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(animator, null)!;
+            var indicator = new LoadingIndicator();
+            Check(Time.unscaledDeltaTime > 0, "real Unity spinner lifecycle receives a live frame delta");
+            GameObject quad = indicator.BuildAnimation(overlay, basis, boot, Time.unscaledDeltaTime);
+            Color peak = Color.clear;
+            for (int step = 0; step < 61; step++)
+            {
+                Check(native.MoveNext(), "original native spinner coroutine remains live");
+                indicator.StepAnimation();
+                Color actual = indicator.OverlayColor;
+                if (quest)
+                {
+                    Close(actual.a, overlay.color.a, "Quest native overlay glow survives acquisition at zero alpha");
+                    Close(Quaternion.Angle(indicator.OverlayRotation, overlay.rectTransform.localRotation), 0,
+                        "Quest overlay retains the original stepped animation clock");
+                    for (int channel = 0; channel < 3; channel++) Close(actual[channel], overlay.color[channel], "native glow preserves authored RGB");
+                    if (actual.a > peak.a) peak = actual;
+                }
+                else
+                    Close(actual.a, 0, "Desktop keeps its established spinner opacity sampling");
+                Close(indicator.BaseColor.a, .42f, "authored base alpha remains independent of native overlay animation");
+            }
+            if (quest)
+            {
+                Check(peak.a > .95f, "Quest spinner reaches a visible native glow peak");
+                // Use the actual native Image mesh and a real camera to ensure
+                // the qualified bright phase emits visible art, including when
+                // the Intro source was copied into a mod-owned GPU texture.
+                overlay.color = Color.white;
+                overlay.rectTransform.localRotation = basis.rectTransform.localRotation = Quaternion.identity;
+                quad.transform.localRotation = Quaternion.identity;
+                quad.GetComponent<Renderer>().sharedMaterial.color = peak;
+                MethodInfo populate = typeof(Image).GetMethod("OnPopulateMesh", BindingFlags.Instance | BindingFlags.NonPublic,
+                    null, new[] { typeof(VertexHelper) }, null)!;
+                using (var helper = new VertexHelper())
+                {
+                    populate.Invoke(overlay, new object[] { helper });
+                    var original = new Mesh(); helper.FillMesh(original);
+                    SpinnerPixels(original, quad, overlay, basis, 64, Vector2.zero, boot);
+                    UnityEngine.Object.DestroyImmediate(original);
+                }
+            }
+            indicator.ReleaseCopies();
+            UnityEngine.Object.DestroyImmediate(go);
+            UnityEngine.Object.DestroyImmediate(overlay.gameObject); UnityEngine.Object.DestroyImmediate(basis.gameObject);
+        }
+        UnityEngine.Object.DestroyImmediate(sprite); UnityEngine.Object.DestroyImmediate(texture);
+    }
+    private static void SpinnerPixels(Mesh native, GameObject quad, Image image, Image basis, float units, Vector2 centre, bool boot)
+    {
+        Vector3[] nativeVertices = native.vertices;
+        for (int index = 0; index < nativeVertices.Length; index++)
+        {
+            Vector3 local = basis.rectTransform.InverseTransformPoint(image.rectTransform.TransformPoint(nativeVertices[index]));
+            nativeVertices[index] = (local - new Vector3(centre.x, centre.y, 0)) * (.25f / units) + Vector3.forward;
+        }
+        native.vertices = nativeVertices;
+        native.RecalculateBounds();
+        var original = new GameObject("native-spinner-drawing", typeof(MeshFilter), typeof(MeshRenderer));
+        original.layer = quad.layer = 29;
+        original.GetComponent<MeshFilter>().sharedMesh = native;
+        var nativeRenderer = original.GetComponent<MeshRenderer>();
+        var converted = quad.GetComponent<MeshRenderer>();
+        var nativeMaterial = new Material(converted.sharedMaterial) { mainTexture = image.sprite.texture };
+        nativeRenderer.sharedMaterial = nativeMaterial;
+        quad.transform.position += Vector3.forward;
+        var camera = new GameObject("native-spinner-gpu-proof").AddComponent<Camera>();
+        camera.enabled = false; camera.orthographic = true; camera.orthographicSize = .2f;
+        camera.nearClipPlane = .1f; camera.farClipPlane = 3; camera.cullingMask = 1 << 29;
+        camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.clear;
+        var target = new RenderTexture(128, 128, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        target.Create(); camera.targetTexture = target;
+        try
+        {
+            converted.enabled = false; camera.Render(); Color[] expected = Pixels(target);
+            converted.enabled = true; nativeRenderer.enabled = false; camera.Render(); Color[] actual = Pixels(target);
+            int visible = 0;
+            int different = 0;
+            for (int index = 0; index < actual.Length; index++)
+                if (Math.Abs(actual[index].r - expected[index].r) >= .02f || Math.Abs(actual[index].a - expected[index].a) >= .02f) different++;
+            if (different != 0 && !boot)
+            {
+                Debug.Log("Spinner GPU mismatch: quest=" + QuestStandalonePlatform.Enabled + " differences=" + different
+                    + " originalUV=" + string.Join(";", native.uv) + " convertedUV=" + string.Join(";", quad.GetComponent<MeshFilter>().sharedMesh.uv));
+                Directory.CreateDirectory("SpinnerProbe");
+                foreach (bool reference in new[] { true, false })
+                {
+                    var png = new Texture2D(128, 128, TextureFormat.RGBA32, false);
+                    png.SetPixels(reference ? expected : actual); png.Apply();
+                    File.WriteAllBytes("SpinnerProbe/" + (reference ? "native" : "converted") + ".png", png.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(png);
+                }
+            }
+            for (int index = 0; index < actual.Length; index++)
+            {
+                if (expected[index].a > .01f) visible++;
+                if (boot)
+                {
+                    // A fractional 111.84776-pixel native crop becomes a 112px
+                    // owned RT with one additional bilinear sample. At this
+                    // projected size its filter footprint is below one screen
+                    // pixel. Bound every channel by that exact neighbouring
+                    // native footprint rather than demanding zero resampling.
+                    for (int channel = 0; channel < 4; channel++)
+                    {
+                        float min = float.MaxValue, max = float.MinValue;
+                        int x = index % 128, y = index / 128;
+                        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            Color neighbour = expected[Mathf.Clamp(y + dy, 0, 127) * 128 + Mathf.Clamp(x + dx, 0, 127)];
+                            min = Mathf.Min(min, neighbour[channel]); max = Mathf.Max(max, neighbour[channel]);
+                        }
+                        Check(actual[index][channel] >= min - .02f && actual[index][channel] <= max + .02f,
+                            "boot GPU copy remains within one native bilinear filter footprint index=" + index + " channel=" + channel
+                                + " actual=" + actual[index][channel] + " expectedRange=" + min + ":" + max);
+                    }
+                    continue;
+                }
+                Check(Math.Abs(actual[index].r - expected[index].r) < .02f
+                    && Math.Abs(actual[index].g - expected[index].g) < .02f
+                    && Math.Abs(actual[index].b - expected[index].b) < .02f
+                    && Math.Abs(actual[index].a - expected[index].a) < .02f,
+                    "spinner GPU output retains complete native drawing pixels");
+            }
+            Check(visible > 0, "spinner native GPU reference contains visible pixels");
+            if (boot)
+            {
+                float nativeAlpha = 0, copiedAlpha = 0;
+                foreach (Color pixel in expected) nativeAlpha += pixel.a;
+                foreach (Color pixel in actual) copiedAlpha += pixel.a;
+                Check(Math.Abs(nativeAlpha - copiedAlpha) < actual.Length / 255f,
+                    "boot GPU copy retains native alpha coverage within RGBA8 quantization");
+            }
+            Debug.Log("Spinner GPU parity: quest=" + QuestStandalonePlatform.Enabled + " sprite=" + image.sprite.name + " visible=" + visible);
+        }
+        finally
+        {
+            camera.targetTexture = null; target.Release();
+            UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            UnityEngine.Object.DestroyImmediate(nativeMaterial);
+            UnityEngine.Object.DestroyImmediate(original);
+            UnityEngine.Object.DestroyImmediate(quad.transform.parent.gameObject);
+        }
+    }
+    private static void ImportedGate()
+    {
+        QuestSpriteGeometryValidation.ValidateStartupAssets();
+        string path = QuestSpriteGeometryValidation.InputPath, original = File.ReadAllText(path);
+        var receipt = JsonUtility.FromJson<QuestSpriteGeometryValidation.SourceReceipt>(original);
+        receipt.assets[0].restoredAtlasRect.width += 1;
+        bool rejected = false;
+        try
+        {
+            File.WriteAllText(path, JsonUtility.ToJson(receipt));
+            try { QuestSpriteGeometryValidation.ValidateStartupAssets(); }
+            catch (InvalidOperationException error) { rejected = error.Message.Contains("geometry differs"); }
+        }
+        finally { File.WriteAllText(path, original); }
+        Check(rejected, "native imported geometry gate rejects altered receipt");
+    }
+    private static double ArtVariance(Color[] pixels)
+    {
+        double sum = 0, square = 0; int count = 0;
+        for (int y = 192; y < 320; y++) for (int x = 128; x < 384; x++)
+        { float value = pixels[y * 512 + x].r; sum += value; square += value * value; count++; }
+        return square / count - Math.Pow(sum / count, 2);
+    }
+    private static void PromotionPixels(Sprite art, Camera camera, RenderTexture target)
+    {
+        var canvas = new GameObject("native-promotion-canvas", typeof(RectTransform), typeof(Canvas)).GetComponent<Canvas>();
+        canvas.gameObject.layer = 30; canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = camera;
+        canvas.transform.position = new Vector3(0, 0, 1); canvas.transform.localScale = Vector3.one / 480;
+        var background = Image(art, new Vector2(480, 234), new Vector2(.5f, .5f), false);
+        background.sprite = null; background.color = new Color(.65f, .5f, .3f, 1);
+        background.transform.SetParent(canvas.transform, false); background.gameObject.layer = 30;
+        var image = Image(art, new Vector2(480, 234), new Vector2(.5f, .5f), false);
+        image.transform.SetParent(canvas.transform, false); image.gameObject.layer = 30;
+        var original = AssetDatabase.LoadAssetAtPath<Material>("Assets/Material/Narrative dissolve material.mat");
+        Check(original != null && original.shader != null, "native DLC promotion material imports");
+        var material = new Material(original!); image.material = material;
+        camera.targetTexture = target; camera.cullingMask = 1 << 30; camera.backgroundColor = Color.black;
+        Canvas.ForceUpdateCanvases(); camera.Render();
+        double originalVariance = ArtVariance(Pixels(target));
+        material.renderQueue = 3000; image.SetMaterialDirty();
+        Canvas.ForceUpdateCanvases(); camera.Render();
+        double transparentQueueVariance = ArtVariance(Pixels(target));
+        Debug.Log("DLC original material queue pixel diagnostic: sprite=" + art.name + " originalQueue=" + original!.renderQueue
+            + " originalVariance=" + originalVariance + " transparentQueueVariance=" + transparentQueueVariance);
+        Check(transparentQueueVariance > .004, "owned DLC art rasterizes with an ordered native UI queue");
+        UnityEngine.Object.DestroyImmediate(canvas.gameObject); UnityEngine.Object.DestroyImmediate(material);
+    }
+    public static int Run()
+    {
+        checks = 0;
+        SpinnerOpacityLifecycle();
+        AtlasCopy();
+        RenderTexture desktop = Target(false, 512), quest = Target(true, 512);
+        Check(!desktop.useMipMap && desktop.filterMode == FilterMode.Bilinear, "desktop capture defaults preserved");
+        Check(quest.useMipMap && quest.mipmapCount > 1, "Quest capture has a mip chain");
+        Check(quest.autoGenerateMips, "Quest animated captures regenerate their mip chain");
+        Check(quest.filterMode == FilterMode.Trilinear && quest.anisoLevel == 8 && quest.wrapMode == TextureWrapMode.Clamp,
+            "Quest capture uses trilinear clamped anisotropic sampling");
+        Check(quest.antiAliasing == 1 && quest.width == desktop.width && quest.height == desktop.height,
+            "capture resolution and MSAA remain unchanged");
+        var texture = new Texture2D(512, 512, TextureFormat.RGBA32, false, false) { filterMode = FilterMode.Point };
+        var samples = new Color[512 * 512];
+        for (int y = 0; y < 512; y++) for (int x = 0; x < 512; x++)
+            samples[y * 512 + x] = x % 5 == 0 ? Color.white : Color.black;
+        texture.SetPixels(samples); texture.Apply(false);
+        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        go.layer = 30; go.transform.position = new Vector3(0, 0, 1);
+        var material = new Material(Shader.Find("Unlit/Texture")) { mainTexture = texture };
+        go.GetComponent<Renderer>().sharedMaterial = material;
+        var camera = new GameObject("fixture-native-UI-camera").AddComponent<Camera>();
+        camera.enabled = false; camera.orthographic = true; camera.orthographicSize = .5f;
+        camera.nearClipPlane = .1f; camera.farClipPlane = 3; camera.cullingMask = 1 << 30;
+        camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.clear;
+        camera.targetTexture = desktop; camera.Render(); camera.targetTexture = quest; camera.Render();
+        var smallDesktop = new RenderTexture(49, 49, 0); smallDesktop.Create();
+        var smallQuest = new RenderTexture(49, 49, 0); smallQuest.Create();
+        // This is the same built-in shader the ordinary floating screen samples.
+        var screen = new Material(Shader.Find("Hidden/BlitCopy"));
+        Graphics.Blit(desktop, smallDesktop, screen); Graphics.Blit(quest, smallQuest, screen);
+        double raw = Variance(Pixels(smallDesktop)), filtered = Variance(Pixels(smallQuest));
+        Check(raw > .02 && filtered < raw * .15, "actual minified screen pixels reject level-zero stroke aliasing");
+        Debug.Log("Quest menu pixel proof: rawVariance=" + raw + " filteredVariance=" + filtered);
+        // A later native render, with no manual GenerateMips call, must update the
+        // filtered levels and retain the original camera's translucent clear alpha.
+        camera.cullingMask = 0; camera.backgroundColor = new Color(1, .1f, .2f, .25f); camera.Render();
+        Graphics.Blit(quest, smallQuest, screen);
+        foreach (Color pixel in Pixels(smallQuest))
+            Check(pixel.r > .97f && Math.Abs(pixel.a - .25f) < .02f, "animated mip output refreshes with original alpha");
+
+        // Native spinner atlases are bilinear. The point-sampled stroke chart
+        // above intentionally aliases at texel ties, where the native and
+        // primitive quad's opposite triangle diagonals can round differently.
+        // Preserve the strict pixel comparison under the actual sprite filter.
+        texture.filterMode = FilterMode.Bilinear;
+        // The spinner test varies authored trim, tint and drawing coordinates;
+        // use asymmetric continuous atlas values so sub-texel triangle rounding
+        // cannot become a second, unrelated high-frequency aliasing test.
+        for (int y = 0; y < 512; y++) for (int x = 0; x < 512; x++)
+            samples[y * 512 + x] = new Color(x / 511f, y / 511f, .3f, .25f + .75f * x / 511f);
+        texture.SetPixels(samples); texture.Apply(false);
+        var sprite = Sprite.Create(texture, new Rect(0, 0, 128, 64), new Vector2(.5f, .5f));
+        Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+        QuestStandalonePlatform.Enabled = false;
+        Check(LoadingIndicator.PersistentArtAllowed(), "Desktop retains its established persisted spinner artwork");
+        CompareImage(basis, basis);
+        QuestStandalonePlatform.Enabled = true;
+        Check(!LoadingIndicator.PersistentArtAllowed(), "Quest boot ignores untrusted persisted ReadPixels artwork");
+        CompareImage(basis, basis);
+        CompareImage(basis, basis, boot: true);
+        CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), true), basis);
+        CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), false), basis);
+        // The persisted boot PNG has full identity UVs, unlike a native atlas
+        // crop. It must receive the same owned upload without mutating Unity's
+        // shared Quad, which also belongs to every other primitive consumer.
+        Sprite fullSprite = Sprite.Create(texture, new Rect(0, 0, 512, 512), new Vector2(.5f, .5f));
+        Image fullImage = Image(fullSprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+        CompareImage(fullImage, fullImage);
+        string ownedBase = "Assets/Sprite/LoadingBase.asset";
+        if (File.Exists(ownedBase))
+        {
+            ImportedGate();
+            Sprite nativeBase = AssetDatabase.LoadAssetAtPath<Sprite>(ownedBase);
+            Sprite overlay = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingOverlay.asset");
+            Check(nativeBase != null && overlay != null, "owned spinner assets import");
+            Close(nativeBase!.rect.width, 128, "owned original full sprite width restored");
+            Vector4 padding = DataUtility.GetPadding(nativeBase);
+            Check(padding.x > 7 && padding.y > 7, "owned native Image observes original sprite trim padding");
+            Image nativeImage = Image(nativeBase, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+            CompareImage(nativeImage, nativeImage);
+            CompareImage(nativeImage, nativeImage, boot: true);
+            CompareImage(Image(overlay!, new Vector2(64, 64), new Vector2(.5f, .5f), true), nativeImage);
+            CompareImage(Image(overlay!, new Vector2(64, 64), new Vector2(.5f, .5f), true), nativeImage, boot: true);
+            foreach (string name in new[] { "DLC_Promo_JawsOfTheLion", "DLC_Promo_SoloScenarios_0" })
+            {
+                Sprite art = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/" + name + ".asset");
+                Check(art != null && art.texture != null, "owned DLC image native texture binding");
+                Vector4 uv = DataUtility.GetOuterUV(art!);
+                Check(uv.z > uv.x && uv.w > uv.y, "owned DLC image native outer UV is nondegenerate");
+                Debug.Log("DLC native sprite proof: " + name + " rect=" + art!.rect + " crop=" + art.textureRect + " UV=" + uv);
+                go.SetActive(false);
+                PromotionPixels(art, camera, quest);
+            }
+        }
+        foreach (RenderTexture rt in new[] { desktop, quest, smallDesktop, smallQuest })
+        { rt.Release(); UnityEngine.Object.DestroyImmediate(rt); }
+        UnityEngine.Object.DestroyImmediate(material); UnityEngine.Object.DestroyImmediate(screen);
+        UnityEngine.Object.DestroyImmediate(texture); UnityEngine.Object.DestroyImmediate(sprite);
+        return checks;
+    }
+}

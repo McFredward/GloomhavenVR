@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using GloomhavenVR.Core;
 using TMPro;
 using UnityEngine;
@@ -126,7 +125,7 @@ internal static class WorldUIAssets
             }
         }
 
-        string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+        string pluginDir = RuntimeDepsLoader.PluginDir;
         string bundlePath = Path.Combine(pluginDir, BundleFileName);
         if (!File.Exists(bundlePath))
             return null;

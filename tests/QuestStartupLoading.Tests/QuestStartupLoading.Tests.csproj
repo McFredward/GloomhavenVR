@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CS0649;CS0067</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" /><Compile Include="UnityStubs.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameBootstrap.cs" Link="QuestGameBootstrap.cs" />
+    <Compile Include="$(RuntimeSource)/QuestCardAlphaContent.cs" Link="QuestCardAlphaContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestCardPixelContent.cs" Link="QuestCardPixelContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestFigureMeshContent.cs" Link="QuestFigureMeshContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestAudioClipContent.cs" Link="QuestAudioClipContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestMovieContent.cs" Link="QuestMovieContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestFrameEvidence.cs" Link="QuestFrameEvidence.cs" />
+    <Compile Include="$(RuntimeSource)/QuestSnapshotWriter.cs" Link="QuestSnapshotWriter.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameContent.cs" Link="QuestGameContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameContent.Delivery.cs" Link="QuestGameContent.Delivery.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameArchiveDelivery.cs" Link="QuestGameArchiveDelivery.cs" />
+    <Compile Include="$(RuntimeSource)/QuestContentHash.cs" Link="QuestContentHash.cs" />
+  </ItemGroup>
+</Project>

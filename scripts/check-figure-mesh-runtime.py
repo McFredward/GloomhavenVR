@@ -36,6 +36,9 @@ def main():
 namespace GloomhavenVR.Core
 {
  internal static class VRLog { internal static bool WantsDebug => true; internal static void Debug(string scope,string text) { UnityEngine.Debug.Log(scope+": "+text); } internal static void Note(string scope,string text) { UnityEngine.Debug.LogWarning(scope+": "+text); } }
+ // The isolated fixture keeps its original desktop assembly-local bank root.
+ // Actual verified Android resource selection is tested by the Quest platform fixture.
+ internal static class RuntimeDepsLoader { internal static string PluginDir => System.IO.Path.GetDirectoryName(typeof(RuntimeDepsLoader).Assembly.Location) ?? string.Empty; }
 }
 
 namespace GloomhavenVR.Core { internal static class VRLayers { internal const string ModOwnedNamePrefix="VR_"; } }
