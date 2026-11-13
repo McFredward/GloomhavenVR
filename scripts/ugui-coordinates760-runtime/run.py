@@ -112,6 +112,8 @@ def main():
         common = importlib.util.module_from_spec(common_spec); common_spec.loader.exec_module(common)
         common_sources, cases, common_paths = common.generated(source_root, (args.capture_source_root or source_root).resolve(), block)
         sources = {'UguiRaycastCoordinates.cs': helper_path.read_text(), **common_sources}
+        cases.append(('retain-scroll-subfixture', 'fixture/Program.cs', 'Object.DestroyImmediate(list.gameObject);',
+            'retainedScrollFixture = true;', 'fullscreen captured native click retains ordinary behavior'))
     if args.case:
         selected = set(args.case); assert selected <= {case[0] for case in cases}
         cases = [case for case in cases if case[0] in selected]
@@ -149,6 +151,12 @@ def main():
         manifest = {'result': str(run / 'results.txt'), 'harmony': str(harmony_runtime), 'gameManaged': str(game.resolve()), 'cases': []}
         for name, filename, before, after, expected in cases:
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
+            case_fixture = retained / 'fixture'
+            if filename == 'fixture/Program.cs':
+                source = (case_fixture / 'Program.cs').read_text()
+                assert before and source.count(before) == 1, (name, before)
+                case_fixture = case / 'fixture'; case_fixture.mkdir()
+                (case_fixture / 'Program.cs').write_text(source.replace(before, after, 1))
             for source_name, source in sources.items():
                 if before and source_name == filename:
                     assert source.count(before) == 1, (name, before); source = source.replace(before, after, 1)
@@ -156,12 +164,14 @@ def main():
             shutil.copy2(fixture / 'Coordinates.csproj', case / 'Coordinates.csproj'); assembly = 'UguiCoordinates760_' + name.replace('-', '_')
             command = ['/home/claw/.dotnet/dotnet', 'build', str(case / 'Coordinates.csproj'), '-c', 'Release', '-v', 'quiet', '--nologo',
                 '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false', '-p:CaseName=' + assembly,
-                '-p:FixtureDir=' + str(retained / 'fixture'), '-p:ProductionDir=' + str(production), '-p:UnityManaged=' + str(managed), '-p:GameManaged=' + str(game)]
+                '-p:FixtureDir=' + str(case_fixture), '-p:ProductionDir=' + str(production), '-p:UnityManaged=' + str(managed), '-p:GameManaged=' + str(game)]
             if args.common: command.append('-p:CommonInput=true')
             if execute(command, case / 'build.log'): raise RuntimeError('Compilation failed: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copy2(case / 'bin/Release/net472' / dll.name, dll)
             shutil.copy2(case / 'obj/project.assets.json', case / 'resolved-build-assets.json')
-            manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected})
+            manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
+                'fixture': str(case_fixture / 'Program.cs'),
+                'fixture_sha256': hashlib.sha256((case_fixture / 'Program.cs').read_bytes()).hexdigest()})
         for directory in ['Assets/Editor', 'Packages', 'ProjectSettings']: (project / directory).mkdir(parents=True)
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         dependencies = {'com.unity.ugui': '1.0.0', 'com.unity.textmeshpro': '3.0.6'}
