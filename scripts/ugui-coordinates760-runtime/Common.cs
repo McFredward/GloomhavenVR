@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
 using HarmonyLib;
@@ -64,6 +65,18 @@ public static class UguiCoordinates760Program
         foreach (Vector3 corner in corners)
             text.Append(" ").Append(corner.ToString("F3")).Append("/").Append(camera.WorldToScreenPoint(corner).ToString("F3"));
         text.AppendLine();
+    }
+    private static bool? RaycasterRegistered(GraphicRaycaster raycaster)
+    {
+        // The game's reference exposes this manager privately; inspect only the
+        // executed assembly on failure instead of compiling against the editor API.
+        try
+        {
+            return (typeof(EventSystem).Assembly.GetType("UnityEngine.EventSystems.RaycasterManager")?
+                .GetMethod("GetRaycasters", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?
+                .Invoke(null, null) as IList)?.Contains(raycaster);
+        }
+        catch { return null; }
     }
     private static RectTransform Rect(string name, Transform? parent, Vector2 size)
     {
@@ -129,7 +142,7 @@ public static class UguiCoordinates760Program
                 text.AppendLine("Assertion: " + message);
                 text.AppendLine($"checks={checks} frame={Time.frameCount} dt={Time.unscaledDeltaTime:R} wheelDt={wheelDeltaTime:R} wheelNormalized={wheelNormalized:R}");
                 text.AppendLine($"storedPixel={witnessPoint:F3} hasPixel={hasWitnessPoint} currentOptionsPixel={camera.WorldToScreenPoint(buttonRect.position):F3}");
-                text.AppendLine($"captureOwned={FlatScreen.OwnsNativeUiPixels(canvas, camera)} canvasMode={canvas.renderMode} raycasterEnabled={raycaster.isActiveAndEnabled} raycasterRegistered={RaycasterManager.GetRaycasters().Contains(raycaster)} buttonInteractable={button.interactable} retainedScrollFixture={retainedScrollFixture}");
+                text.AppendLine($"captureOwned={FlatScreen.OwnsNativeUiPixels(canvas, camera)} canvasMode={canvas.renderMode} raycasterEnabled={raycaster.isActiveAndEnabled} raycasterRegistered={RaycasterRegistered(raycaster)} buttonInteractable={button.interactable} retainedScrollFixture={retainedScrollFixture}");
                 text.AppendLine($"simulatedFullscreen={NativeMouseScreen.fullScreen} simulatedRender={NativeMouseDisplay.main.renderingWidth}x{NativeMouseDisplay.main.renderingHeight} simulatedSystem={NativeMouseDisplay.main.systemWidth}x{NativeMouseDisplay.main.systemHeight} target={camera.targetTexture?.width}x{camera.targetTexture?.height}");
                 text.AppendLine($"currentMouse={Mouse.current?.name} fixtureMouse={mouse?.name} added={mouse?.added} enabled={mouse?.enabled} processedPosition={(mouse != null && mouse.added ? mouse.position.ReadValue().ToString("F3") : "unavailable")} ownsStoredPosition={hasWitnessPoint && VirtualMouse.OwnsProcessedPosition(witnessPoint)}");
                 text.AppendLine($"lastNativePointerPosition={witnessPointer?.position} lastNativePointerHit={witnessPointer?.pointerCurrentRaycast.gameObject?.name} nativeCallsBeforeFinal={finalNativeCallsBefore} nativeCallsAfterFinal={finalNativeCallsAfter}");
