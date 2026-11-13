@@ -79,6 +79,7 @@ internal static class RenderQualityAllocationFixture {
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     cases = [("production", original, "")]
     for name, target, before, after, expected in (
+        ("core-audio-registration-removed", "CoreModule.cs", "        NativeFigureAudioPatches.Install();", "", "core-lifecycle"),
         ("vulkan-live-msaa-restored", "RenderQualityAllocation.fixture", "\n            || QuestStandalonePlatform.FixedEyeTextureAllocation) return;", ") return;", "vulkan-render-controller"),
         ("quest-standalone-defaults-removed", "FrameDefaults.cs", "Core.QuestStandalonePlatform.Enabled\n        || ", "", "quest-mobile-defaults"),
         ("quest-native-backend-gate", "FrameNativePassthrough.cs", "_required ??= !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required ??= FrameDefaults.Active", "quest-native-backend"),

@@ -129,7 +129,7 @@ internal static class Program
         input.running = true;
         var core = new CoreModule(); core.Init();
         Check(VRSession.IsRunning && QuestStandalonePlatform.ModRunning && VRSession.RuntimeName == "Quest player OpenXR", "core-lifecycle: actual CoreModule did not publish the adopted player session");
-        Check(Loc.Starts == 1 && ExceptionTraces.Starts == 1 && PerfMonitor.Starts == 1, "core-lifecycle: original localization/trace/performance init was bypassed");
+        Check(Loc.Starts == 1 && ExceptionTraces.Starts == 1 && PerfMonitor.Starts == 1 && NativeFigureAudioPatches.Starts == 1, "core-lifecycle: original localization/trace/performance init was bypassed");
         Check(GameObject.AddedComponents.Contains(typeof(VRHeartbeat)) && GameObject.AddedComponents.Contains(typeof(VRPresenceWatch)), "core-lifecycle: running-session heartbeat/presence integration was bypassed");
         Check(!QuestStandalonePlatform.RigReady, "rig-ready: session existence was mislabeled as a built mod rig");
         VRRigDriver.HeadCamera = new Camera(); Check(QuestStandalonePlatform.RigReady, "rig-ready: real mod head camera did not publish rig availability");

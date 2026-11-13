@@ -303,6 +303,8 @@ namespace GloomhavenVR.Core
         private static Dictionary<string, string> Pair(string en, string de) => new() { ["English"] = en, ["German"] = de };
     }
     internal static class ExceptionTraces { internal static int Starts, Stops; internal static void Install() { Starts++; } internal static void Shutdown() { Stops++; } }
+    // Observe bootstrap registration only; audio execution is qualified by its own runtime suite.
+    internal static class NativeFigureAudioPatches { internal static int Starts; internal static void Install() { Starts++; } }
     internal static class PerfMonitor { internal static int Starts, Stops; internal static void Install(UnityEngine.GameObject host) { Starts++; } internal static void Shutdown() { Stops++; } }
     internal static class AutoLod { internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { } }
     internal static class ScenarioSceneryBudget
