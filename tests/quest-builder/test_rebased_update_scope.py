@@ -30,6 +30,55 @@ def rows(*paths, digest="1"):
 
 
 class RebasedUpdateScopeTests(unittest.TestCase):
+    def test_embedded_scene_resource_change_requires_new_native_pair_without_original_conversion(self):
+        fixture = fixtures.UpdateDriverTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        names = ("src/GloomhavenVR/Assets/SteamLink/scene.bundle",
+                 "src/GloomhavenVR/Assets/SteamLink/provenance.json")
+        previous = rows(*names)
+        fixture.current_mod["files"] = copy.deepcopy(previous)
+        fixture.write_apk()
+        base = apk_update.inspect_base(fixture.apk)
+        with patch.object(driver, "package_fingerprint", return_value=fixture.capsule["packageAbi"]):
+            warm = driver.update_requirements(fixture.builder, ROOT, base, previous,
+                                             fixture.current_mod["modBuild"])
+            self.assertFalse(warm["codeChanged"])
+            self.assertFalse(warm["requiresUnity"])
+            for name in names:
+                with self.subTest(name=name):
+                    current = [dict(row, sha256="2" * 64) if row["path"] == name else row
+                               for row in previous]
+                    result = driver.update_requirements(fixture.builder, ROOT, base, current,
+                                                        fixture.current_mod["modBuild"])
+                    self.assertEqual(result["rebuildReasons"], [])
+                    self.assertEqual(result["updateStrategy"], "compact-code")
+                    self.assertTrue(result["codeChanged"])
+                    self.assertTrue(result["requiresUnity"])
+                    for field in ("artChanged", "nativeHelperChanged", "figureBanksChanged",
+                                  "audioBanksChanged", "movieBanksChanged", "menuStoryChanged"):
+                        self.assertFalse(result[field], field)
+                    self.assertNotEqual(driver._native_producer_rows(previous),
+                                        driver._native_producer_rows(current))
+                    self.assertEqual(driver._update_source_rows(current, art_changed=False), current)
+
+    def test_actual_scene_bundle_stays_in_current_literal_resource_snapshot(self):
+        import xml.etree.ElementTree as ET
+        import release
+        project = ET.parse(ROOT / "src/GloomhavenVR/GloomhavenVR.csproj")
+        logical = "GloomhavenVR.SteamLink.scene.bundle"
+        embedded = [row for row in project.iter("EmbeddedResource") if row.get("LogicalName") == logical]
+        self.assertEqual(len(embedded), 1)
+        self.assertEqual(embedded[0].get("Include").replace("\\", "/"), "Assets/SteamLink/scene.bundle")
+        name = "src/GloomhavenVR/Assets/SteamLink/scene.bundle"
+        self.assertTrue(release.selected(name))
+        current = storage.record_file(ROOT / name, name)
+        self.assertEqual(driver._code_rows([current]), [current])
+        self.assertEqual(driver._native_producer_rows([current]), [current])
+        self.assertEqual(driver._update_source_rows([current], art_changed=False), [current])
+        self.assertEqual(driver._art_rows([current]), [])
+        self.assertEqual(driver._payload_rows([current]), [])
+
     def test_movie_content_does_not_invalidate_native_pair_or_original_assets(self):
         media = rows("src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
                      "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.sbs-v2.mov",
