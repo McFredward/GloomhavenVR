@@ -146,7 +146,7 @@ namespace GloomhavenVR.Hands.Interact
         private readonly VRHand _hand;
         private readonly UguiPointer _pointer;
         private Canvas? _canvas;
-        private bool _pressing;
+        private bool _pressing, _pressingPortrait;
         private static readonly Vector3[] Corners=new Vector3[4];
         private const float MaxDistanceMeters=20f, OcclusionEpsilonMeters=.005f;
         internal bool HasHit {get;private set;}

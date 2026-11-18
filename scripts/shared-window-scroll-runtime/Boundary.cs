@@ -70,10 +70,8 @@ namespace GloomhavenVR.Hands.Interact
     // actual nested census, GraphicRaycaster filters and winner selection run.
     internal sealed class RayInteractor { internal void SetWorldUiHit(Vector3 point, string source) { } }
     internal sealed class PokeOnlyTarget : MonoBehaviour { }
-    internal interface IDepthPortraitPicker
-    { bool TryPickPortrait(Vector3 origin, Vector3 direction, out GameObject portrait, out Vector3 hit); }
     internal static class DepthPortraitPicks
-    { internal static bool TryGet(Canvas canvas, out IDepthPortraitPicker picker) { picker = null!; return false; } }
+    { internal static bool IsAvatarHit(Canvas canvas, GameObject target) => false; }
     internal static class UguiRaycastCoordinates
     {
         internal readonly struct Scope : IDisposable { public void Dispose() { } }
