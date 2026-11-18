@@ -69,7 +69,6 @@ internal sealed class UguiPointer
 
     private readonly int _pointerId;
     private readonly string _sourceTag; // click-log provenance ("laser-L", "poke-R")
-    private readonly HandSide _side;    // this pointer's hand — source of the depth aim ray
     private readonly bool _farRay;      // laser (true) vs fingertip poke (false)
     private readonly List<RaycastResult> _hits = new(16);
     private readonly List<Component> _scrollHandlers = new(4);
@@ -182,7 +181,6 @@ internal sealed class UguiPointer
 
     internal UguiPointer(HandSide side, bool farRay = false)
     {
-        _side = side;
         _farRay = farRay;
         _pointerId = farRay
             ? (side == HandSide.Left ? LeftHandRayPointerId : RightHandRayPointerId)
@@ -214,38 +212,6 @@ internal sealed class UguiPointer
         if (raycaster == null || !raycaster.enabled || !raycaster.isActiveAndEnabled)
             return false;
 
-        // Depth-aware entry pick (user #3 follow-up). For a host whose entries carry
-        // REAL 3D depth — the initiative track's portraits, each stepped in z — the flat
-        // host-plane screen point projects to a DIFFERENT screen position than a
-        // depth-displaced portrait under perspective, so the GraphicRaycaster below
-        // resolves a NEIGHBOUR. When such a host registered a per-portrait picker
-        // (<see cref="DepthPortraitPicks"/>), resolve the exact entry by intersecting
-        // the TRUE world aim ray with each portrait's world rect at its real depth
-        // instead of the flat screen point. Scoped tightly: only the FAR ray (a poke's
-        // fingertip is a world point, not this aim ray) and only registered hosts —
-        // every other converted panel, and the poke on this one, keep the flat pick
-        // below unchanged. The modality gate above still holds: a locked UI disabled
-        // this raycaster and already returned, so no depth hit escapes it either.
-        if (_farRay
-            && DepthPortraitPicks.TryGet(canvas!, out IDepthPortraitPicker picker)
-            && TryAimRay(out Vector3 rayOrigin, out Vector3 rayDir)
-            && picker.TryPickPortrait(rayOrigin, rayDir, out GameObject portrait, out Vector3 portraitHit))
-        {
-            // Land the visible beam on the portrait's real position/depth (UiHitOverride
-            // clamps beam LENGTH only; pick data untouched) so the hit corresponds to
-            // the portrait the player points at, not the flat host plane. RayUguiDriver
-            // set the flat point just before calling us; this same-frame override wins.
-            RayInteractor? ray = VRHands.Get(_side)?.Ray;
-            if (ray != null)
-                ray.SetWorldUiHit(portraitHit, "depth-aware uGUI portrait hover");
-
-            topHit = default;
-            topHit.gameObject = portrait;
-            topHit.worldPosition = portraitHit;
-            GetData().pointerCurrentRaycast = topHit;
-            return true;
-        }
-
         PointerEventData data = GetData();
         data.position = screenPos;
 
@@ -273,10 +239,21 @@ internal sealed class UguiPointer
             }
         }
 
-        if (!any)
+        // For the initiative row a flat projection may land on a neighbour or
+        // reintroduce the avatar that the direct aim ray just missed. Only the
+        // driver's physical portrait result may operate an avatar's native button.
+        if (!any || _farRay && DepthPortraitPicks.IsAvatarHit(canvas!, topHit.gameObject))
             return false;
         data.pointerCurrentRaycast = topHit;
         return true;
+    }
+
+    /// <summary>Publish the exact hit that won the far ray's surface arbitration.</summary>
+    internal void SetPreparedHit(in RaycastResult hit, Vector2 screenPosition)
+    {
+        PointerEventData data = GetData();
+        data.position = screenPosition;
+        data.pointerCurrentRaycast = hit;
     }
 
     /// <summary>A physical foreground supplies geometry, never permission or a synthetic callback.</summary>
@@ -1286,24 +1263,6 @@ internal sealed class UguiPointer
         SetHovered(null, force: true);
     }
 
-    /// <summary>
-    /// This pointer's hand aim ray (world origin/direction), or false when the hand is
-    /// untracked / its ray inactive. Only the FAR-ray depth pick calls this; the poke
-    /// path never does. RayUguiDriver only ticks the primary hand's far ray on
-    /// registered surfaces, so this reads the very ray that produced the pending pick.
-    /// </summary>
-    private bool TryAimRay(out Vector3 origin, out Vector3 direction)
-    {
-        origin = default;
-        direction = default;
-        RayInteractor? ray = VRHands.Get(_side)?.Ray;
-        if (ray == null || !ray.TryGetPick(out PickPose pick))
-            return false;
-        origin = pick.Origin;
-        direction = pick.Direction;
-        return true;
-    }
-
     private PointerEventData GetData()
     {
         // Created lazily: EventSystem.current may not exist during early boot.
@@ -1456,8 +1415,8 @@ internal static class UguiPressTracker
 /// flat host-plane laser pick (RayUguiDriver's screen point → GraphicRaycaster) then
 /// resolves the wrong portrait under perspective. A surface implements
 /// <see cref="IDepthPortraitPicker"/> and registers it against its HOST canvas here;
-/// the far-ray <see cref="UguiPointer"/> intersects the true aim ray with each entry's
-/// world rect at its real depth so the exact portrait pointed at is the one selected.
+/// <see cref="RayUguiDriver"/> resolves the true hit before arbitration so the beam
+/// and pointer events share the same selected portrait and real depth.
 /// Only hosts with an entry take the depth path — every other panel keeps the flat pick.
 /// </summary>
 internal interface IDepthPortraitPicker
@@ -1465,15 +1424,14 @@ internal interface IDepthPortraitPicker
     /// <summary>
     /// Intersect the world aim ray with the per-portrait world geometry (each at its
     /// real depth). On the NEAREST hit output the clickable portrait GameObject and the
-    /// world hit point; return false when the ray meets no portrait (the far-ray caller
-    /// then falls back to the ordinary flat GraphicRaycaster pick).
+    /// world hit point. A miss still allows flat input to other widgets on the host.
     /// </summary>
     bool TryPickPortrait(Vector3 rayOrigin, Vector3 rayDirection, out GameObject target, out Vector3 worldHit);
 }
 
 /// <summary>
 /// Registry of depth-aware portrait pickers keyed by their HOST canvas — the same
-/// canvas RayUguiDriver intersects and hands to <see cref="UguiPointer.TryRaycast"/>.
+/// canvas that <see cref="RayUguiDriver"/> considers alongside other world UI.
 /// A surface registers on conversion and unregisters on release, so an entry exists
 /// only while that panel is live and depth-picking stays scoped to it.
 /// </summary>
@@ -1495,9 +1453,35 @@ internal static class DepthPortraitPicks
             Pickers.Remove(host);
     }
 
-    internal static bool TryGet(Canvas host, out IDepthPortraitPicker picker)
+    internal static bool TryRaycast(Canvas host, Vector3 origin, Vector3 direction,
+        out RaycastResult hit)
     {
-        picker = null!;
-        return host != null && Pickers.TryGetValue(host, out picker!) && picker != null;
+        hit = default;
+        if (!Pickers.TryGetValue(host, out IDepthPortraitPicker picker))
+            return false;
+        GraphicRaycaster raycaster = host.GetComponent<GraphicRaycaster>();
+        if (raycaster == null || !raycaster.isActiveAndEnabled
+            || !picker.TryPickPortrait(origin, direction, out GameObject portrait, out Vector3 point))
+            return false;
+
+        hit = new RaycastResult
+        {
+            gameObject = portrait,
+            module = raycaster,
+            worldPosition = point,
+            distance = Vector3.Distance(origin, point),
+            sortingLayer = host.sortingLayerID,
+            sortingOrder = host.sortingOrder
+        };
+        return true;
+    }
+
+    internal static bool IsAvatarHit(Canvas host, GameObject target)
+    {
+        if (!Pickers.ContainsKey(host) || target == null)
+            return false;
+        InitiativeTrackActorBehaviour owner = target.GetComponentInParent<InitiativeTrackActorBehaviour>();
+        return owner != null && owner.avatarButton != null
+            && ExecuteEvents.GetEventHandler<IPointerClickHandler>(target) == owner.avatarButton.gameObject;
     }
 }

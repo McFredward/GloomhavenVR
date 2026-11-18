@@ -61,6 +61,7 @@ internal sealed class RayUguiDriver
 
     private Canvas? _canvas;   // hovered canvas; latched while pressing
     private bool _pressing;
+    private bool _pressingPortrait;
 
     internal RayUguiDriver(VRHand hand)
     {
@@ -142,6 +143,7 @@ internal sealed class RayUguiDriver
         Vector3 bestPoint = default;
         Vector3 bestInputPoint = default;
         WorldUI.MenuDepth.MenuDepthRayHit bestDepth = default;
+        RaycastResult bestPortrait = default;
         bool sawDead = false;
 
         // Settings-surface exemption (user ruling 2026-08-02, see TrySettingsFallThrough):
@@ -176,14 +178,15 @@ internal sealed class RayUguiDriver
             if (WorldUI.WindowMaterialise.IsPointerBlind(canvas))
                 continue;
             LogCanvasOnce(canvas);
-            if (TrySurface(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point,
-                out Vector3 inputPoint, out WorldUI.MenuDepth.MenuDepthRayHit depthHit))
+            if (TryAimSurface(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point,
+                out Vector3 inputPoint, out WorldUI.MenuDepth.MenuDepthRayHit depthHit, out RaycastResult portrait))
             {
                 best = canvas;
                 bestDist = dist;
                 bestPoint = point;
                 bestInputPoint = inputPoint;
                 bestDepth = depthHit;
+                bestPortrait = portrait;
             }
             if (WorldUI.ModalFallback.IsSettingsSurface(canvas)
                 && TrySurface(canvas, pick.Origin, pick.Direction, settingsDist,
@@ -297,6 +300,7 @@ internal sealed class RayUguiDriver
         // die on nothing are redirected, and only INTO the mod-owned settings UI.
         if (best != null && settings != null && !ReferenceEquals(best, settings)
             && settingsDist >= bestDist
+            && bestPortrait.gameObject == null
             && TrySettingsFallThrough(best, bestInputPoint, settingsDist, in pick, scale))
         {
             LogSettingsExemption(best, bestDist, settings, settingsDist);
@@ -305,6 +309,7 @@ internal sealed class RayUguiDriver
             bestPoint = settingsPoint;
             bestInputPoint = settingsInputPoint;
             bestDepth = settingsDepth;
+            bestPortrait = default;
         }
 
         // Resolve trigger-collider bars BEFORE any hover, scroll or press callback. RayGrab
@@ -375,13 +380,20 @@ internal sealed class RayUguiDriver
 
         Vector2 screenPos = ToScreen(_canvas, bestInputPoint);
         RaycastResult top = checkedAreaTop;
-        bool hit = nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
+        bool hasPortrait = bestPortrait.gameObject != null;
+        if (hasPortrait)
+        {
+            top = bestPortrait;
+            _pointer.SetPreparedHit(top, screenPos);
+        }
+        bool hit = hasPortrait || nativeAreaThroughOfferedCard && ReferenceEquals(_canvas, checkedAreaCanvas)
             || (bestDepth.Graphic != null
                 ? _pointer.TryRaycastSurface(_canvas, screenPos, bestDepth.Graphic, bestDepth.PreferGraphic,
                     bestDepth.WorldPoint, bestDepth.Distance, out top, nativeRoot: bestDepth.NativeRoot)
                 : _pointer.TryRaycast(_canvas, screenPos, out top));
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
+            && top.gameObject != null
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
         _pointer.SetHovered(hit ? top.gameObject : null);
         _hand.SendHoverHaptic(HoverHapticTargets.Ui(_pointer.Hovered));
@@ -425,6 +437,7 @@ internal sealed class RayUguiDriver
             // rather than the weaker canvas-hover clamp, or it takes this same card.
             _hand.Ray.ClaimTrigger("uGUI pointer press");
             _pressing = true;
+            _pressingPortrait = hasPortrait;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
@@ -569,6 +582,12 @@ internal sealed class RayUguiDriver
             return;
         }
 
+        if (_pressingPortrait)
+        {
+            TickPressedPortrait(canvas, pick, scale);
+            return;
+        }
+
         var rect = (RectTransform)canvas.transform;
         Transform t = rect;
         float denom = Vector3.Dot(pick.Direction, t.forward);
@@ -633,6 +652,39 @@ internal sealed class RayUguiDriver
         if (!_hand.TriggerPressed)
         {
             _pressing = false;
+            _pointer.Release(screenPos);
+        }
+    }
+
+    private void TickPressedPortrait(Canvas canvas, in PickPose pick, float scale)
+    {
+        // The press belongs to this canvas until trigger-up. Recheck the real
+        // portrait and intervening geometry; a clamped flat fallback can change
+        // the release target or click through the board when the hand moves.
+        float epsilon = OcclusionEpsilonMeters * scale;
+        bool hit = DepthPortraitPicks.TryRaycast(canvas, pick.Origin, pick.Direction, out RaycastResult portrait)
+            && portrait.distance < MaxDistanceMeters * scale
+            && (!pick.HasHit || pick.HitDistance >= portrait.distance - epsilon)
+            && _hand.Ray.SolidOccluderDistance >= portrait.distance - epsilon
+            && (!WorldUI.TownServicePhysicalRay.TryPick(_hand, out _, out _, out float objectDistance)
+                || objectDistance > portrait.distance + epsilon)
+            && (!_hand.RayGrab.TryPickBar(out _, out _, out float barDistance)
+                || barDistance > portrait.distance);
+        HasHit = hit;
+        HitDistance = hit ? portrait.distance : float.PositiveInfinity;
+        Vector2 screenPos = hit ? ToScreen(canvas, portrait.worldPosition) : default;
+        if (hit)
+        {
+            _hand.Ray.SetWorldUiHit(portrait.worldPosition, "active uGUI pointer drag");
+            _pointer.SetPreparedHit(portrait, screenPos);
+        }
+        _hand.Ray.ClaimTrigger("active uGUI pointer drag");
+        _pointer.SetHovered(hit ? portrait.gameObject : null);
+        TickStickScroll();
+        if (!_hand.TriggerPressed)
+        {
+            _pressing = false;
+            _pressingPortrait = false;
             _pointer.Release(screenPos);
         }
     }
@@ -902,6 +954,29 @@ internal sealed class RayUguiDriver
     private static Rect HitRectOf(Canvas canvas, RectTransform rect) =>
         WorldUI.CanvasConversion.TryGetHitRect(canvas, out Rect hit) ? hit : rect.rect;
 
+    /// <summary>
+    /// Use the registered portrait's physical hit as the surface candidate before
+    /// comparing it with the control board, fan and other windows. Build 770's
+    /// flat host plane was compared first, then the beam could jump forward to a
+    /// portrait for hover. Issue #24 logs show trigger presses discarded as board
+    /// occlusion while that split existed. It can also hide the edge of an avatar
+    /// that protrudes outside the fitted canvas. The same hit now supplies distance,
+    /// beam length and native pointer target.
+    /// </summary>
+    private bool TryAimSurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,
+        out float distance, out Vector3 point, out Vector3 inputPoint,
+        out WorldUI.MenuDepth.MenuDepthRayHit depth, out RaycastResult portrait)
+    {
+        if (DepthPortraitPicks.TryRaycast(canvas, origin, direction, out portrait))
+        {
+            distance = portrait.distance;
+            point = inputPoint = portrait.worldPosition;
+            depth = default;
+            return distance < maxDistance;
+        }
+        return TrySurface(canvas, origin, direction, maxDistance, out distance, out point, out inputPoint, out depth);
+    }
+
     /// <summary>Arbitrate physical menu ink, retaining a separate native event coordinate.</summary>
     private bool TrySurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,
         out float distance, out Vector3 point, out Vector3 inputPoint,
@@ -1064,6 +1139,7 @@ internal sealed class RayUguiDriver
             _pointer.Cancel();
             _canvas = null;
             _pressing = false;
+            _pressingPortrait = false;
         }
         HasHit = false;
         HitDistance = float.PositiveInfinity;
