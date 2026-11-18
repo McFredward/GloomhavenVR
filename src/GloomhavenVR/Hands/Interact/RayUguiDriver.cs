@@ -407,6 +407,7 @@ internal sealed class RayUguiDriver
         if (_hand.TriggerDown && WorldUI.ModalFallback.IsSettingsSurface(_canvas))
             LogSettingsClickTrace(hit, top);
 
+        _pressingPortrait = hasPortrait;
         if (_hand.TriggerDown && hit && _hand.Grabber.Held == null)
         {
             // EXCLUSIVITY, the price of letting a near-field grab outrank a panel hover
@@ -437,7 +438,6 @@ internal sealed class RayUguiDriver
             // rather than the weaker canvas-hover clamp, or it takes this same card.
             _hand.Ray.ClaimTrigger("uGUI pointer press");
             _pressing = true;
-            _pressingPortrait = hasPortrait;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
