@@ -655,7 +655,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 770;
+    public const ushort ModBuild = 771;
+
+    // ModBuild771 — Issue #24 and intermittent VR initiative clicks. Resolve
+    // the native portrait before surface arbitration, then use that geometry for
+    // the beam, hover, press and release. Recover native row planes before
+    // latching changed pool membership after a world-X reorder stop.
+    // Host logs also confirm a duplicate Cold Fire selection after potion use.
+    // Restore ordinary native Undo replication on the acting VR client when
+    // the potion's local cancel flag survives without any override. Preserve
+    // live picker cancellation, proxy/flat handling and the original wire.
 
     // ModBuild770 — paired769 confirms complete common Results content, but
     // guests see their own scrolling late and shared frame motion trails grabs.
