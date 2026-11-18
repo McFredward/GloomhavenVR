@@ -3409,6 +3409,17 @@
       "weight": 40
     },
     {
+      "id": "native-undo-replication-runtime",
+      "command": [
+        "python3",
+        "scripts/native-undo-replication-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
       "id": "initiative-row-runtime",
       "command": [
         "python3",

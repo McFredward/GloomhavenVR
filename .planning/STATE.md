@@ -1,3 +1,32 @@
+**Initiative row, portrait laser, and native targeting Undo, Build771, 2026-11-18.**
+
+Issue24's November 17 host report is 1.2.4 / Build770. The recent photos show
+the row partly covered and the log shows seven board-occluded presses. The
+laser now resolves real portrait geometry before distance arbitration and
+retains it through native pointer release. A native world-X reorder stop plus
+repool between LateTicks could also make the idle latch adopt foreign depth.
+Recover the original planes and native layout before relatching. Board offsets
+and authored portrait effects stay as configured.
+
+The separate abort was the game's 15-second phase timeout: after valid Cold
+Fire #654, the sender submitted an identical #655 while the host was in
+TargetSelection, with no intervening networked Undo. The preceding Minor Mana
+Potion's confirmed item picker leaves an orphanable local-only cancel flag in
+mouse mode. Restore native replication on the acting VR client's ordinary
+targeting Undo when the override stack is empty. Preserve the live picker,
+original native action, authority and receiver. The sender log is absent, so
+its specific Undo gesture remains unconfirmed.
+
+Class B with affected runtime proof. Strict Release 0 warnings/errors and
+16 source suites. Row 1,139 assertions and nine controls, focused laser 21/3
+plus neighboring pointer, scroll and world-menu scopes, actual native item/
+undo/ability IL 21/1. Original renderer geometry and publisher callbacks
+checked with explicit native phase/transport boundaries. Unchanged 769/770
+qualification is inherited. Compiled scope has five behavior types plus one
+new guard, 32 identical resources and only version/build metadata otherwise.
+Evidence: `.planning/validation/build771/` and `issue24-laser/`. No new
+headset or live Photon proof. Dev delivery requires all VR peers on Build771.
+
 **Release 1.2.4 readiness, Build770, 2026-11-10.**
 
 The maintainer reports the paired multiplayer test successful and authorizes
