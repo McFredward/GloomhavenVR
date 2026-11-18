@@ -61,7 +61,7 @@ internal sealed class RayUguiDriver
 
     private Canvas? _canvas;   // hovered canvas; latched while pressing
     private bool _pressing;
-    private bool _pressingPortrait;
+    private bool _pressingPortrait; // meaningful only while _pressing is true
 
     internal RayUguiDriver(VRHand hand)
     {
@@ -1139,7 +1139,6 @@ internal sealed class RayUguiDriver
             _pointer.Cancel();
             _canvas = null;
             _pressing = false;
-            _pressingPortrait = false;
         }
         HasHit = false;
         HitDistance = float.PositiveInfinity;
