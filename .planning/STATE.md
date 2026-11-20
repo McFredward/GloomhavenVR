@@ -1,3 +1,26 @@
+**Valve OpenXR passthrough over Steam Link, Build772, 2026-11-20.**
+
+Valve introduced OpenXR AlphaBlend for PC streams with Steam Frame SteamOS
+0.5.8 Beta and the PC SteamVR Beta. When Mixed Reality is selected, use the
+live SteamVR stereo capability and the existing standalone alpha presentation.
+Keep the ordinary view until the runtime accepts the blend request. The
+official route works independently of the old connection reader and coverage
+bridge. Older identified Frame runtimes keep the ordinary view and offer an
+update hint. Virtual Desktop keeps its chroma-key route.
+
+Advanced → Environment & world offers the legacy companion as an opt-in on
+an identified Frame stream. The former default-on preference is inert. Wait
+for native blend restoration before handing the head camera to the companion.
+The existing Mixed Reality selection and standalone marker retain their roles.
+
+Class B, confined to local MR presentation and options. Strict Release 0/0,
+all 16 source suites, 21 affected local suites and two additional rendering
+controls across focused runs. The integrated Unity check has 58 presentation
+assertions and nine causal controls. Compiled review finds eight changed MR/
+options types, metadata, and the build stamp. All 32 resources are identical.
+Evidence is in `.planning/validation/build772/`. A live headset stream remains
+to be verified. No protocol or release archive change.
+
 **Initiative row, portrait laser, and native targeting Undo, Build771, 2026-11-18.**
 
 Issue24's November 17 host report is 1.2.4 / Build770. The recent photos show
