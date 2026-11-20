@@ -62,9 +62,11 @@ internal static partial class VROptionsTab
         AttachHoverHint(toggle.gameObject, hint, item.Key);
     }
 
+    private static void CaptureMixedRealityRowVisibility() =>
+        _mixedRealityRowVisibility = MixedRealityRowVisibility;
+
     private static void RegisterMixedRealityAvailabilityRefresh(Action refresh)
     {
-        _mixedRealityRowVisibility ??= MixedRealityRowVisibility;
         MixedRealityAvailabilityRefreshers.Add(refresh);
         refresh();
     }

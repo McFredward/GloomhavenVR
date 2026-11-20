@@ -44,6 +44,7 @@ def main():
     tiles = (base / "VariantTiles.cs").read_text()
     table = (base / "VariantTilesTable.cs").read_text()
     dependencies = (base / "VROptionsTab.8.Dependencies.cs").read_text()
+    content = (base / "VROptionsTab.3.Content.cs").read_text()
     table_members = ["private static bool MixedRealityOn", "private static SkyStyle EffectiveSky(",
         "private static bool ChooseSky(", "private static bool ChooseMixedReality(",
         "internal const int MixedRealityEnvironmentIndex", "internal static int EnvironmentIndex(", "internal static bool ChooseEnvironment("]
@@ -97,6 +98,7 @@ def main():
     tick = (base / "VROptionsTab.1.Inject.cs").read_text()
     assert "RefreshMixedRealityAvailability();" in method(tick, "internal static void Tick()"), "Live options tick must refresh capability controls"
     assert "ClearMixedRealityAvailabilityRefreshers();" in method(rows, "private static void ClearRows()"), "Page teardown must release native compatibility callbacks"
+    assert "ClearRows();\n        CaptureMixedRealityRowVisibility();" in method(content, "private static void Rebuild()"), "All newly built panes must capture active MR row visibility"
     assert "ClearMixedRealityAvailabilityRefreshers();" in method(tick, "private static void Forget()"), "Shutdown and stale-pane teardown must release native compatibility callbacks"
     assert "RegisterMixedRealityAvailabilityRefresh(() => RepaintVariantTiles(built));" in tiles, "Actual environment tile strip must subscribe to native compatibility changes"
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
@@ -131,7 +133,7 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     path = run / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n")
-    bound = [Path(__file__).resolve(), row_path, loc_path, base / "VariantTiles.cs", base / "VariantTilesTable.cs", base / "VROptionsTab.MixedReality.cs", base / "VROptionsTab.8.Dependencies.cs", base / "VROptionsTab.1.Inject.cs", *fixture.glob("*.cs"), fixture / "Editor/FrameMrOptionsRunner.cs", fixture / "FrameMrOptions.csproj", managed / "GH.Runtime.dll"]
+    bound = [Path(__file__).resolve(), row_path, loc_path, base / "VariantTiles.cs", base / "VariantTilesTable.cs", base / "VROptionsTab.MixedReality.cs", base / "VROptionsTab.8.Dependencies.cs", base / "VROptionsTab.1.Inject.cs", base / "VROptionsTab.3.Content.cs", *fixture.glob("*.cs"), fixture / "Editor/FrameMrOptionsRunner.cs", fixture / "FrameMrOptions.csproj", managed / "GH.Runtime.dll"]
     (run / "source-hashes.json").write_text(json.dumps({"sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bound}, "coverage": "partial" if args.case else "production-and-six-causal-controls", "limits": ["Production MR policy, original tile callback/painting, bool row, generic Apply guard and native tooltip attachment execute unchanged.", "OpenXR lifecycle/capability, configuration storage, row donor/skin and whole-menu rebuild are explicit boundaries.", "Actual Unity/uGUI/TMP and original GH UITextTooltipTarget/raycast filter execute. No headset camera image or complete in-game menu is asserted."]}, indent=2) + "\n")
     command = [str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project), "-executeMethod", "FrameMrOptionsRunner.Start", "-frameMrOptionsManifest", str(path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):

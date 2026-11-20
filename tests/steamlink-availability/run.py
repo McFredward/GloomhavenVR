@@ -36,8 +36,11 @@ def main():
     options = ROOT / 'src/GloomhavenVR/WorldUI/Options'
     dependencies_path = options / 'VROptionsTab.8.Dependencies.cs'
     menu_path = options / 'VROptionsTab.MixedReality.cs'
+    content_path = options / 'VROptionsTab.3.Content.cs'
+    curated_path = options / 'VROptionsTab.4.Curated.cs'
+    catalog_path = options / 'ConfigCatalog.cs'
     inputs = [dependencies_path, menu_path, HERE / 'Program.cs',
-        HERE / 'Fixture.csproj', Path(__file__), options / 'VROptionsTab.4.Curated.cs']
+        HERE / 'Fixture.csproj', Path(__file__), curated_path, content_path, catalog_path]
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     copies = run / 'sources'; copies.mkdir()
@@ -48,10 +51,16 @@ def main():
         menu.index('private static bool IsEnvironmentChoice')]
     refresh = method(menu, 'private static void RefreshMixedRealityAvailability()')
     clear = method(menu, 'private static void ClearMixedRealityAvailabilityRefreshers()')
-    register = method(menu, 'private static void RegisterMixedRealityAvailabilityRefresh(')
-    source = '\n'.join([fields, visible, refresh, clear, register])
+    capture = re.search(r'private static void CaptureMixedRealityRowVisibility\(.*?;', menu, re.S)[0]
+    source = '\n'.join([fields, visible, refresh, clear, capture])
+    rebuild = method(content_path.read_text(), 'private static void Rebuild()')
+    assert rebuild.index('ClearRows();') < rebuild.index('CaptureMixedRealityRowVisibility();') < rebuild.index('BuildAdvancedIndex()')
+    topic = method(content_path.read_text(), 'private static int BuildTopic(')
+    assert 'ConfigCatalog.Groups(topic)' in topic and 'IsRowVisible(entry)' in topic and 'BuildItem(entry,' in topic
+    categorization = method(catalog_path.read_text(), 'private static ConfigTopic TopicOf(')
+    assert re.search(r'case "MixedReality":(?:\s*case "[^"]+":)*\s*return ConfigTopic.Environment;', categorization)
     assert not re.search(r'new\("MixedReality", "(?:SteamLinkNative|SteamLinkCompanion|SteamLinkEncodeWidth|SteamLinkEdgeQuality)",',
-        inputs[-1].read_text())
+        curated_path.read_text())
     # Each counterexample must fail its semantic assertion after compiling.
     mutations = {
         'companion-row': ('!FrameNativePassthrough.Standalone && Core.SteamLink.SteamLinkConnection.Available',
@@ -61,7 +70,7 @@ def main():
         'chroma-companion': ('!FrameNativePassthrough.Required && !SteamLinkCompanionVisible',
             '!FrameNativePassthrough.Required'),
         'live-refresh': ('if (changed)', 'if (changed && false)'),
-        'early-refresh': ('_mixedRealityRowVisibility ??= MixedRealityRowVisibility;', ''),
+        'early-refresh': ('_mixedRealityRowVisibility = MixedRealityRowVisibility;', '_mixedRealityRowVisibility = null;'),
         'retired-options': ('"SteamLinkNative" or "SteamLinkEdgeQuality" or "SteamLinkEncodeWidth" => true',
             '"SteamLinkNative" or "SteamLinkEdgeQuality" or "SteamLinkEncodeWidth" => false'),
     }

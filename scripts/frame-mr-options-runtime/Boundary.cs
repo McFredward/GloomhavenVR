@@ -144,6 +144,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool PickSky(SkyStyle style) => ChooseSky(style);
         internal static object MakeTile(Button button, Image picture, TMP_Text label)
         {
+            CaptureMixedRealityRowVisibility();
             var tile = new VariantTile { Available = () => MixedRealityCanEnable, Selected = () => MixedRealityOn,
                 Choose = ChooseMixedReality, Hint = MixedRealityHint, Resource = "MR fixture" };
             var built = new List<BuiltTile> { new BuiltTile { Button = button, Picture = picture, Label = label, Tile = tile } };

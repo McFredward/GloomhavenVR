@@ -40,7 +40,7 @@ namespace GloomhavenVR.WorldUI
         {
             _rebuilds++;
             ClearMixedRealityAvailabilityRefreshers();
-            RegisterMixedRealityAvailabilityRefresh(() => { });
+            CaptureMixedRealityRowVisibility();
         }
 
         internal static int CheckAll()
@@ -96,7 +96,7 @@ namespace GloomhavenVR.WorldUI
             Check(_rebuilds == 2, "disconnect removes the companion control and restores the colour once");
 
             ClearMixedRealityAvailabilityRefreshers();
-            RegisterMixedRealityAvailabilityRefresh(() => { });
+            CaptureMixedRealityRowVisibility();
             Core.FrameNativePassthrough.Required = true;
             Core.FrameNativePassthrough.IsAvailable = true;
             Core.FrameNativePassthrough.Status = 4;
