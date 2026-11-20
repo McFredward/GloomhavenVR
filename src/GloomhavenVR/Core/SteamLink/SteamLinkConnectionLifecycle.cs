@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 using UnityEngine.XR;
 
@@ -20,9 +19,9 @@ internal static class SteamLinkConnectionLifecycle
 
     internal static void Tick()
     {
-        bool eligible = VRSession.IsRunning && !FrameNativePassthrough.Required
+        bool eligible = VRSession.IsRunning && !FrameNativePassthrough.Standalone
             && Application.platform == RuntimePlatform.WindowsPlayer
-            && string.Equals(VRSession.RuntimeName, "SteamVR/OpenXR", StringComparison.OrdinalIgnoreCase);
+            && FrameNativePassthrough.SteamVrRuntime;
         if (!eligible)
         {
             if (_watching) Reset();

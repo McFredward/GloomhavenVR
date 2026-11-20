@@ -655,7 +655,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 771;
+    public const ushort ModBuild = 772;
+
+    // ModBuild772 — Steam Frame over Steam Link now defaults to Valve's OpenXR
+    // AlphaBlend when the runtime reports it. Reuse the standalone alpha
+    // presentation and preserve ordinary VR until the runtime accepts it.
+    // The historical companion preference is inert. The Advanced companion
+    // override is opt-in and requires an identified Steam Frame connection.
+    // No network protocol change.
 
     // ModBuild771 — Issue #24 and intermittent VR initiative clicks. Resolve
     // the native portrait before surface arbitration, then use that geometry for

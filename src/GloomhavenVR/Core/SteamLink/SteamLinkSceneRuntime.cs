@@ -19,8 +19,8 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool Active => _output != null && _output.Ready;
     internal static bool SourceProfileSupported => Supported(out _);
-    internal static bool Requested => MixedReality.SteamLinkNative != null
-        && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required
+    internal static bool Requested => MixedReality.SteamLinkCompanion?.Value == true
+        && !FrameNativePassthrough.Standalone
         && SteamLinkConnection.Available;
 
     internal static bool TryEnter(Camera? head)

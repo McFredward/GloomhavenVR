@@ -132,6 +132,7 @@ internal static class Program
             OpenXrEnvironmentBlendProbe.DescribeMode(2) == "Additive" &&
             OpenXrEnvironmentBlendProbe.DescribeMode(3) == "AlphaBlend", "OpenXR enum meanings match ABI");
         TestPassthrough();
+        TestSteamLinkPassthrough();
         Console.WriteLine("OpenXR environment blend probe: " + _assertions + " assertions passed (" +
             (_assertions - focusAssertions) + " retained blend assertions; " + focusAssertions +
             " focus/lifecycle assertions); fake-native/lifecycle/control boundary only, no headset or passthrough support claim.");
@@ -477,6 +478,65 @@ internal static class Program
             Check(FrameNativePassthrough.Status == FrameNativePassthroughStatus.Checking, "destroyed instance detaches facade");
         }
         GloomhavenVR.FrameDefaults.Active = false;
+    }
+
+    private static void TestSteamLinkPassthrough()
+    {
+        GloomhavenVR.FrameDefaults.Active = false;
+        VRSession.RuntimeName = "SteamVR/OpenXR";
+        MixedReality.SteamLinkCompanion = new();
+        try
+        {
+            using (var native = new FakeNative { Modes = new[] { 1, 3 } })
+            {
+                var feature = CreateSession(native);
+                Check(FrameNativePassthrough.Required && FrameNativePassthrough.IsAvailable,
+                    "SteamVR alpha capability admits official Steam Link MR before legacy reader completes");
+                Check(!feature.TryEnterPassthrough(1) && OpenXRFeature.RequestedMode == XrEnvironmentBlendMode.AlphaBlend,
+                    "official Steam Link mode queues actual OpenXR alpha without relying on a companion");
+                OpenXRFeature.ActualMode = XrEnvironmentBlendMode.AlphaBlend;
+                Check(feature.TryEnterPassthrough(2) && FrameNativePassthrough.IsActive,
+                    "official Steam Link mode requires accepted alpha readback");
+                MixedReality.SteamLinkCompanion.Value = true;
+                Check(FrameNativePassthrough.Required, "saved companion opt-in cannot override an unidentified connection");
+                GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
+                Check(!FrameNativePassthrough.Required, "identified Steam Link can explicitly prefer legacy companion");
+                FrameNativePassthrough.Exit();
+                Check(FrameNativePassthrough.RestorationPending && OpenXRFeature.RequestedMode == XrEnvironmentBlendMode.Opaque,
+                    "handoff from official alpha waits until original opaque submission returns");
+                OpenXRFeature.ActualMode = XrEnvironmentBlendMode.Opaque;
+                Check(!FrameNativePassthrough.RestorationPending, "readback can complete handoff before notification");
+                int reads = OpenXRFeature.GetCalls;
+                Check(!FrameNativePassthrough.RestorationPending && OpenXRFeature.GetCalls == reads,
+                    "finished handoff stops polling actual blend mode");
+                feature.Destroy(native.Instance);
+            }
+            using (var native = new FakeNative { Modes = new[] { 1 } })
+            {
+                MixedReality.SteamLinkCompanion.Value = false;
+                var feature = CreateSession(native);
+                Check(FrameNativePassthrough.Required && !FrameNativePassthrough.IsAvailable,
+                    "identified Frame on an older SteamVR stays in ordinary VR instead of selecting chroma");
+                Check(!FrameNativePassthrough.TryEnter() && OpenXRFeature.SetCalls == 0,
+                    "unsupported Valve runtime is never asked to submit alpha");
+                GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+                Check(!FrameNativePassthrough.Required, "opaque-only SteamVR on another headset retains chromakey");
+                feature.Destroy(native.Instance);
+            }
+            using (var native = new FakeNative { Modes = new[] { 1, 3 } })
+            {
+                VRSession.RuntimeName = "VirtualDesktopXR";
+                var feature = CreateSession(native);
+                Check(!FrameNativePassthrough.Required, "another PC OpenXR runtime keeps its existing presentation");
+                feature.Destroy(native.Instance);
+            }
+        }
+        finally
+        {
+            MixedReality.SteamLinkCompanion = null;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            VRSession.RuntimeName = null;
+        }
     }
 
     private static OpenXrEnvironmentBlendFeature CreateSession(FakeNative native, bool begin = true)
