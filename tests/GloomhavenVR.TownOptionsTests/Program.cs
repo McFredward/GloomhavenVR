@@ -50,13 +50,6 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
     internal static class VRSession { internal static bool IsRunning { get; set; } }
-    // The complete production dependency table reads the native-MR preference
-    // for its stream-width child. Preserve the bool configuration port even
-    // though connection discovery is unavailable in these town-option cases.
-    internal static class MixedReality
-    {
-        internal static readonly WorldUI.Entry<bool> SteamLinkNative = new(true);
-    }
     internal static class TickGuard
     {
         internal static void Run(string key, Action action, string module) => action();
@@ -66,7 +59,8 @@ namespace GloomhavenVR.Core
     internal enum FrameNativePassthroughStatus { Checking, Available }
     internal static class FrameNativePassthrough
     {
-        internal static bool Required => FrameDefaults.Active;
+        internal static bool Standalone => FrameDefaults.Active;
+        internal static bool Required => Standalone;
         internal static bool IsAvailable => true;
         internal static FrameNativePassthroughStatus Status => FrameNativePassthroughStatus.Available;
     }
@@ -233,9 +227,12 @@ namespace GloomhavenVR.WorldUI
             _curated = Array.FindIndex(Curated, c => c.LocKey == "cat_environment");
             Check(_curated >= 0, "environment category exists");
             CuratedSection scenery = Curated[_curated].Sections.Single(s => s.LocKey == "sec_environment");
-            Check(scenery.Entries.Take(3).Select(e => e.Section + "/" + e.Key).SequenceEqual(new[]
-                { "Sky/Style", "MixedReality/SteamLinkNative", "MixedReality/KeyColor" }),
-                "native Steam Link and chroma colour immediately follow the World environment chooser");
+            Check(scenery.Entries.Take(2).Select(e => e.Section + "/" + e.Key).SequenceEqual(new[]
+                { "Sky/Style", "MixedReality/KeyColor" }),
+                "chroma colour immediately follows the World environment chooser");
+            Check(!Curated.SelectMany(c => c.Sections).SelectMany(s => s.Entries)
+                    .Any(e => e.Section == "MixedReality" && e.Key is "SteamLinkCompanion" or "SteamLinkNative"),
+                "the Steam Link companion is absent from curated pages");
             Check(!Curated.Single(c => c.LocKey == "cat_graphics").Sections.Any(s =>
                     s.LocKey == "mixed_reality" || s.Entries.Any(e => e.Section == "MixedReality")),
                 "Graphics has no redundant mixed-reality section or controls");

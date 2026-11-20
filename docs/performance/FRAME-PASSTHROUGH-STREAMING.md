@@ -1,5 +1,9 @@
 # Steam Frame mixed reality over PC streaming
 
+**2026-11-20 update** — Valve now supports streamed OpenXR alpha composition on
+Steam Frame. See the [current Steam Link implementation](../STEAM-LINK-MASK.md).
+The investigation below records the options considered before Valve’s support.
+
 Research date: 2026-10-09. Source base: dev `2f6819eee`, ModBuild651. No runtime
 change, headset experiment, external installation or Steam configuration change
 was performed. This is a feasibility decision, not a supported setup guide.

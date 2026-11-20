@@ -565,6 +565,7 @@ internal static partial class Loc
 
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),
+            ["MixedReality/SteamLinkCompanion"] = Pair("Legacy Steam Link companion", "Älterer Steam-Link-Companion"),
             ["MixedReality/SteamLinkNative"] = Pair("Steam Link native passthrough", "Steam Link: natives Passthrough"),
             ["MixedReality/SteamLinkEdgeQuality"] = Pair("Steam Link edge quality", "Steam-Link-Kantenqualität"),
             ["MixedReality/SteamLinkEncodeWidth"] = Pair("Steam Link encoding width (px)", "Steam-Link-Übertragungsbreite (px)"),

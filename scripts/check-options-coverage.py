@@ -626,6 +626,10 @@ KNOWN_ORPHANS = {
     # Maintainer 2026-10-19: remove the atlas/quality lease entirely, retain its
     # saved binding inert and hidden rather than silently deleting user config.
     ("MixedReality", "SteamLinkEdgeQuality"),
+    # Valve's OpenXR path is the default. The old default-on value is inert,
+    # while the independent companion opt-in belongs in Advanced / Environment.
+    ("MixedReality", "SteamLinkNative"),
+    ("MixedReality", "SteamLinkCompanion"),
     # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
     # this pre-existing expert sampling cadence. Its regular-fade alias remains
     # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.
@@ -862,9 +866,11 @@ def main():
     # family; it must not acquire a second Graphics home after source changes.
     scenery = [(section, key) for _c, cat, _s, sec, section, key, _cap in curated
                if cat == "cat_environment" and sec == "sec_environment"]
-    if scenery[:3] != [("Sky", "Style"), ("MixedReality", "SteamLinkNative"),
-                       ("MixedReality", "KeyColor")]:
-        failures.append("Steam Link native passthrough and key colour must directly follow World / Scenery's environment choice.")
+    if scenery[:2] != [("Sky", "Style"), ("MixedReality", "KeyColor")]:
+        failures.append("Key colour must directly follow World / Scenery's environment choice.")
+    if any(section == "MixedReality" and key in {"SteamLinkCompanion", "SteamLinkNative"}
+           for _c, _cat, _s, _sec, section, key, _cap in curated):
+        failures.append("The Steam Link companion may appear only in Advanced.")
     if any(cat == "cat_graphics" and section == "MixedReality"
            for _c, cat, _s, _sec, section, _key, _cap in curated):
         failures.append("Mixed Reality must not have redundant controls under Graphics.")

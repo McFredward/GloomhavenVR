@@ -53,7 +53,7 @@ def main():
         brace, semi = text.find("{", start), text.find(";", start)
         return text[start:semi + 1] if semi >= 0 and (brace < 0 or semi < brace) else method(text, signature)
     environment = "\n".join(member(table, name) for name in table_members)
-    environment += "\n" + member(dependencies, "private static bool IsRowVisible(")
+    environment += "\n" + re.search(r"private static bool IsRowVisible\(.*?;", dependencies, re.S)[0]
     tile_members = ["private sealed class VariantTile", "private sealed class BuiltTile",
         "private static void RepaintVariantTiles(", "private static void OnVariantTileClicked("]
     colors = tiles[tiles.index("    private static readonly Color TileBorderOn ="):tiles.index("    /// <summary>Built sprites,")]
@@ -65,7 +65,8 @@ def main():
     controls = "\n".join(member(rows, name) for name in row_members)
     literal = r'("(?:[^"\\]|\\.)*")'
     labels = []
-    for key in ["mr_frame_available", "mr_frame_checking", "mr_frame_update_required", "vr_on", "vr_off"]:
+    for key in ["mr_frame_available", "mr_frame_checking", "mr_frame_update_required",
+                "mr_frame_stream_update_required", "mr_frame_companion_selected", "vr_on", "vr_off"]:
         match = re.search(r'\["' + key + r'"\]\s*=\s*Pair\(\s*' + literal + r'\s*,\s*' + literal + r'\s*\)', loc)
         assert match, "Original translated MR choice missing: " + key
         labels.append('["' + key + '"] = new[] { ' + ", ".join(match.groups()) + ' },')

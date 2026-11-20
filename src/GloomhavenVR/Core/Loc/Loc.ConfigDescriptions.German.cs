@@ -378,14 +378,12 @@ internal static partial class Loc
                 + "Pauschalmaske sofort wieder her.",
             // ---- [MixedReality] ----
             ["MixedReality/Enabled"] =
-                "Mixed-Reality-Modus (Chroma-Key-Passthrough). AN färbt sich Himmel/Hintergrund des ganzen "
-                + "Spiels flächig in KeyColor und jede Skybox wird abgeschaltet, damit Virtual Desktop (oder "
-                + "ein beliebiger Compositor) diese Farbe per Chroma-Key ausstanzen und das Diorama bzw. den "
-                + "Tisch schwebend über deinem echten Zimmer zeigen kann. Die 3D-Geometrie wird weiter "
-                + "gerendert — nur der Himmel wird zur flächigen Key-Farbe. Schwebende Mod-Texte und "
-                + "-Fenster bekommen bei aktivem MR zusätzlich undurchsichtige Rückplatten, damit sie "
-                + "über dem echten Zimmer lesbar bleiben. Beim Ausschalten wird alles (inklusive der "
-                + "Platten) vollständig wiederhergestellt.",
+                "Zeigt das Spiel in deinem Zimmer. Auf der Steam Frame nutzt die Mod unterstütztes natives "
+                + "OpenXR-Passthrough, auch beim Streaming über Steam Link. Andere Streaminglösungen können "
+                + "den Hintergrund über Chroma-Key ersetzen. Fenster bleiben vor dem Kamerabild lesbar.",
+            ["MixedReality/SteamLinkCompanion"] =
+                "Wählt den älteren Passthrough-Companion für Steam Link. Er muss auf PC und Steam Frame "
+                + "installiert sein. Ausgeschaltet nutzt die Mod Valves integriertes OpenXR-Passthrough.",
             ["MixedReality/KeyColor"] =
                 "Die flächige Chroma-Key-Farbe, auf die Himmel/Hintergrund im Mixed-Reality-Modus geleert "
                 + "werden (Standard reines Grün, RGBA 0,1,0,1). Die VR-Einstellungstafel schaltet der Reihe "

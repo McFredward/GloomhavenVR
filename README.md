@@ -38,7 +38,7 @@
 <p align="center">
   <a href="docs/install/INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
   <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Install on Steam Frame (standalone) →</b></a> &nbsp;·&nbsp;
-  <a href="https://github.com/McFredward/steam-link-native-passthrough#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Steam Frame: Steam Link native passthrough →</b></a> &nbsp;·&nbsp;
+  <a href="#environments"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Steam Frame: Steam Link native passthrough →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
@@ -74,7 +74,7 @@ Drop it and it settles back onto a hex.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
   to the scenario's elements.
 - Mixed reality. The sky drops away and the table stands in your actual room, including native
-  passthrough on Steam Frame standalone and over Steam Link with the matching PC and Frame companions.
+  passthrough on Steam Frame standalone and over Steam Link.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -145,9 +145,13 @@ table in your room.
 
 - **Steam Frame standalone:** native passthrough is built in and needs no additional patch.
   If unavailable, hover over the option for guidance on updating SteamVR and the game's Proton version.
-- **Steam Frame over Steam Link:** install [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#installation)
-  on your PC and Frame, then enable **Steam Link native passthrough** below the environment
-  choices. Check the patch page for supported SteamVR versions and requirements.
+- **Steam Frame over Steam Link:** choose **Mixed Reality** as above.
+  The mod uses Valve’s built-in OpenXR passthrough when the runtime supports it, with no companion
+  required. Valve introduced support in [SteamOS 0.5.8 Beta for Steam Frame](https://steamcommunity.com/app/4165890/announcements/detail/527161296156696117?l=english)
+  with the SteamVR Beta on PC. If the choice is grey, update both devices and restart the game.
+  The optional **Legacy Steam Link companion** switch under
+  **VR Options → Advanced → Environment & world** is for users with the
+  [companion installed on both devices](https://github.com/McFredward/steam-link-native-passthrough#installation).
 - **Virtual Desktop:** use its passthrough colour replacement with the mod's green background.
 
 <p align="center">
@@ -222,7 +226,7 @@ and use your usual movement controls to explore around it. It stays where you pu
 **Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame (standalone)</a> · <a href="https://github.com/McFredward/steam-link-native-passthrough#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Steam Link native passthrough</a> · [→ Playing & controls](docs/PLAYING.md)
+[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame (standalone)</a> · <a href="#environments"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Steam Link native passthrough</a> · [→ Playing & controls](docs/PLAYING.md)
 
 On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
 The original **Gloomhaven** entry remains for flat play; both use the same saves.

@@ -1,27 +1,32 @@
 # Steam Link mixed-reality development
 
-The current streamed implementation uses only the **paired ordinary-RGBA route**.
-Its [companion setup](https://github.com/McFredward/steam-link-native-passthrough#readme)
-installs matching PC and Frame parts. The former Frame-only atlas, its quality
-lease and runtime fallback were retired at the maintainer's request on 2026-10-19.
-[Historical evidence](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/history/ATLAS-RECEIVER.md)
-does not describe a currently selectable method.
+The default streamed route uses Valve’s OpenXR alpha composition. Valve
+introduced it in [SteamOS 0.5.8 Beta with the PC SteamVR Beta](https://steamcommunity.com/app/4165890/announcements/detail/527161296156696117?l=english).
+When a running SteamVR session advertises `XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND`
+for stereo, the game can choose it through Unity OpenXR and clear the background
+transparently after acceptance. The game queries and verifies this on the live
+session. Standalone retains its launch-marker admission and the same OpenXR
+blend controller.
 
-## Player controls and dependencies
+## Legacy companion
 
-Open **VR Options → World → Scenery**, choose **Mixed Reality**, then enable
-**Steam Link native passthrough** below the environment choices. German:
-**VR-Optionen → Umgebung → Schauplatz → Steam Link: natives Passthrough**.
-The choice is exposed for an identified Steam Frame over Steam Link; its saved
-preference defaults on, while the Mixed Reality master defaults off. Changes
-apply immediately. Opening VR Options does not impose a feature timeout.
+Open **VR Options → Advanced → Environment & world** and turn on
+**Legacy Steam Link companion** for an identified Steam Frame over Steam Link.
+In German, use **VR-Optionen → Erweitert → Umgebung & Welt →
+Älterer Steam-Link-Companion**. Select **Mixed Reality** under **World →
+Scenery** to enable it. The companion choice defaults off and overrides native
+OpenXR passthrough only on the matching connection. The former
+`[MixedReality] SteamLinkNative` value remains stored for compatibility.
+The opt-in now lives in `[MixedReality] SteamLinkCompanion`.
 
-Detection of the headset/transport is not proof that matching companions are
-installed. The game negotiates current source permission before emitting its
-ordinary-RGBA contribution/coverage output. Missing, incompatible or disconnected
-peers keep ordinary opaque presentation; they do not activate an atlas or a key-
-colour fallback. An explicitly chosen Virtual Desktop chroma-key mode is separate.
-Standalone Frame passthrough uses its own backend and needs no streamed companion.
+The paired ordinary-RGBA route requires the matching
+[PC and Frame companions](https://github.com/McFredward/steam-link-native-passthrough#readme).
+After identifying the headset and transport, the game negotiates current source
+permission before emitting coverage. Missing, incompatible or disconnected peers
+keep the ordinary opaque image visible. The former Frame-only atlas and its
+quality lease remain [historical](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/history/ATLAS-RECEIVER.md).
+Virtual Desktop uses its existing key-colour mode. The rest of this document
+describes the companion route.
 
 ## Source and rendering ownership
 
@@ -74,7 +79,7 @@ Connection discovery includes Windows and Proton-aware game paths. The initial
 paired sender is Windows/NVIDIA/HEVC only; a Windows game under Proton does not
 make its Linux SteamVR host compatible with a Windows driver DLL.
 
-The new route does not depend on a visible atlas header. Its design therefore
+The paired route does not depend on a visible atlas header. Its design therefore
 permits the game and local Steam menu to coexist over native camera video while
 preserving native menu shaders. The final combined menu/game headset picture
 and retained full-resolution quality remain explicit hardware checks. No
