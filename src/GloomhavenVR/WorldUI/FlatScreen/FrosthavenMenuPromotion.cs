@@ -162,13 +162,7 @@ internal sealed class FrosthavenMenuPromotion
         picture.rectTransform.offsetMin = new(2f, 2f);
         picture.rectTransform.offsetMax = new(-2f, -CaptionHeight - CaptionGap - 2f);
 
-        Shader? shader = PlayTray.OverlayShader();
-        if (shader != null)
-        {
-            _wordmarkVolume = FrosthavenWordmark.Create(_tile, wordmark, shader);
-            _volumeUnavailable = _wordmarkVolume == null;
-        }
-        if (_wordmarkVolume == null)
+        if (!TryMountWordmark(wordmark))
         {
             _logoFallback = Graphic<RawImage>("FrosthavenVR raised logo", Vector2.one * .5f, Vector2.one * .5f);
             _logoFallback.texture = wordmark;
@@ -198,19 +192,22 @@ internal sealed class FrosthavenMenuPromotion
         // front if it is still loading, then mount the volume on the same frame.
         if (_volumeUnavailable || _logoFallback == null || Time.unscaledTime < _nextVolumePoll)
             return;
-        _nextVolumePoll = Time.unscaledTime + .5f;
-        Shader? shader = PlayTray.OverlayShader();
-        if (shader == null) return;
-        _wordmarkVolume = FrosthavenWordmark.Create(_tile!, (Texture2D)_logoFallback.texture, shader);
-        if (_wordmarkVolume == null)
-        {
-            _volumeUnavailable = true;
-            return;
-        }
-        VRLayers.Apply(_wordmarkVolume.Transform.gameObject);
+        if (!TryMountWordmark((Texture2D)_logoFallback.texture)) return;
+        VRLayers.Apply(_wordmarkVolume!.Transform.gameObject);
         _logoFallback.gameObject.SetActive(false);
         Object.Destroy(_logoFallback.gameObject);
         _logoFallback = null;
+    }
+
+    private bool TryMountWordmark(Texture2D wordmark)
+    {
+        _nextVolumePoll = Time.unscaledTime + .5f;
+        Shader? shader = PlayTray.OverlayShader();
+        if (shader == null) return false;
+        if (shader.isSupported)
+            _wordmarkVolume = FrosthavenWordmark.Create(_tile!, wordmark, shader);
+        _volumeUnavailable = _wordmarkVolume == null;
+        return !_volumeUnavailable;
     }
 
     private T Graphic<T>(string name, Vector2 anchorMin, Vector2 anchorMax) where T : Graphic
