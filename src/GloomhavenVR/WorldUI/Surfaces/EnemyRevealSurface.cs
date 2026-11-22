@@ -932,7 +932,8 @@ internal sealed class EnemyRevealSurface
                 $"enemyCardsHolder.parent='{holder?.parent?.name}' onMyHost={holder != null && holder.parent == host} | " +
                 $"TRAY Y={tray?.position.y:F2} yaw={tray?.eulerAngles.y:F0}° | " +
                 $"headWorldY={head.transform.position.y:F2} rigScale={scale:F1} easing={_easing} | " +
-                $"CLEARANCE {_clearance}");
+                $"CLEARANCE {_clearance} " +
+                "=> if CARD worldY tracks TRAY Y (not myHostY), the visible reveal is TRAY-DOCKED, not on my float.");
         }
     }
 
