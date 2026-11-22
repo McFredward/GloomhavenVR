@@ -22,7 +22,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     private MenuDepthHeightfield? _field;
     private float _depthRatio;
     private Vector4 _depthUv = new(1f, 1f, 0f, 0f);
-    private bool _configured, _planeOnly, _planeRegistrationReleased;
+    private bool _configured, _planeOnly, _planeRegistrationReleased, _standaloneArtwork;
     private readonly List<MenuDepthCardPlane> _planeOwners = new(2);
     private bool _projected;
     private bool _headBackingMesh;
@@ -45,7 +45,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     public Graphic Graphic => graphic;
     public Transform RayRoot => transform;
     public bool IsReady => _configured && IsActive() && _image != null && (_field == null || _sprite != null)
-        && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null)
+        && _image.overrideSprite == _sprite && (_field == null || _standaloneArtwork || MenuDepthDisplay.DepthShader != null)
         && (!_planeOnly || HasPlaneOwner(false));
 
     public bool TryGetHeadBounds(MenuDepthEye eye, out Rect clipBounds)
@@ -63,7 +63,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     public bool TryRaycast(Vector3 origin, Vector3 direction, float maxDistance, out MenuDepthRayHit hit)
     {
         hit = default;
-        if (!IsReady || _image == null || _planeOnly || HasPlaneOwner(false)) return false;
+        if (!IsReady || _image == null || _standaloneArtwork || _planeOnly || HasPlaneOwner(false)) return false;
         bool grid = _field != null;
         List<UIVertex> vertices = grid ? _grid : _stream;
         if (vertices.Count == 0 || (grid && _triangles.Count == 0)) return false;
@@ -97,6 +97,13 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     internal void ConfigureMapped(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
     {
         _planeOnly = false; ConfigureCore(image, field, depthRatio, depthUv);
+    }
+
+    /// <summary>For a new opaque decoration rendered directly on its own world-space canvas.</summary>
+    internal void ConfigureStandaloneArtwork(Image image, MenuDepthHeightfield field, float depthRatio)
+    {
+        _standaloneArtwork = true;
+        Configure(image, field, depthRatio);
     }
 
     internal void ConfigurePlaneOcclusion(Image image, MenuDepthCardPlane owner)
@@ -173,11 +180,11 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
         if (unchanged && !_planeRegistrationReleased) return;
         // Never-active native pools may receive no destruction callbacks. Their
         // first OnEnable owns admission; active replacements/reacquires admit now.
-        if (IsActive()) MenuDepthSources.Register(this);
+        if (!_standaloneArtwork && IsActive()) MenuDepthSources.Register(this);
         _planeRegistrationReleased = false;
         if (unchanged) return;
         _image = image; _sprite = current; _field = field; _depthRatio = depthRatio; _depthUv = depthUv;
-        BindRayAlpha(current);
+        if (!_standaloneArtwork) BindRayAlpha(current);
         _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
         _input.Clear(); _grid.Clear(); _triangles.Clear();
         image.SetVerticesDirty(); image.SetMaterialDirty();
@@ -264,12 +271,14 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     protected override void OnEnable()
     {
         base.OnEnable();
+        if (_standaloneArtwork) return;
         if (_configured) BindRayAlpha(_sprite);
         if (_configured) { MenuDepthSources.Register(this); _planeRegistrationReleased = false; }
     }
     protected override void OnDisable()
     {
-        MenuDepthSources.Unregister(this); _projected = false;
+        if (!_standaloneArtwork) MenuDepthSources.Unregister(this);
+        _projected = false;
         _rayAlpha = null; _rayAlphaTexture = null;
         ReleaseMaterial(); base.OnDisable();
         if (graphic != null) graphic.SetMaterialDirty();
@@ -277,11 +286,15 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
     protected override void OnDestroy()
     {
         _rayAlpha = null; _rayAlphaTexture = null;
-        MenuDepthSources.Unregister(this); ReleaseMaterial(); base.OnDestroy();
+        if (!_standaloneArtwork) MenuDepthSources.Unregister(this);
+        ReleaseMaterial(); base.OnDestroy();
     }
 
     public Material GetModifiedMaterial(Material original)
     {
+        // The opaque promo keeps native uGUI drawing and the original canvas order.
+        // Ordinary world-camera projection already uses its displaced vertices.
+        if (_standaloneArtwork) return original;
         bool plane = MenuDepthHeadRaster.Active && HasPlaneOwner(true);
         if (!IsReady || (_field == null && !plane)) return original;
         // Only the native colour contracts covered by the existing renderer

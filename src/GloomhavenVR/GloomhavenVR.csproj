@@ -99,6 +99,8 @@
                       LogicalName="GloomhavenVR.Assets.GloomhavenVR_logo.png" />
     <EmbeddedResource Include="Assets\MenuPromotion\Frosthaven_scene.jpg"
                       LogicalName="GloomhavenVR.Assets.MenuPromotion.Frosthaven_scene.jpg" />
+    <EmbeddedResource Include="Assets\MenuPromotion\Frosthaven_scene.gmd"
+                      LogicalName="GloomhavenVR.Assets.MenuPromotion.Frosthaven_scene.gmd" />
     <EmbeddedResource Include="Assets\MenuPromotion\FrosthavenVR_logo.png"
                       LogicalName="GloomhavenVR.Assets.MenuPromotion.FrosthavenVR_logo.png" />
 

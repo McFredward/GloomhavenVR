@@ -1,5 +1,7 @@
+using System.IO;
 using GLOOM.MainMenu;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI.MenuDepth;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,10 +15,16 @@ internal sealed class FrosthavenMenuPromotion
     private const float ArtAspect = 16f / 9f;
     private const float CaptionHeight = 38f;
     private const float CaptionGap = 8f;
+    // Same relief strength as the FrosthavenVR promotion. Displacement is into
+    // the picture and shorter than its 18 px clearance from the native menu.
+    private const float ArtworkDepth = .046f;
+    private static MenuDepthHeightfield? _sceneDepth;
+    private static bool _sceneDepthRead;
 
     private readonly Vector3[] _corners = new Vector3[4];
     private RectTransform? _tile;
     private Canvas? _canvas;
+    private Sprite? _sceneSprite;
     private RectTransform? _logo;
     private float _logoAspect;
     private TextMeshProUGUI? _caption;
@@ -146,10 +154,18 @@ internal sealed class FrosthavenMenuPromotion
         var border = Graphic<Image>("Teaser frame", Vector2.zero, Vector2.one);
         border.color = new Color(.17f, .28f, .34f, 1f);
         border.rectTransform.offsetMax = new(0f, -CaptionHeight - CaptionGap);
-        var picture = Graphic<RawImage>("Frosthaven panorama", Vector2.zero, Vector2.one);
-        picture.texture = art;
+        var picture = Graphic<Image>("Frosthaven panorama", Vector2.zero, Vector2.one);
+        _sceneSprite = Sprite.Create(art, new Rect(0f, 0f, art.width, art.height),
+            Vector2.one * .5f, 100f, 0, SpriteMeshType.FullRect);
+        picture.sprite = _sceneSprite;
         picture.rectTransform.offsetMin = new(2f, 2f);
         picture.rectTransform.offsetMax = new(-2f, -CaptionHeight - CaptionGap - 2f);
+        MenuDepthHeightfield? depth = ReadSceneDepth(art);
+        if (depth != null)
+        {
+            MenuDepthGraphic? relief = picture.gameObject.AddComponent<MenuDepthGraphic>();
+            if (relief != null) relief.ConfigureStandaloneArtwork(picture, depth, ArtworkDepth);
+        }
 
         var logo = Graphic<RawImage>("FrosthavenVR raised logo", Vector2.one * .5f, Vector2.one * .5f);
         logo.texture = wordmark;
@@ -171,6 +187,28 @@ internal sealed class FrosthavenMenuPromotion
 
         VRLayers.Apply(tile);
         return true;
+    }
+
+    private static MenuDepthHeightfield? ReadSceneDepth(Texture2D art)
+    {
+        if (_sceneDepthRead) return _sceneDepth;
+        _sceneDepthRead = true;
+        try
+        {
+            using Stream? stream = typeof(FrosthavenMenuPromotion).Assembly.GetManifestResourceStream(Resources + "Frosthaven_scene.gmd");
+            if (stream == null) throw new InvalidDataException("Missing artwork depth.");
+            using var bytes = new MemoryStream();
+            stream.CopyTo(bytes);
+            var field = MenuDepthHeightfield.Read(bytes.ToArray());
+            if (field.SourceWidth != art.width || field.SourceHeight != art.height)
+                throw new InvalidDataException("The depth image does not match the panorama dimensions.");
+            _sceneDepth = field;
+        }
+        catch (System.Exception error) when (error is IOException or InvalidDataException)
+        {
+            VRLog.Warn("WorldUI", $"Frosthaven panorama depth unavailable: {error.Message}");
+        }
+        return _sceneDepth;
     }
 
     private T Graphic<T>(string name, Vector2 anchorMin, Vector2 anchorMax) where T : Graphic
@@ -195,6 +233,8 @@ internal sealed class FrosthavenMenuPromotion
         }
         _tile = null;
         _canvas = null;
+        if (_sceneSprite != null) Object.Destroy(_sceneSprite);
+        _sceneSprite = null;
         _logo = null;
         _caption = null;
     }

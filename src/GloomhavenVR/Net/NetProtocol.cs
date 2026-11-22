@@ -655,7 +655,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 776;
+    public const ushort ModBuild = 777;
+
+    // ModBuild777 — undo the logo extrusion and attach the prepared heightfield
+    // to the original Frosthaven panorama instead. The passive menu tile renders
+    // the relief directly in stereo. Keep its label and native DLC reservations.
 
     // ModBuild776 — the FrosthavenVR logo has a textured front and solid side
     // walls. Enemy reveal seats the full native card layout before the stagger;
