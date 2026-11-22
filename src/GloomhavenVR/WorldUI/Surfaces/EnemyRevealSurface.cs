@@ -39,9 +39,10 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// under <c>enemyCardsHolder</c> (the blocker rises a few frames before the staggered
 /// card animations start). While visible, the holder subtree is converted onto its own
 /// host (<see cref="CanvasConversion"/> — the REAL widgets, native art/text) floating
-/// in the player's forward view at a comfortable reading distance. The initial
-/// placement and the next gaze-follow target reserve the complete fitted paper
-/// against the viewer's own and visible peer boards, within the headset view.
+/// in the player's forward view at a comfortable reading distance. Fit the row
+/// from the native card slots before the first fade sample. The initial placement
+/// and the next gaze-follow target reserve that complete footprint against
+/// the viewer's own and visible peer boards, within the headset view.
 /// The pose stays in the tracking frame, so board movement cannot steer a panel
 /// that is already open. At the
 /// shared tray density; on hide it is released back to its exact 2D home
@@ -153,6 +154,7 @@ internal sealed class EnemyRevealSurface
     private const float FollowPositionTolerance = 0.02f;
 
     private static readonly StringBuilder NameScratch = new(128);
+    private readonly Vector3[] _cardCorners = new Vector3[4];
 
     private ConvertedPanel? _panel;
     // Stored pose is RIG-LOCAL (head pose relative to RigRoot), re-projected through the LIVE
@@ -170,6 +172,7 @@ internal sealed class EnemyRevealSurface
     private bool _openingMeasured;
     private string _clearance = "";
     private bool _placed;
+    private bool _openingAnimating;
     private int _facedPoseVersion = -1;
     private float _offGazeSince = -1f;
     private bool _easing;
@@ -344,13 +347,13 @@ internal sealed class EnemyRevealSurface
                     _fitMaxWidth = -1f;
                     _fitAtMaxSince = 0f;
                     _fitFirstMeasured = -1f;
-                    _fitPinned = false;
+                    _fitPinned = FitOpeningCards(_panel, holder);
                     _placedMetersPerPx = -1f;
                     _placed = false; // PlantPose() snaps the first in-view pose on the next tick
                     _easing = false;
                     _offGazeSince = -1f;
                     _dropLogged = false; // re-log the applied plant pose for this reveal (item 3)
-                    _nextMipRescan = 0f; // bake this reveal's cards from the first tick
+                    _nextMipRescan = 0f;
                 }
             }
         }
@@ -371,10 +374,12 @@ internal sealed class EnemyRevealSurface
             // wholesale — keep this one dark so the vanilla EventSystem never hits it.
             if (_panel.HostRaycaster != null && _panel.HostRaycaster.enabled)
                 _panel.HostRaycaster.enabled = false;
+            _openingAnimating = CardAppearancePlaying(track);
             ReassertScrollFreeze();
             PinWhenSettled();
             Place();
-            RescanMips(); // cadence-gated inside; catches the staggered/async monster card art
+            if (!_openingAnimating)
+                RescanMips(); // cold sprite baking can consume a visible tween frame
 
             // THE EMPTY-CARD AUDIT (see the field block). Read twice: at the flip, and again once
             // the layout has settled — an empty-then-full pair would prove the content merely
@@ -384,7 +389,7 @@ internal sealed class EnemyRevealSurface
                 _auditedAtFlip = true;
                 AuditRevealedCards(track, "reveal, at flip");
             }
-            else if (!_auditedSettled
+            else if (!_openingAnimating && !_auditedSettled
                      && (_fitPinned || Time.unscaledTime - _revealShownAt >= SettledAuditSeconds))
             {
                 _auditedSettled = true;
@@ -465,7 +470,61 @@ internal sealed class EnemyRevealSurface
     }
 
     /// <summary>
-    /// Pin the host rect once the staggered reveal has settled at its FULL layout.
+    /// The native reveal activates all outer slots immediately, then animates each inner
+    /// container with a staggered delay. The old visible-ink fit grew from three cards
+    /// to four mid-fade in Build775, changing the whole row's scale, center and seat.
+    /// Read the outer slots from the original layout before any of those tweens paint.
+    /// </summary>
+    private bool FitOpeningCards(ConvertedPanel panel, RectTransform holder)
+    {
+        LayoutRebuilder.ForceRebuildLayoutImmediate(holder);
+        Vector2 min = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 max = new(float.NegativeInfinity, float.NegativeInfinity);
+        int visibleSlots = 0;
+        for (int i = 0; i < holder.childCount; i++)
+        {
+            if (holder.GetChild(i) is not RectTransform slot || !slot.gameObject.activeSelf
+                || !slot.TryGetComponent(out MonsterBaseUI _)
+                || slot.rect.width <= 1f || slot.rect.height <= 1f)
+                continue;
+            slot.GetWorldCorners(_cardCorners);
+            foreach (Vector3 corner in _cardCorners)
+            {
+                Vector2 point = holder.InverseTransformPoint(corner);
+                min = Vector2.Min(min, point);
+                max = Vector2.Max(max, point);
+            }
+            visibleSlots++;
+        }
+        if (visibleSlots == 0)
+            return false;
+
+        float padding = CanvasConversion.FitContentPaddingPx;
+        panel.HostRect.sizeDelta = max - min + Vector2.one * (2f * padding);
+        holder.anchoredPosition = -0.5f * (min + max);
+        panel.FitContentPadding = Vector2.one * padding;
+        panel.FitEnabled = false;
+        VRLog.Info("WorldUI", $"ENEMY REVEAL host rect pinned at {panel.HostRect.rect.width:F0} px " +
+                              $"(native opening layout, {visibleSlots} card slots) — preserving staggered animation.");
+        return true;
+    }
+
+    private static bool CardAppearancePlaying(InitiativeTrack? track)
+    {
+        if (track == null || track.enemiesUI == null)
+            return false;
+        foreach (InitiativeTrackEnemyBehaviour enemy in track.enemiesUI)
+        {
+            MonsterBaseUI? card = enemy != null ? enemy.monsterBaseUI : null;
+            if (card != null && card.gameObject.activeSelf
+                && (card.fadeAnimation != null || card.scaleAnimation != null || card.moveAnimation != null))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Fallback for a holder that supplied no usable native card slots at conversion.
     /// The cards animate in one by one (MonsterBaseUI.AnimateAppearance, staggered by
     /// delayAnimationDraw), so the content fit keeps re-measuring and the host thrashes
     /// (627↔649 px as cards pulse/highlight — test #23). Track the largest fitted width
@@ -795,6 +854,9 @@ internal sealed class EnemyRevealSurface
             return;
         }
 
+        if (_openingAnimating && _fitPinned)
+            return; // keep the opening planted while native cards still enter the row
+
         if ((measured && !_openingMeasured) ||
             halfSize.x > _openingHalfSize.x * (1f + FitPinGrowthFraction) ||
             halfSize.y > _openingHalfSize.y * (1f + FitPinGrowthFraction))
@@ -908,7 +970,7 @@ internal sealed class EnemyRevealSurface
             if (_fitPinned)
                 _placedMetersPerPx = metersPerPx;
         }
-        bool measured = _panel.FitMeasuredOnce && rect.width > 1f && rect.height > 1f;
+        bool measured = (_fitPinned || _panel.FitMeasuredOnce) && rect.width > 1f && rect.height > 1f;
         Vector2 halfSize = measured ? rect.size * (0.5f * metersPerPx) : NominalHalfSize;
         Transform? rig = Rig.VRRigDriver.RigRoot;
         PlantPose(head, rig, scale, halfSize, measured);

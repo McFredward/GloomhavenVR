@@ -655,7 +655,12 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 775;
+    public const ushort ModBuild = 776;
+
+    // ModBuild776 — the FrosthavenVR logo has a textured front and solid side
+    // walls. Enemy reveal seats the full native card layout before the stagger;
+    // preserve the original motion, opacity and completion callbacks. No wire
+    // format change.
 
     // ModBuild775 — the default-on ShowTurnBanner preference hides only the
     // local player and enemy turn paper. Native animation, completion, round
