@@ -101,8 +101,6 @@
                       LogicalName="GloomhavenVR.Assets.MenuPromotion.Frosthaven_scene.jpg" />
     <EmbeddedResource Include="Assets\MenuPromotion\FrosthavenVR_logo.png"
                       LogicalName="GloomhavenVR.Assets.MenuPromotion.FrosthavenVR_logo.png" />
-    <EmbeddedResource Include="Assets\MenuPromotion\FrosthavenVR_logo.fwm"
-                      LogicalName="GloomhavenVR.Assets.MenuPromotion.FrosthavenVR_logo.fwm" />
 
     <!--
       THE FOUR GRAB-BAR ALBEDO STRIPS, for the same reason and by the same route as the wordmark

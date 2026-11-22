@@ -18,15 +18,5 @@
     "asset": "FrosthavenVR_logo.png",
     "size": [1024, 201],
     "sha256": "3e16789c7da12a8b4beae80d621ca286570958085c63d1f90ab9a82af499d551"
-  },
-  "wordmarkVolume": {
-    "asset": "FrosthavenVR_logo.fwm",
-    "source": "FrosthavenVR_logo.png",
-    "generator": "tools/menu-promotion/build-wordmark.py",
-    "grid": [512, 100],
-    "coreAlpha": 190,
-    "rearQuads": 499,
-    "wallQuads": 1384,
-    "sha256": "9abe8ae8400c3a199e8c434620d782905bc55d13cb3a71945758d751a819bdd6"
   }
 }

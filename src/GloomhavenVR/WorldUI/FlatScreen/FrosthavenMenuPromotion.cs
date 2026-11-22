@@ -1,5 +1,4 @@
 using GLOOM.MainMenu;
-using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using TMPro;
 using UnityEngine;
@@ -18,10 +17,7 @@ internal sealed class FrosthavenMenuPromotion
     private readonly Vector3[] _corners = new Vector3[4];
     private RectTransform? _tile;
     private Canvas? _canvas;
-    private FrosthavenWordmark? _wordmarkVolume;
-    private RawImage? _logoFallback;
-    private bool _volumeUnavailable;
-    private float _nextVolumePoll;
+    private RectTransform? _logo;
     private float _logoAspect;
     private TextMeshProUGUI? _caption;
     private bool _assetsUnavailable;
@@ -50,20 +46,13 @@ internal sealed class FrosthavenMenuPromotion
         if (_tile!.sizeDelta != size) _tile.sizeDelta = size;
         if (_tile.localPosition != center) _tile.localPosition = center;
         if (_canvas!.worldCamera != head) _canvas.worldCamera = head;
-        UpgradeWordmark();
-        // Keep the cap at the same fitted position. The volume extends back
-        // toward the picture and preserves the native DLC clearance.
+        // Physical separation gives the wordmark its binocular depth. It follows
+        // the same window transform on a resize.
         Vector3 logoOffset = new(0f, -((CaptionHeight + CaptionGap) + height * .56f) * .5f, -seat.width * .14f);
         float logoWidth = Mathf.Min(seat.width * .88f, height * .32f * _logoAspect);
         Vector2 logoSize = new(logoWidth, logoWidth / _logoAspect);
-        if (_wordmarkVolume != null)
-            _wordmarkVolume.Place(logoSize, seat.width, logoOffset);
-        else if (_logoFallback != null)
-        {
-            RectTransform logo = _logoFallback.rectTransform;
-            if (logo.sizeDelta != logoSize) logo.sizeDelta = logoSize;
-            if (logo.localPosition != logoOffset) logo.localPosition = logoOffset;
-        }
+        if (_logo!.sizeDelta != logoSize) _logo.sizeDelta = logoSize;
+        if (_logo.localPosition != logoOffset) _logo.localPosition = logoOffset;
         string caption = Loc.Mod("frosthaven_promo_caption");
         if (_caption!.text != caption) _caption.text = caption;
         if (!_tile.gameObject.activeSelf) _tile.gameObject.SetActive(true);
@@ -162,11 +151,9 @@ internal sealed class FrosthavenMenuPromotion
         picture.rectTransform.offsetMin = new(2f, 2f);
         picture.rectTransform.offsetMax = new(-2f, -CaptionHeight - CaptionGap - 2f);
 
-        if (!TryMountWordmark(wordmark))
-        {
-            _logoFallback = Graphic<RawImage>("FrosthavenVR raised logo", Vector2.one * .5f, Vector2.one * .5f);
-            _logoFallback.texture = wordmark;
-        }
+        var logo = Graphic<RawImage>("FrosthavenVR raised logo", Vector2.one * .5f, Vector2.one * .5f);
+        logo.texture = wordmark;
+        _logo = logo.rectTransform;
         _logoAspect = (float)wordmark.width / wordmark.height;
 
         var captionAnchor = new Vector2(0f, 1f);
@@ -184,30 +171,6 @@ internal sealed class FrosthavenMenuPromotion
 
         VRLayers.Apply(tile);
         return true;
-    }
-
-    private void UpgradeWordmark()
-    {
-        // The main bundle normally prewarms before the menu opens. Retain the
-        // front if it is still loading, then mount the volume on the same frame.
-        if (_volumeUnavailable || _logoFallback == null || Time.unscaledTime < _nextVolumePoll)
-            return;
-        if (!TryMountWordmark((Texture2D)_logoFallback.texture)) return;
-        VRLayers.Apply(_wordmarkVolume!.Transform.gameObject);
-        _logoFallback.gameObject.SetActive(false);
-        Object.Destroy(_logoFallback.gameObject);
-        _logoFallback = null;
-    }
-
-    private bool TryMountWordmark(Texture2D wordmark)
-    {
-        _nextVolumePoll = Time.unscaledTime + .5f;
-        Shader? shader = PlayTray.OverlayShader();
-        if (shader == null) return false;
-        if (shader.isSupported)
-            _wordmarkVolume = FrosthavenWordmark.Create(_tile!, wordmark, shader);
-        _volumeUnavailable = _wordmarkVolume == null;
-        return !_volumeUnavailable;
     }
 
     private T Graphic<T>(string name, Vector2 anchorMin, Vector2 anchorMax) where T : Graphic
@@ -232,11 +195,7 @@ internal sealed class FrosthavenMenuPromotion
         }
         _tile = null;
         _canvas = null;
-        _wordmarkVolume?.Release();
-        _wordmarkVolume = null;
-        _logoFallback = null;
-        _volumeUnavailable = false;
-        _nextVolumePoll = 0f;
+        _logo = null;
         _caption = null;
     }
 }
