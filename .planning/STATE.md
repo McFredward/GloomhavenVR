@@ -1,3 +1,23 @@
+**Solid Frosthaven wordmark and uninterrupted enemy-card reveal, Build776, 2026-11-22.**
+
+The Frosthaven teaser keeps its textured front and draws the original letter
+silhouette as a depth-tested volume with sidewalls and a rear cap. The native
+DLC seats and both captions retain their previous layout. A runtime without the
+required shader keeps the readable raised image.
+
+The enemy reveal uses the complete native slot layout before any card fades in.
+The holder and world frame stay stable through the full stagger. Defer cold mip
+work and gaze-driven relocation until native animation completes. Original
+callbacks, continuation and wire format are unchanged.
+
+Class B. Strict Release 0/0, 16 source suites, three affected runtime suites and
+the compiled scope comparison. Real Unity proved four- and seven-card reveals
+including intermediate pixels and all native callbacks (18 assertions). The
+Build775 control reproduces a live 1690 to 928 px reflow. The logo fixture passed
+39 assertions with depth-tested oblique and stereo renders, a body-disabled
+control and native DLC slots. See `.planning/validation/build776/`. Headset
+presentation remains to be verified.
+
 **Optional turn announcements, Build775, 2026-11-22.**
 
 Panels & readouts shows a saved, default-on switch for the local player and
