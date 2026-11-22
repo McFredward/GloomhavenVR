@@ -1,3 +1,19 @@
+**FrosthavenVR main-menu teaser, Build774, 2026-11-22.**
+
+The movable VR main menu carries a passive FrosthavenVR artwork tile with
+localized availability text and an independent raised wordmark plane. The
+native DLC column retains both authored slot envelopes for its full open
+lifetime. The teaser uses the clear row below, or its top seat when native
+offers are absent. Layout uncertainty and covered menus suppress the tile.
+There are no callbacks, hit surfaces or native store mutations.
+
+Class B. Strict Release 0/0, all 16 source suites and four focused runtime
+suites. The compiled DLL ran 27 Unity assertions with paired eye renders,
+actual language selection and native DLC window and slot references. The
+build adds two embedded textures. The 32 prior resources match exactly.
+Evidence is in `.planning/validation/build774/`. Live headset presentation
+remains to be verified. No wire or package layout change.
+
 **Frosthaven scenario presentation port, Build773, 2026-11-22.**
 
 Use the original animated banner child for turn and round notices. Seat it
