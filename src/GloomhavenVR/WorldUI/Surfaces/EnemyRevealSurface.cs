@@ -6,6 +6,7 @@ using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -38,19 +39,11 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// under <c>enemyCardsHolder</c> (the blocker rises a few frames before the staggered
 /// card animations start). While visible, the holder subtree is converted onto its own
 /// host (<see cref="CanvasConversion"/> — the REAL widgets, native art/text) floating
-/// in the player's forward VIEW FOCUS — anchored in front of the HEAD at a comfortable
-/// reading distance (the settings panel's "spawn in view" / ModalFallback.PlaceAtHmd
-/// pattern via <see cref="PanelPlacement.Spawn"/>), upright and facing the head, its
-/// POSITION and yaw lazily easing back to re-centre only when the head has clearly turned
-/// or moved, at a fixed comfortable REAL distance/size in the player's forward view —
-/// COMPLETELY INDEPENDENT of the control board (user #2): its world pose is driven ONLY by
-/// the head pose and the player-frame scale (<see cref="HeadFrameScale"/>), so moving,
-/// repositioning or zooming the board / tray / initiative-track dock never shifts it — with ONE
-/// deliberate, one-way exception since item 12 (<see cref="ApplyBoardClearance"/>): a NEW plant
-/// (spawn / recentre / lazy-follow goal) is raised if the gaze would put it BEHIND the control
-/// board, because the player is looking down at that board exactly when the reveal appears. That
-/// clamp only ever moves the TARGET, never a standing panel, so board motion still cannot bob it.
-/// At the
+/// in the player's forward view at a comfortable reading distance. The initial
+/// placement and the next gaze-follow target reserve the complete fitted paper
+/// against the viewer's own and visible peer boards, within the headset view.
+/// The pose stays in the tracking frame, so board movement cannot steer a panel
+/// that is already open. At the
 /// shared tray density; on hide it is released back to its exact 2D home
 /// inside the track (whether
 /// that home is currently the docked track host or the screen-space canvas — the
@@ -125,7 +118,7 @@ internal sealed class EnemyRevealSurface
     //   * There is NO `_worldYLocked` field, and Place() does not override worldPos.y.
     //   * Board-independence comes from RIG-LOCALITY (a world-grab moves the rig root and the
     //     head-child together, so the stored rig-local pose does not change), not from a Y lock and
-    //     not from an absolute world pose — see the HeadFrameScale doc and INVARIANTS-WorldUI.md
+    //     not from an absolute world pose — see PanelLayout.WorldScale and INVARIANTS-WorldUI.md
     //     "The reveal's real height bug was a tray-coupled ScrollRect".
     // If the reveal ever appears to bob with the board again, look for a re-enabled ScrollRect (or a
     // new tray-coupled parent), NOT for a missing Y lock.
@@ -146,50 +139,18 @@ internal sealed class EnemyRevealSurface
     // line for a natural reading angle. Because it rides the real gaze it is centred in the
     // forward field of view at ANY head pitch, so a player looking down at the diorama reads
     // it in place and never looks up. Both are REAL meters (× the LIVE head-frame scale,
-    // HeadFrameScale) so they are a fixed comfortable distance in the player's OWN view,
+    // PanelLayout.WorldScale) so they are a fixed comfortable distance in the player's OWN view,
     // NOT tied to the board's diorama size — user #2: the reveal must be COMPLETELY
     // INDEPENDENT of the control board, always in the forward view regardless of the board.
     // Tune here.
     private const float RevealReadingDistance = 1.3f;
     private const float RevealViewDrop = 0.15f;
 
-    // Item 12 (user, hardware: "Die Gegnerinfo spawnt meist genau hinter dem Controllboard, da der
-    // Spieler in der Regel auf das Controllboard schaut, wenn er die gelegten Karten betätigt und
-    // das erscheint. Es sollte höher spawnen, damit man es direkt lesen kann.")
-    // ROOT CAUSE: item 3 above made the spawn purely GAZE-anchored (position = head + gaze ×
-    // RevealReadingDistance, pitch INCLUDED). That is right for "always in the forward view" but it
-    // is blind to what is ALREADY in that view: the reveal fires exactly when the player has just
-    // operated the played cards, i.e. while looking DOWN at the control board — so the plant lands
-    // 1.3 m along a 30-45° downward gaze, which is BEHIND/BELOW the board's top edge. The board is
-    // opaque depth-writing geometry, so it swallows the lower half of the panel (screenshot
-    // position_gegnerinfo.png: the "Elite-Banditenwache" card cut off by the board's top edge).
-    // Neither a bigger view-drop nor a fixed height fixes this: the board's own height/tilt/scale
-    // and the player's gaze pitch all vary, so ANY constant is wrong for some pose.
-    // FIX: keep the gaze plant (it is what puts the reveal in the forward view at any head pitch),
-    // then apply a ONE-WAY, BOARD-AWARE clearance FLOOR to the TARGET: the panel is raised — never
-    // lowered, never moved sideways — just far enough that the player's LINE OF SIGHT to the
-    // panel's BOTTOM edge passes over the control board's REAL rendered top edge
-    // (PlayTray.MeasureBoardLocalExtents, so any board scale/tilt/position and both FOLLOW and
-    // PINNED tray modes are covered automatically). Applied to the TARGET pose only (the snap and
-    // the lazy-follow goal), never to the applied pose per frame — so moving/rotating/zooming the
-    // board still NEVER bobs a standing reveal (user #4), it only decides where the NEXT plant
-    // goes. The gap itself is [WorldUI] EnemyRevealBoardClearance (debug menu, Panels->Initiative).
-
-    /// <summary>
-    /// Assumed half-HEIGHT of the reveal panel (real metres) while the content fit has not
-    /// measured yet. The clearance must hold for the panel's BOTTOM edge, but at spawn the host
-    /// rect is still growing with the staggered card animation — under-estimating there would let
-    /// the finished panel sink back into the board, so the larger of (measured, this) is used.
-    /// </summary>
-    private const float NominalHalfHeight = 0.20f;
-
-    /// <summary>
-    /// Comfort cap: the clearance lift may never push the panel's centre higher than this far
-    /// above EYE level (real metres). A board mounted absurdly high would otherwise trade
-    /// "swallowed by the board" for "you have to look up" — the cap keeps the reveal readable
-    /// without moving the head, and the log names the case when it binds.
-    /// </summary>
-    private const float MaxLiftAboveEye = 0.10f;
+    // Give the opening a footprint before the first staggered fit arrives.
+    // Later fits replay against the same opening eye and boards rather than
+    // following whatever the board or headset did during the card animation.
+    private static readonly Vector2 NominalHalfSize = new(0.30f, 0.20f);
+    private const float FollowPositionTolerance = 0.02f;
 
     private static readonly StringBuilder NameScratch = new(128);
 
@@ -200,11 +161,18 @@ internal sealed class EnemyRevealSurface
     // (An ABSOLUTE-WORLD stored pose was tried and is wrong: a world-grab rotates the rig about
     // the grab pivot, which swings a world-fixed reveal out of view.)
     private Vector3 _position;                        // rig-local host position (head-relative) — follow in ALL axes
-    private Quaternion _rotation = Quaternion.identity; // rig-local host rotation (unused for facing now; kept for snap)
-    private bool _placed;                            // false until the first in-view pose is snapped
-    private int _facedPoseVersion = -1;              // RigPoseVersion the pose was last snapped at (re-snap on recenter)
-    private float _offGazeSince = -1f;               // unscaled time the panel first drifted past the deadzone
-    private bool _easing;                            // gliding back to the in-view target (all axes)
+    private Vector3 _goal;
+    private readonly EnemyRevealPlacement _openingLayout = new();
+    private readonly List<Transform> _boardRoots = new(4);
+    private Matrix4x4 _openingWorldToRig;
+    private Vector3 _openingHeadLocal, _openingGazeLocal;
+    private Vector2 _openingHalfSize;
+    private bool _openingMeasured;
+    private string _clearance = "";
+    private bool _placed;
+    private int _facedPoseVersion = -1;
+    private float _offGazeSince = -1f;
+    private bool _easing;
     private bool _lastVisible;
     private bool _dropLogged;                        // one-shot per reveal: log the applied plant pose
     private float _lastDiagTime = -99f;              // throttle for the movement diagnostic (~1/s)
@@ -798,106 +766,21 @@ internal sealed class EnemyRevealSurface
     private static readonly List<TMP_Text> TextScratch = new(32);
 
     /// <summary>
-    /// Spawn the reveal in the player's forward view and LAZILY follow the PHYSICAL head
-    /// (user #5 final: "spawn in front with the lazy movement, completely independent of how I
-    /// move other elements"). ALL of this is computed in the rig's TRACKING SPACE (head pose
-    /// relative to RigRoot), so it responds ONLY to real physical head movement:
-    /// - moving/rotating the control board via WORLD-GRAB rotates the rig ROOT, which carries
-    ///   the head AND this rig-local pose together → no change in rig-local → no follow;
-    /// - a TRAY-grab moves the tray, not the rig → no change in rig-local → no follow
-    ///   (proven by the diagnostic: host world pos held fixed while the tray yaw hit 141°).
-    /// Only a genuine physical head turn/walk past the deadzone glides the panel back into
-    /// the forward view. SNAP (no ease) at spawn and on rig rebuild/recenter (RigPoseVersion).
-    ///
-    /// Item 12: the gaze target then passes through the CONTROL-BOARD CLEARANCE FLOOR
-    /// (<see cref="ApplyBoardClearance"/>) so a plant can never land behind the board the player is
-    /// looking at. The floor is applied to the TARGET only, so a standing reveal is still never
-    /// moved by the board itself.
+    /// Keep a standing pose in tracking space. Gather obstacles at opening or
+    /// after a physical head movement settles beyond the follow deadzone.
+    /// Content growth can correct that placement using the same opening snapshot.
     /// </summary>
-    /// <param name="panelHalfHeight">Half height of the reveal panel in WORLD metres (its BOTTOM
-    /// edge, not its pivot, is what has to clear the board).</param>
-    private void PlantPose(Camera head, Transform? rig, float panelHalfHeight)
+    private void PlantPose(Camera head, Transform? rig, float scale, Vector2 halfSize, bool measured)
     {
-        // Head pose in the rig's tracking space (grab-invariant relative to the physical head).
-        Vector3 headPosL;
-        Quaternion headRotL;
-        if (rig != null)
-        {
-            headPosL = rig.InverseTransformPoint(head.transform.position);
-            headRotL = Quaternion.Inverse(rig.rotation) * head.transform.rotation;
-        }
-        else
-        {
-            // No rig (dev harness) — world frame IS the head frame; Place() applies verbatim.
-            headPosL = head.transform.position;
-            headRotL = head.transform.rotation;
-        }
-        Vector3 gazeL = headRotL * Vector3.forward;
-
-        // Upright billboard facing the head (yaw only), +Z toward the viewer.
-        Vector3 awayL = gazeL;
-        awayL.y = 0f;
-        awayL = awayL.sqrMagnitude > 1e-4f ? awayL.normalized : Vector3.forward;
-        Quaternion desiredRot = Quaternion.LookRotation(awayL, Vector3.up);
-
-        // TARGET along the FULL gaze (pitch INCLUDED) so the panel glides into the player's field
-        // of view vertically as well (user #5, latest: "let it move on the Y axis too, lazily, to
-        // come into view"). The height coupling that used to bob it was the tray ScrollRect (now
-        // frozen while floated, see ReassertScrollFreeze) — NOT this pose — so following the gaze is
-        // safe again. A small drop keeps it just below the gaze line for a natural reading angle.
-        // All rig-local, so world-grab/tray-grab never trip the follow; only a real head move does.
-        Vector3 desiredPos = headPosL + gazeL * RevealReadingDistance;
-        desiredPos.y -= RevealViewDrop;
-
-        // CONTROL-BOARD CLEARANCE FLOOR (item 12 — the "spawnt hinter dem Controllboard" fix).
-        // Evaluated in WORLD space (that is where the board lives, and world-up is the axis the
-        // clamp works along — a world-grab pitch/roll of the rig must not tilt the clearance), then
-        // folded back into the rig-local target so everything downstream is unchanged.
-        Vector3 desiredWorld = rig != null ? rig.TransformPoint(desiredPos) : desiredPos;
-        _clearance = ApplyBoardClearance(head.transform.position, ref desiredWorld, panelHalfHeight);
-        if (_clearance.Lifted)
-            desiredPos = rig != null ? rig.InverseTransformPoint(desiredWorld) : desiredWorld;
-
-        // THE MIRRORED-SURFACE READING (item 13 of the 2026-09-05 report), sharing its token with
-        // the peer fan card's in Net/Remote/RemoteCardArt so both halves of "the mirrored surface
-        // has a depth problem the local one does not" come back in one grep. Edge-gated on WHICH
-        // KIND of board bound the plant, not one-shot: a session in which a peer board never binds
-        // and a session in which it binds every time have to be distinguishable, and a single
-        // latched line cannot tell them apart.
-        //
-        // AND A RATE FLOOR UNDER THE EDGE, because the edge is head-driven: which board binds is
-        // decided per frame from the viewer's sight line, so a player sweeping their head across two
-        // boards would otherwise alternate the two classes at the frame rate. The floor bounds the
-        // line at one per ClearanceLogSeconds while leaving every DISTINCT class reachable — the
-        // reading this exists to produce is "a peer's board CAN bind", which one line proves.
-        int clearanceClass = !_clearance.HasBoard ? 0 : _clearance.OwnBoard ? 1 : 2;
-        float logNow = Time.unscaledTime;
-        if (clearanceClass != _loggedClearanceClass && logNow >= _nextClearanceLog)
-        {
-            _loggedClearanceClass = clearanceClass;
-            _nextClearanceLog = logNow + ClearanceLogSeconds;
-            // HW-VERIFY
-            VRLog.Note("WorldUI", "MIRRORED SURFACE DEPTH: enemy reveal panel — "
-                + _clearance.Describe()
-                + " Until ModBuild 448 the occluder set of this clearance floor was the single "
-                + "expression PlayTray.Current, so ONLY the viewer's own board could ever bind and a "
-                + "plant that landed inside a PEER's board was never lifted out of it (the report's "
-                + "\"mit der Tiefe der Gegnerinfo beim remote board stimmt auch was nicht ... beim "
-                + "eigenen board ist alles wie es sein sollte\"). Every shown board is now solved "
-                + "with the SAME sight-line math, and the largest lift wins. FALSIFIER: with no peer "
-                + "board on screen this line reads \"the binding board was the viewer's OWN control "
-                + "board\" — which is what it ALWAYS said before the fix — so only a line naming a "
-                + "PEER's board proves the new occluder is reachable at all; and \"no control board "
-                + "in the scene\" means the reveal was planted with nothing to clear, which is "
-                + "neither a pass nor a fail.");
-        }
-
+        Transform eye = head.transform;
+        Vector3 headLocal = rig != null ? rig.InverseTransformPoint(eye.position) : eye.position;
+        Vector3 gazeLocal = rig != null ? rig.InverseTransformDirection(eye.forward) : eye.forward;
+        float now = Time.unscaledTime;
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (!_placed || poseVersion != _facedPoseVersion)
         {
-            // SNAP: first spawn, or a deliberate recentre/rebuild teleported the whole rig.
-            _position = desiredPos;
-            _rotation = desiredRot;
+            CaptureOpening(head, rig, scale, headLocal, gazeLocal);
+            _position = LayoutGoal(halfSize, measured);
             _placed = true;
             _facedPoseVersion = poseVersion;
             _offGazeSince = -1f;
@@ -905,445 +788,151 @@ internal sealed class EnemyRevealSurface
             if (!_dropLogged)
             {
                 _dropLogged = true;
-                // VERIFICATION LINE (grep "ENEMY REVEAL spawned"): the chosen world spawn pose and
-                // its measured clearance from the control board — the next hardware log must show a
-                // POSITIVE gap over the board's top edge, i.e. the panel is no longer swallowed.
-                Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned at world {worldPos:F2} " +
-                                      $"({(worldPos - head.transform.position).magnitude:F2} m from the head, " +
-                                      $"panel half-height {panelHalfHeight:F2} m) — {_clearance.Describe()} " +
-                                      "Lazy follow ON in ALL axes (X/Z + Y), board-decoupled " +
-                                      "(tray ScrollRect frozen while floated; the board clearance only " +
-                                      "moves the TARGET, never a standing panel).");
+                Vector3 world = rig != null ? rig.TransformPoint(_position) : _position;
+                VRLog.Info("WorldUI", $"ENEMY REVEAL spawned at world {world:F2} " +
+                    $"({(world - eye.position).magnitude / scale:F2} m from the head, half-size {halfSize:F2} m) — {_clearance}.");
             }
             return;
         }
 
-        // LAZY FOLLOW (all axes): glide back into the forward view when the player has physically
-        // turned OR looked up/down past the deadzone — measured in rig-local as the FULL angle
-        // between the gaze and the head→panel direction, so world-grab / tray-grab never trip it.
-        Vector3 toPanel = _position - headPosL;
-        float off = toPanel.sqrMagnitude > 1e-6f ? Vector3.Angle(gazeL, toPanel) : 0f;
-
-        // Item 12 guard: the target is no longer guaranteed to sit ON the gaze axis — the board
-        // clearance floor deliberately holds it ABOVE the gaze while the player looks down at the
-        // control board. Without this check the panel would sit permanently "off gaze", re-arm the
-        // follow every dwell, ease nowhere (it is already AT the target) and settle again — a
-        // pointless 2 Hz log/ease cycle. Only a target the panel is genuinely NOT at may arm it.
-        Vector3 toTarget = desiredPos - headPosL;
-        float misfit = (toPanel.sqrMagnitude > 1e-6f && toTarget.sqrMagnitude > 1e-6f)
-            ? Vector3.Angle(toPanel, toTarget)
-            : 0f;
-        if (off > FollowDeadzoneDeg && misfit > FollowSettledDeg)
+        if ((measured && !_openingMeasured) ||
+            halfSize.x > _openingHalfSize.x * (1f + FitPinGrowthFraction) ||
+            halfSize.y > _openingHalfSize.y * (1f + FitPinGrowthFraction))
         {
-            if (_offGazeSince < 0f)
-                _offGazeSince = Time.unscaledTime;
-            if (!_easing && Time.unscaledTime - _offGazeSince >= FollowDwellSeconds)
-            {
-                _easing = true;
-                VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze for " +
-                                      $">{FollowDwellSeconds:F1}s (physical head moved) — gliding into view (all axes).");
-            }
+            _easing = !NearPosition(_position, LayoutGoal(halfSize, measured));
         }
-        else
+
+        if (!_easing)
         {
-            _offGazeSince = -1f;
+            float off = Vector3.Angle(gazeLocal, _position - headLocal);
+            bool headMoved = !NearPosition(headLocal, _openingHeadLocal)
+                || Vector3.Angle(gazeLocal, _openingGazeLocal) > FollowSettledDeg;
+            if (off <= FollowDeadzoneDeg || !headMoved)
+                _offGazeSince = -1f;
+            else if (_offGazeSince < 0f)
+                _offGazeSince = now;
+            else if (now - _offGazeSince >= FollowDwellSeconds)
+            {
+                CaptureOpening(head, rig, scale, headLocal, gazeLocal);
+                _easing = !NearPosition(_position, LayoutGoal(halfSize, measured));
+                _offGazeSince = -1f;
+                if (_easing)
+                    VRLog.Info("WorldUI", $"ENEMY REVEAL lazy follow: {off:F0}° off the gaze — gliding into view.");
+            }
         }
 
         if (_easing)
         {
-            float t = Time.deltaTime * FollowEaseRate;
-            _position = Vector3.Lerp(_position, desiredPos, t);
-            _rotation = Quaternion.Slerp(_rotation, desiredRot, t);
-            Vector3 toDesired = desiredPos - headPosL;
-            Vector3 cur = _position - headPosL;
-            if (toDesired.sqrMagnitude < 1e-6f || Vector3.Angle(cur, toDesired) < FollowSettledDeg)
+            float blend = 1f - Mathf.Exp(-FollowEaseRate * Time.unscaledDeltaTime);
+            _position = Vector3.Lerp(_position, _goal, blend);
+            if (NearPosition(_position, _goal))
             {
+                _position = _goal;
                 _easing = false;
                 _offGazeSince = -1f;
             }
         }
     }
 
-    /// <summary>
-    /// One clearance evaluation, kept so the spawn log and the per-second diagnostic can PROVE on
-    /// the hardware log that the reveal cleared the control board (and by how much).
-    /// </summary>
-    private readonly struct BoardClearance
+    private static bool NearPosition(Vector3 a, Vector3 b) =>
+        (a - b).sqrMagnitude <= FollowPositionTolerance * FollowPositionTolerance;
+
+    private void CaptureOpening(Camera head, Transform? rig, float scale, Vector3 headLocal, Vector3 gazeLocal)
     {
-        public BoardClearance(bool hasBoard, bool ownBoard, bool lifted, bool capped, float topEdgeY,
-            float bottomY, float lift, float gapAtBoard, float gapBefore)
+        _openingWorldToRig = rig != null ? rig.worldToLocalMatrix : Matrix4x4.identity;
+        _openingHeadLocal = headLocal;
+        _openingGazeLocal = gazeLocal;
+        Vector2 view = EnemyRevealPlacement.DefaultViewHalfTangents;
+        if (XRSettings.isDeviceActive)
         {
-            HasBoard = hasBoard;
-            OwnBoard = ownBoard;
-            Lifted = lifted;
-            Capped = capped;
-            TopEdgeY = topEdgeY;
-            BottomY = bottomY;
-            Lift = lift;
-            GapAtBoard = gapAtBoard;
-            GapBefore = gapBefore;
-        }
-
-        /// <summary>A live, visible control board was found (else there is nothing to clear).</summary>
-        public readonly bool HasBoard;
-
-        /// <summary>The BINDING board was the viewer's OWN control board rather than a peer's. The
-        /// whole of item 13 is that a peer's board used not to be able to bind at all, so this is
-        /// the field that says whether the fix is doing anything on a given plant.</summary>
-        public readonly bool OwnBoard;
-
-        /// <summary>The target was actually raised out of the board.</summary>
-        public readonly bool Lifted;
-
-        /// <summary>The comfort cap (<see cref="MaxLiftAboveEye"/>) limited the lift.</summary>
-        public readonly bool Capped;
-
-        /// <summary>World Y of the board's REAL (rendered) top edge.</summary>
-        public readonly float TopEdgeY;
-
-        /// <summary>World Y of the reveal panel's BOTTOM edge after the clamp.</summary>
-        public readonly float BottomY;
-
-        /// <summary>Metres the target was raised (0 when the gaze plant was already clear).</summary>
-        public readonly float Lift;
-
-        /// <summary>Sight-line gap over the top edge, measured AT THE BOARD (world metres).</summary>
-        public readonly float GapAtBoard;
-
-        /// <summary>The same gap BEFORE the clamp — negative = the raw pose was inside the board.</summary>
-        public readonly float GapBefore;
-
-        /// <summary>Compact log phrase (both the vertical gap and the sight-line gap).</summary>
-        public string Describe() => !HasBoard
-            ? "no control board in the scene (menu / tray hidden, and no peer board shown) — pure "
-              + "gaze plant, nothing to clear."
-            : $"the binding board was the {(OwnBoard ? "viewer's OWN" : "PEER's")} control board; " +
-              $"board top edge world Y {TopEdgeY:F2} m, panel bottom Y {BottomY:F2} m → " +
-              $"{(BottomY - TopEdgeY):F2} m above the edge in world Y, sight-line gap AT THE BOARD " +
-              $"{GapAtBoard:F2} m" +
-              (Lifted ? $" (raw gaze pose was {GapBefore:F2} m — INSIDE the board — raised {Lift:F2} m)"
-                      : " (gaze plant was already clear)") +
-              (Capped ? " [comfort cap bound — held at eye level]" : "") + ".";
-    }
-
-    /// <summary>Last clearance evaluation (spawn log + per-second diagnostic).</summary>
-    private BoardClearance _clearance;
-
-    /// <summary>Which KIND of board last bound the clearance floor — 0 none, 1 the viewer's own,
-    /// 2 a peer's — so the MIRRORED SURFACE DEPTH line writes on the transition instead of once per
-    /// session. Seeded -1 so the first evaluation of a session always reports.</summary>
-    private int _loggedClearanceClass = -1;
-
-    /// <summary>Unscaled time before which the MIRRORED SURFACE DEPTH line stays quiet however the
-    /// binding board changes. The class edge alone is not a cap: which board binds is re-decided
-    /// every frame from the viewer's sight line, so two boards either side of a sweeping gaze would
-    /// alternate the classes at the frame rate.</summary>
-    private float _nextClearanceLog;
-
-    /// <summary>Minimum seconds between two MIRRORED SURFACE DEPTH lines from this surface.</summary>
-    private const float ClearanceLogSeconds = 5f;
-
-    /// <summary>
-    /// CONTROL-BOARD CLEARANCE FLOOR (item 12 — see the constants block for the full root cause).
-    /// Swing <paramref name="posWorld"/> UP around the head — never down, never sideways, and
-    /// always at the SAME distance the plant chose — until the player's LINE OF SIGHT to the
-    /// panel's BOTTOM edge passes <see cref="WorldUIConfig.EnemyRevealBoardClearance"/> real metres
-    /// ABOVE the control board's REAL rendered top edge.
-    ///
-    /// Why a sight-line test and not "put it above the board": the reveal floats ~1.3 m out while
-    /// the board sits ~0.6 m out, so the panel is already BEYOND the board in world space — it is
-    /// occluded by PERSPECTIVE, not by containment. A footprint/containment test would never fire
-    /// (the screenshot's panel is past the board's far edge yet still swallowed by it). Solving the
-    /// occlusion in the vertical plane through head and panel also yields the SMALLEST lift that
-    /// works, so the reveal stays as low — as comfortable — as it can while being fully visible.
-    ///
-    /// Board-aware by construction: the edge comes from <see cref="PlayTray.MeasureBoardLocalExtents"/>
-    /// on the tray's LIVE root, so any board scale, tilt, position, board style, and both FOLLOW
-    /// (rig-parented) and PINNED (world-parented) tray modes are handled with no special cases; if
-    /// there is no board at all, nothing is clamped.
-    ///
-    /// <para>EVERY BOARD, NOT ONLY THE VIEWER'S OWN (2026-09-05 report, item 13: "mit der Tiefe der
-    /// Gegnerinfo beim remote board stimmt auch was nicht ... beim eigenen board ist alles wie es
-    /// sein sollte"). Until ModBuild 448 the occluder set here was the single expression
-    /// <c>PlayTray.Current</c>, so the floor knew the viewer's own control board and was blind to
-    /// every PEER's — and a peer's board is the same object, in the same room, at the same height,
-    /// with the same power to swallow a plant. It is the same defect item 12 fixed, on the boards
-    /// item 12 could not see. Note that there is NO remote enemy-reveal surface to fix instead: the
-    /// reveal is game state and every client renders its OWN, so the peer's board is an occluder
-    /// standing in front of a LOCAL panel, not a mirrored panel of its own.</para>
-    ///
-    /// <para>WHY ONE PASS OVER THE BOARDS IS ENOUGH, and why the order they come in cannot matter.
-    /// Each board is solved by swinging the panel UP around the head, which raises the ELEVATION of
-    /// the head→(panel bottom edge) sight ray. A ray's height at a horizontal distance d is
-    /// <c>headY + d·tan(elevation)</c>, monotone increasing in the elevation for every d &gt; 0 — so a
-    /// lift taken for one board can only increase the gap over every other board, never reduce it.
-    /// The boards are therefore independent constraints on one scalar and the maximum wins by
-    /// construction, whichever order they are applied in.</para>
-    ///
-    /// <para>Peer roots come from <c>Net.PeerBoardFade.CollectShownBoardRoots</c> — the fade driver
-    /// is the one class that is handed every peer board root, so this needs no second registry — and
-    /// each is measured with the SAME <see cref="PlayTray.MeasureBoardLocalExtents"/> the local tray
-    /// is measured with, exactly as <c>Net/Remote/RemoteBoardTooltip</c> already does.</para>
-    /// </summary>
-    private static BoardClearance ApplyBoardClearance(Vector3 headWorld, ref Vector3 posWorld,
-        float panelHalfHeight)
-    {
-        PlayTray? tray = PlayTray.Current;
-        Transform? own = tray != null && tray.IsVisible ? tray.Root : null;
-
-        BoardRootScratch.Clear();
-        if (own != null)
-            BoardRootScratch.Add(own);
-        int ownCount = BoardRootScratch.Count;
-        Net.PeerBoardFade.CollectShownBoardRoots(BoardRootScratch);
-        if (BoardRootScratch.Count == 0)
-            return default; // menu / tray hidden / Cards module off and no peer board — nothing to clear
-
-        // The reported verdict is the BINDING one: the board that produced the largest lift, or —
-        // when nothing had to be lifted — the tightest gap, because that is the board that came
-        // closest to swallowing the panel and the one a next-round reading has to be judged against.
-        BoardClearance binding = default;
-        for (int i = 0; i < BoardRootScratch.Count; i++)
-        {
-            BoardClearance c = ClearOneBoard(headWorld, ref posWorld, panelHalfHeight,
-                BoardRootScratch[i], isOwnBoard: i < ownCount);
-            if (!binding.HasBoard
-                || c.Lift > binding.Lift
-                || (Mathf.Approximately(c.Lift, binding.Lift) && c.GapAtBoard < binding.GapAtBoard))
+            try
             {
-                binding = c;
+                view = EnemyRevealPlacement.StereoViewHalfTangents(
+                    head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left),
+                    head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right));
+            }
+            catch (System.Exception)
+            {
+                // The runtime may start or replace its eye targets during an opening.
+                // The default projection bounds preserve the reveal and native Continue.
             }
         }
-        BoardRootScratch.Clear();
-        return binding;
-    }
-
-    /// <summary>Reused scan buffer for <see cref="ApplyBoardClearance"/>: the local tray root first
-    /// (0 or 1 entries), then every shown peer board root. Static because a plant is never
-    /// re-entrant and this must not allocate per frame.</summary>
-    private static readonly List<Transform> BoardRootScratch = new(4);
-
-    /// <summary>
-    /// The clearance solve for ONE control board — the whole of the original
-    /// <see cref="ApplyBoardClearance"/> body, unchanged term for term, extracted so the viewer's
-    /// own board and every peer's go through the SAME machinery instead of one of them getting a
-    /// second copy of it.
-    /// </summary>
-    private static BoardClearance ClearOneBoard(Vector3 headWorld, ref Vector3 posWorld,
-        float panelHalfHeight, Transform root, bool isOwnBoard)
-    {
-        PlayTray.MeasureBoardLocalExtents(root, out float topLocalY, out float halfLocalX);
-        Vector3 topEdge = root.TransformPoint(new Vector3(0f, topLocalY, 0f));
-        float halfWidthWorld = halfLocalX * Mathf.Max(Mathf.Abs(root.lossyScale.x), 1e-4f);
-
-        // The clearance is a PLAYER-frame quantity (like the reading distance / view drop): real
-        // metres × the head-frame scale, so it reads the same at any diorama zoom — NOT tied to the
-        // board's own scale, which the player may have tuned to any size.
-        float scale = HeadFrameScale();
+        _openingLayout.Begin(head.transform.position, head.transform.forward, scale, view);
         float margin = Mathf.Max(0f, WorldUIConfig.EnemyRevealBoardClearance != null
-            ? WorldUIConfig.EnemyRevealBoardClearance.Value
-            : 0.10f) * scale;
-
-        Vector3 toPanel = posWorld - headWorld;
-        float d = toPanel.magnitude; // the plant's reading DISTANCE — preserved by the raise below
-        var toPanelH = new Vector3(toPanel.x, 0f, toPanel.z);
-        float dP = toPanelH.magnitude;
-        float bottomY = posWorld.y - panelHalfHeight;
-        if (dP < 1e-3f || d < 1e-3f)
+            ? WorldUIConfig.EnemyRevealBoardClearance.Value : Defaults.EnemyRevealBoardClearance);
+        PlayTray? tray = PlayTray.Current;
+        Transform? own = tray != null && tray.IsVisible ? tray.Root : null;
+        if (own != null)
+            AddBoard(own, margin, own: true);
+        _boardRoots.Clear();
+        Net.PeerBoardFade.CollectShownBoardRoots(_boardRoots);
+        foreach (Transform board in _boardRoots)
         {
-            // Degenerate: the panel is straight above/below the head — no horizontal sight line to
-            // solve, and the board cannot be "in front of" it in any meaningful sense.
-            float plainGap = bottomY - topEdge.y;
-            return new BoardClearance(true, isOwnBoard, false, false, topEdge.y, bottomY, 0f, plainGap, plainGap);
+            if (board != null && board != own)
+                AddBoard(board, margin, own: false);
         }
-        Vector3 bearing = toPanelH / dP;
-
-        var toEdgeH = new Vector3(topEdge.x - headWorld.x, 0f, topEdge.z - headWorld.z);
-        float dT = Vector3.Dot(toEdgeH, bearing);                 // board distance ALONG the sight bearing
-        float lateral = (toEdgeH - bearing * dT).magnitude;       // how far the board sits off that bearing
-        float gap = SightGapAtBoard(headWorld.y, bottomY, dP, dT, topEdge.y);
-
-        // The board only matters when it is genuinely BETWEEN the head and the panel and the sight
-        // line actually crosses it: otherwise the player is looking somewhere else entirely and any
-        // lift would be an unexplained jump. (The lateral test compares the board's centre offset
-        // from the sight bearing against its half WIDTH — an approximation that ignores the board's
-        // yaw relative to that bearing, which is deliberately generous: it can only fire the clamp
-        // slightly early, never late, and the player is square to the board whenever this matters.)
-        bool inLine = dT > 1e-3f && dT < dP && lateral <= halfWidthWorld + margin;
-        if (!inLine || gap >= margin)
-            return new BoardClearance(true, isOwnBoard, false, false, topEdge.y, bottomY, 0f, gap, gap);
-
-        // RAISE BY ELEVATION, NOT BY Y (this is what keeps the fix comfortable): the panel is
-        // swung UP around the head along its own bearing, so its DISTANCE — hence its apparent
-        // size and its distance from the diorama — is exactly the one the plant chose. Simply
-        // adding height would drag the panel toward the player (1.3 m along a 60° downward gaze is
-        // only 0.65 m of ground reach, so a vertical lift shortens the ray a lot) and the fixed-size
-        // reveal would loom at arm's length.
-        //
-        // With φ = the panel's elevation angle from the head, the visibility condition
-        //     headY + (d·sinφ − halfHeight − headY)·(dT / (d·cosφ)) ≥ topEdgeY + margin
-        // reduces to  A·sinφ + B·cosφ ≥ halfHeight  with  A = d,  B = (headY − topEdgeY − margin)·d/dT,
-        // i.e. R·sin(φ + θ) ≥ halfHeight for R = √(A²+B²), θ = atan2(B, A). The SMALLEST φ that
-        // satisfies it — the minimal, least intrusive raise — is therefore asin(halfHeight/R) − θ.
-        float A = d;
-        float B = (headWorld.y - topEdge.y - margin) * d / dT;
-        float R = Mathf.Sqrt(A * A + B * B);
-        float ratio = R > 1e-4f ? panelHalfHeight / R : 2f;
-        float currentPhi = Mathf.Asin(Mathf.Clamp(toPanel.y / d, -1f, 1f));
-        // ratio > 1: no elevation clears this board at this distance (absurdly tall/close board) —
-        // go as high as the comfort cap allows and let the log name it.
-        float neededPhi = ratio <= 1f
-            ? Mathf.Asin(ratio) - Mathf.Atan2(B, A)
-            : Mathf.PI * 0.5f;
-
-        // Comfort cap: never trade "swallowed by the board" for "you have to look up".
-        float capPhi = Mathf.Asin(Mathf.Clamp(MaxLiftAboveEye * scale / d, -1f, 1f));
-        bool capped = neededPhi > capPhi;
-        float phi = Mathf.Clamp(neededPhi, currentPhi, Mathf.Max(currentPhi, capPhi));
-        if (phi <= currentPhi + 1e-5f)
-            return new BoardClearance(true, isOwnBoard, false, capped, topEdge.y, bottomY, 0f, gap, gap); // cap left nothing to do
-
-        float rawY = posWorld.y;
-        posWorld = headWorld + bearing * (d * Mathf.Cos(phi)) + Vector3.up * (d * Mathf.Sin(phi));
-        bottomY = posWorld.y - panelHalfHeight;
-        float newDp = Mathf.Max(d * Mathf.Cos(phi), 1e-3f);
-        return new BoardClearance(true, isOwnBoard, true, capped, topEdge.y, bottomY, posWorld.y - rawY,
-            SightGapAtBoard(headWorld.y, bottomY, newDp, dT, topEdge.y), gap);
+        _boardRoots.Clear();
     }
 
-    /// <summary>
-    /// Height of the sight line head→(panel bottom edge) at the board's distance, minus the board's
-    /// top-edge height: positive = the player sees the whole panel above the board, negative = the
-    /// board eats that much of it.
-    /// </summary>
-    private static float SightGapAtBoard(float headY, float bottomY, float panelDist,
-        float boardDist, float topEdgeY)
-        => headY + (bottomY - headY) * (boardDist / panelDist) - topEdgeY;
+    private void AddBoard(Transform root, float margin, bool own) =>
+        _openingLayout.AddBoard(PlayTray.MeasureBoardLocalBounds(root), root.localToWorldMatrix, margin, own);
 
-    /// <summary>
-    /// Anchor the reveal in the player's forward view focus, at the SHARED tray density
-    /// (test #16) with the objectives' readability multiplier, width-capped. The pose is stored
-    /// RIG-LOCAL by <see cref="PlantPose"/> and RE-PROJECTED through the live rig every frame
-    /// here (all axes, including Y), easing to a new target only after the panel has sat past
-    /// the follow deadzone for the dwell. The host SIZE tracks the LIVE head-frame scale
-    /// (<see cref="HeadFrameScale"/>) so the content reads at a fixed apparent size.
-    /// COMPLETELY INDEPENDENT of the control board (user #5) — but that independence comes from
-    /// RIG-LOCALITY, not from an absolute world pose: the board / tray / world-grab move the rig
-    /// ROOT and the head-child together, so the stored rig-local pose does not change. The facing
-    /// is rebuilt in WORLD space, upright and yaw-only, so rig pitch/roll never tilts the panel.
-    /// </summary>
+    private Vector3 LayoutGoal(Vector2 halfSize, bool measured)
+    {
+        Vector3 target = _openingLayout.Find(RevealReadingDistance, RevealViewDrop, halfSize, out string clearance);
+        _openingHalfSize = halfSize;
+        _openingMeasured = measured;
+        _goal = _openingWorldToRig.MultiplyPoint3x4(target);
+        if (_clearance != clearance && VRLog.WantsDebug)
+            VRLog.Debug("WorldUI", "MIRRORED SURFACE DEPTH: enemy reveal panel — " + clearance);
+        _clearance = clearance;
+        return _goal;
+    }
+
     private void Place()
     {
         if (_panel == null)
             return;
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
-            return; // no head yet — leave the panel where it last sat (world-stable)
+            return;
 
-        float scale = HeadFrameScale();
-        // Cache metersPerPx once the fit has PINNED (item 8): the host rect is frozen at
-        // its full-layout max then, so capturing it here guarantees a later stray
-        // re-measure can never rescale/move the panel — the twitch is gone even if some
-        // late fit slips through. Before the pin, track the live rect so the panel scales
-        // naturally with the content as the cards animate in (the appear animation).
-        float metersPerPx;
-        if (_placedMetersPerPx >= 0f)
-        {
-            metersPerPx = _placedMetersPerPx;
-        }
-        else
+        float scale = PanelLayout.WorldScale;
+        Rect rect = _panel.HostRect.rect;
+        float metersPerPx = _placedMetersPerPx;
+        if (metersPerPx <= 0f)
         {
             metersPerPx = 1f / (PlayTray.TrayPixelsPerMeter * DensityScale);
-            Rect rect = _panel.HostRect.rect; // content-fitted by CanvasConversion.TickFit
             if (rect.width > 1f)
                 metersPerPx = Mathf.Min(metersPerPx, MaxWidthMeters / rect.width);
             if (_fitPinned)
-                _placedMetersPerPx = metersPerPx; // freeze at the pinned (max) width
+                _placedMetersPerPx = metersPerPx;
         }
-
-        // The panel's own half HEIGHT in world metres — what has to clear the control board's top
-        // edge (item 12). The host pivot is centred (CanvasConversion), so half the fitted rect is
-        // the distance from the pivot to the bottom edge. While the staggered card animation is
-        // still growing the rect (pre-pin) the measurement UNDER-states the finished panel, and a
-        // plant that used it would sink back into the board as the panel finishes growing — so the
-        // nominal height is used as a floor.
-        float halfHeightWorld = Mathf.Max(
-            _panel.HostRect != null ? _panel.HostRect.rect.height * 0.5f * metersPerPx * scale : 0f,
-            NominalHalfHeight * scale);
-
-        // Plant (rig-local) in the forward view, then re-project through the LIVE rig each frame
-        // (user #5). World-grab moves the rig ROOT and the head-child together, so the reveal
-        // rides the physical head and never swings with the board. PlantPose also runs the lazy
-        // follow: a head turn/pitch past the deadzone eases the stored pose to a new target.
+        bool measured = _panel.FitMeasuredOnce && rect.width > 1f && rect.height > 1f;
+        Vector2 halfSize = measured ? rect.size * (0.5f * metersPerPx) : NominalHalfSize;
         Transform? rig = Rig.VRRigDriver.RigRoot;
-        PlantPose(head, rig, halfHeightWorld);
+        PlantPose(head, rig, scale, halfSize, measured);
 
-        // Full rig-local follow pose re-projected through the live rig (all axes, incl. Y).
         Vector3 worldPos = rig != null ? rig.TransformPoint(_position) : _position;
-
-        // Upright, yaw-only billboard built in WORLD space (facing the head horizontally). Because
-        // it uses WORLD up and only the horizontal head→panel direction, rig PITCH/ROLL from a
-        // world-grab never tilts the panel and never introduces a vertical component.
-        Vector3 awayWorld = worldPos - head.transform.position;
-        awayWorld.y = 0f;
-        awayWorld = awayWorld.sqrMagnitude > 1e-6f ? awayWorld.normalized : Vector3.forward;
-        Quaternion worldRot = Quaternion.LookRotation(awayWorld, Vector3.up);
-
         Transform host = _panel.HostTransform;
-        host.SetPositionAndRotation(worldPos, worldRot);
+        host.SetPositionAndRotation(worldPos, PanelPlacement.Facing(worldPos, head.transform.position));
         host.localScale = Vector3.one * (metersPerPx * scale);
 
-        // DECISIVE HEIGHT ATTRIBUTION DIAGNOSTIC (throttled ~1/s). Columns actually printed below:
-        // myHostY (the pose we applied), the CARD widget's world Y + whether it is really under our
-        // host, enemyCardsHolder's live parent, the TRAY Y/yaw, trackRootY, headWorldY, rigScale
-        // (zoom), easing, and the re-measured board CLEARANCE. The question it answers is WHOSE
-        // transform moves the pixels the player sees: if the card's world Y tracks TRAY Y rather
-        // than myHostY, the visible reveal is the tray-docked track, not our float — which is
-        // exactly how the tray-coupled ScrollRect was caught (c8f8da6). This is not a lock check;
-        // there is no Y lock (see the LAZY FOLLOW block at the top of the file).
+        // Diagnostic samples the actual reparent, without another placement or board scan.
         float now = Time.unscaledTime;
-        if (now - _lastDiagTime >= 1f)
+        if (VRLog.WantsDebug && now - _lastDiagTime >= 1f)
         {
             _lastDiagTime = now;
-            float rigScale = rig != null ? rig.lossyScale.x : 1f;
-
-            // DECISIVE ATTRIBUTION (user: "seriously trace what happens, it is NOT my head").
-            // My host is provably Y-locked, yet the user still sees the info bob with the board.
-            // So the VISIBLE content must be positioned by another path. Log the ACTUAL monster
-            // card widget's WORLD Y and whether it is really under MY host, the live parent of
-            // enemyCardsHolder (did our reparent stick?), and the TRAY pose — because
-            // InitiativeTrackSurface converts the whole InitiativeTrack ROOT and docks it to the
-            // tray, and enemyCardsHolder is a child of that root. If cardY tracks trayY (not
-            // myHostY), the reveal the user sees is the tray-docked track, not this float.
-            // Re-measure the clearance of the pose ACTUALLY APPLIED this frame (the clamp mutates
-            // only this local probe copy, never the host).
-            Vector3 probe = worldPos;
-            BoardClearance standing = ApplyBoardClearance(head.transform.position, ref probe, halfHeightWorld);
-
             InitiativeTrack tr = InitiativeTrack.Instance;
-            Transform? holderNow = tr != null ? tr.enemyCardsHolder : null;
-            string holderParent = holderNow != null && holderNow.parent != null ? holderNow.parent.name : "<null>";
-            bool holderOnMyHost = holderNow != null && holderNow.parent == host;
+            Transform? holder = tr != null ? tr.enemyCardsHolder : null;
             Transform? card = FirstActiveMonsterCard(tr);
-            string cardY = card != null ? card.position.y.ToString("F2") : "n/a";
-            bool cardUnderMyHost = card != null && IsDescendantOf(card, host);
             Transform? tray = PlayTray.Current != null ? PlayTray.Current.Root : null;
-            float trayY = tray != null ? tray.position.y : 0f;
-            float trayYaw = tray != null ? tray.eulerAngles.y : 0f;
-            float trackRootY = tr != null ? tr.transform.position.y : 0f;
-            VRLog.Info("WorldUI",
-                $"ENEMY REVEAL attribution: myHostY={worldPos.y:F2} | " +
-                $"CARD widget worldY={cardY} underMyHost={cardUnderMyHost} | " +
-                $"enemyCardsHolder.parent='{holderParent}' onMyHost={holderOnMyHost} | " +
-                $"TRAY Y={trayY:F2} yaw={trayYaw:F0}° | trackRootY={trackRootY:F2} | " +
-                $"headWorldY={head.transform.position.y:F2} rigScale={rigScale:F1} easing={_easing} | " +
-                // Item 12: the live board clearance of the STANDING panel (probe = the APPLIED pose
-                // re-measured; the clamp writes only the local copy), so a reveal that ends up
-                // swallowed again is attributable from the log alone — 'raw gaze pose was NEGATIVE'
-                // there means the panel as drawn is inside the board.
-                $"CLEARANCE {standing.Describe()} " +
-                "=> if CARD worldY tracks TRAY Y (not myHostY), the visible reveal is TRAY-DOCKED, not on my float.");
+            VRLog.Debug("WorldUI", $"ENEMY REVEAL attribution: myHostY={worldPos.y:F2} | " +
+                $"CARD widget worldY={card?.position.y:F2} underMyHost={card != null && IsDescendantOf(card, host)} | " +
+                $"enemyCardsHolder.parent='{holder?.parent?.name}' onMyHost={holder != null && holder.parent == host} | " +
+                $"TRAY Y={tray?.position.y:F2} yaw={tray?.eulerAngles.y:F0}° | " +
+                $"headWorldY={head.transform.position.y:F2} rigScale={scale:F1} easing={_easing} | " +
+                $"CLEARANCE {_clearance}");
         }
     }
 
@@ -1360,32 +949,6 @@ internal sealed class EnemyRevealSurface
                 return enemy.monsterBaseUI.transform;
         }
         return null;
-    }
-
-    /// <summary>
-    /// LIVE head-frame scale (game units per real meter, <see cref="PanelLayout.WorldScale"/>
-    /// = the rig's current lossy scale). This is the PLAYER's own real->world conversion, NOT
-    /// a board property — so multiplying the reading distance / view-drop / host size by it
-    /// keeps the reveal at a FIXED comfortable REAL distance and apparent size in the player's
-    /// forward view at ANY zoom or board position.
-    ///
-    /// This deliberately replaces the earlier <c>BaseWorldScale</c> anchor (the diorama base
-    /// scale, itself derived from the board's hex tile size). That base scale was the RESIDUAL
-    /// BOARD COUPLING behind user #2: with it, the reveal's distance/size were pinned to the
-    /// board's diorama frame, so world-grabbing the board (which rescales/moves the rig while
-    /// BaseWorldScale stayed constant) dragged and rescaled the reveal WITH the board. It also
-    /// reverses test #23 (b)'s "zoom with the board" intent per the newer user #2 requirement:
-    /// the reveal must be COMPLETELY INDEPENDENT of the control board. No PlayTray / tray /
-    /// board / InitiativeTrack transform feeds the reveal's world position — only the head
-    /// pose and this player-frame scalar do. Falls back to 1 outside a scenario (no rig).
-    ///
-    /// Item 12 nuance: the board IS consulted once per PLANT, but only as a one-way clearance floor
-    /// on the target (<see cref="ApplyBoardClearance"/>) — the standing panel's pose is still driven
-    /// exclusively by the stored rig-local plant and this scalar, so the board can never move it.
-    /// </summary>
-    private static float HeadFrameScale()
-    {
-        return PanelLayout.WorldScale;
     }
 
     /// <summary>

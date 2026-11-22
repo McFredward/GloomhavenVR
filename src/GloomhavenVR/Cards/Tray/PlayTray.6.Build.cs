@@ -64,17 +64,22 @@ internal sealed partial class PlayTray
     /// </summary>
     internal static void MeasureBoardLocalExtents(Transform root, out float topLocalY, out float halfLocalX)
     {
-        topLocalY = BoardTopLocalY;      // authored fallbacks
-        halfLocalX = BoardHalfWidthLocal;
+        Bounds bounds = MeasureBoardLocalBounds(root);
+        topLocalY = bounds.max.y;
+        halfLocalX = bounds.extents.x;
+    }
+
+    /// <summary>Bound the visible board, including the handle, in its own axes.</summary>
+    internal static Bounds MeasureBoardLocalBounds(Transform root)
+    {
+        Vector3 min = new(-BoardHalfWidthLocal, -BoardTopLocalY, 0f);
+        Vector3 max = new(BoardHalfWidthLocal, BoardTopLocalY, 0f);
         if (root == null)
-            return;
+            return new Bounds(Vector3.zero, max - min);
 
         ExtentScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, ExtentScratch);
         Matrix4x4 worldToLocal = root.worldToLocalMatrix;
-        bool has = false;
-        float maxLocalY = float.NegativeInfinity;
-        float maxLocalAbsX = 0f;
         for (int i = 0; i < ExtentScratch.Count; i++)
         {
             MeshRenderer mr = ExtentScratch[i];
@@ -107,20 +112,21 @@ internal sealed partial class PlayTray
                     (s & 2) == 0 ? -e.y : e.y,
                     (s & 4) == 0 ? -e.z : e.z);
                 Vector3 local = toBoardLocal.MultiplyPoint3x4(corner);
-                if (local.y > maxLocalY)
-                    maxLocalY = local.y;
-                float absX = Mathf.Abs(local.x);
-                if (absX > maxLocalAbsX)
-                    maxLocalAbsX = absX;
-                has = true;
+                min = Vector3.Min(min, local);
+                max = Vector3.Max(max, local);
             }
         }
         ExtentScratch.Clear();
-        if (!has)
-            return;
-
-        topLocalY = Mathf.Clamp(maxLocalY, BoardTopLocalY, BoardTopLocalY + BoardExtentSanityMargin);
-        halfLocalX = Mathf.Clamp(maxLocalAbsX, BoardHalfWidthLocal, BoardHalfWidthLocal + BoardExtentSanityMargin);
+        float halfWidth = Mathf.Min(Mathf.Max(-min.x, max.x), BoardHalfWidthLocal + BoardExtentSanityMargin);
+        min.x = -halfWidth;
+        max.x = halfWidth;
+        min.y = Mathf.Max(min.y, -BoardTopLocalY - BoardExtentSanityMargin);
+        max.y = Mathf.Min(max.y, BoardTopLocalY + BoardExtentSanityMargin);
+        min.z = Mathf.Max(min.z, -BoardExtentSanityMargin);
+        max.z = Mathf.Min(max.z, BoardExtentSanityMargin);
+        var bounds = new Bounds();
+        bounds.SetMinMax(min, max);
+        return bounds;
     }
 
     private void BuildProceduralBoard()
