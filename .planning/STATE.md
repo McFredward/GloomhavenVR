@@ -1,3 +1,24 @@
+**Frosthaven scenario presentation port, Build773, 2026-11-22.**
+
+Use the original animated banner child for turn and round notices. Seat it
+once at reading distance, above the scenario footprint when it fits the view.
+The native UIWindow retains its fullscreen blocker, animation completion and
+continuation callbacks. The visual child restores to its original hierarchy.
+
+After card selection the enemy reveal chooses a seat from the fitted card
+rectangle, the stereo aperture and the visible local and peer boards. Content
+growth reuses the opening measurement. A sustained physical head turn starts
+an eased recenter. The existing native reveal, hover and Continue paths stay
+in charge of their respective behavior.
+
+Class B. Strict Release 0/0, 16 source suites and eight affected local suites.
+Real Unity exercised the original banner callbacks and final camera pixels
+in 16 assertions, plus 20 enemy placement assertions and five causal controls.
+Compiled comparison with Build772 shows three changed UI types, two new
+presentation types and the build stamps. The 32 resources are identical.
+Evidence is in `.planning/validation/build773/`. Live headset and paired
+multiplayer rendering remain to be verified. No wire format change.
+
 **Valve OpenXR passthrough over Steam Link, Build772, 2026-11-20.**
 
 Valve introduced OpenXR AlphaBlend for PC streams with Steam Frame SteamOS
