@@ -1,3 +1,16 @@
+**Depth in the Frosthaven panorama, Build777, 2026-11-23.**
+
+Restore the original textured wordmark plane and use the original panorama's
+embedded GMD1 depth data for the scene instead. The photo uses the existing
+heightfield mesh on its passive world-space canvas. The tile keeps both native
+DLC seats clear and hides when there is insufficient room below them.
+
+Class B. Strict Release 0/0, 16 source checks and two affected runtime suites.
+The final DLL passed 37 Unity assertions including relief and flat-control pixels
+in both eye views, native DLC rotation and a short-menu fallback. The original
+enemy-reveal fix and wire format are unchanged. Evidence is in
+`.planning/validation/build777/`. Live headset presentation remains unverified.
+
 **Solid Frosthaven wordmark and uninterrupted enemy-card reveal, Build776, 2026-11-22.**
 
 The Frosthaven teaser keeps its textured front and draws the original letter
