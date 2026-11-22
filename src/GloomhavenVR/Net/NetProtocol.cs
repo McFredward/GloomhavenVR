@@ -655,7 +655,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 772;
+    public const ushort ModBuild = 773;
+
+    // ModBuild773 — ports FrosthavenVR's native scenario turn banner and
+    // enemy reveal seating. Float the animated banner child while the game
+    // owns its window, interaction blocker and continuation. The reveal
+    // chooses a reading seat from its fitted area, the eye aperture and visible
+    // control-board silhouettes, with the existing gentle head-turn recenter.
+    // No change to native decisions or the multiplayer wire.
 
     // ModBuild772 — Steam Frame over Steam Link now defaults to Valve's OpenXR
     // AlphaBlend when the runtime reports it. Reuse the standalone alpha
