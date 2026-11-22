@@ -1,3 +1,21 @@
+**Release 1.2.5 candidate, Build778, 2026-11-23.**
+
+The maintainer accepted the Build777 Frosthaven panorama in a headset. The
+matching logs show that both teaser textures decoded and the four-card enemy
+reveal opened, held its full layout and restored the native cards. They also
+record a shutdown exception in the reveal diagnostic after Unity destroyed
+the initiative panel host. Build778 uses Unity's destroyed-object check in
+both relevant messages. The render restoration and network format are unchanged.
+
+The actual compiled Build778 passes seven Unity shutdown assertions. The
+untouched Build777 control reproduces the exception and the interrupted renderer
+restore. Strict Release 0/0, all 16 source suites, 307,211 fresh golden assertions,
+asset and public-surface checks, and the focused conversion and initiative checks
+pass. The compiled comparison changes only the reveal diagnostics and build
+identity. All 35 embedded resources match Build777. The test inventory now
+includes both new local suites, and the native card depth controls target the
+current registration guard. Evidence is under `.planning/validation/release125/`.
+
 **Depth in the Frosthaven panorama, Build777, 2026-11-23.**
 
 Restore the original textured wordmark plane and use the original panorama's
@@ -9,7 +27,8 @@ Class B. Strict Release 0/0, 16 source checks and two affected runtime suites.
 The final DLL passed 37 Unity assertions including relief and flat-control pixels
 in both eye views, native DLC rotation and a short-menu fallback. The original
 enemy-reveal fix and wire format are unchanged. Evidence is in
-`.planning/validation/build777/`. Live headset presentation remains unverified.
+`.planning/validation/build777/`. The maintainer subsequently confirmed the teaser
+in a headset.
 
 **Solid Frosthaven wordmark and uninterrupted enemy-card reveal, Build776, 2026-11-22.**
 
