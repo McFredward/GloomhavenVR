@@ -1,0 +1,36 @@
+{
+  "scene": {
+    "title": "Frosthaven official store background",
+    "sourcePage": "https://store.steampowered.com/app/2347080/Frosthaven/",
+    "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2347080/57e7b92a80d83d857f04a14deeb4a1411a1cf353/page_bg_raw.jpg?t=1792089974",
+    "sourceSize": [1438, 810],
+    "sourceSha256": "1f5b14b5b65562734737b58c6a439eb2b52b2672997e4b05d6fc4c231e6d25bd",
+    "processing": "Lanczos fit and centered crop to 16:9. sRGB JPEG quality 90, 4:4:4.",
+    "asset": "Frosthaven_scene.jpg",
+    "size": [1280, 720],
+    "sha256": "766f794f955723428dd20d99d466fdc8cde755cc49ac77b3df16c9c44baaccdd"
+  },
+  "sceneDepth": {
+    "asset": "Frosthaven_scene.gmd",
+    "source": "Frosthaven_scene.jpg",
+    "sourceSha256": "766f794f955723428dd20d99d466fdc8cde755cc49ac77b3df16c9c44baaccdd",
+    "grid": [512, 288],
+    "format": "GMD1, bottom-left inverse depth",
+    "generator": "scripts/menu-depth/infer.py",
+    "profile": "static-native-art-v1",
+    "model": "Video Depth Anything Small",
+    "codeRevision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "modelRevision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpointSha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609",
+    "sha256": "11fe966d4bf8c98745647295758dcfe557926397bc36267fed0ee6c9f1a7c75a"
+  },
+  "wordmark": {
+    "source": "https://github.com/McFredward/FrosthavenVR/blob/9fe069c9cf52ef74133c0703e6689acbf3876dc9/assets/FrosthavenVR_logo.png",
+    "sourceSize": [2194, 717],
+    "sourceSha256": "375b1624e2a837d87af30f191701e7a0c06b911b6f129a0fb5c63bd0caa78f44",
+    "processing": "Crop vertical transparency padding to 2194x430+0+115, preserving all pixels above 1% alpha. Lanczos resize to 1024px width. RGBA8 PNG.",
+    "asset": "FrosthavenVR_logo.png",
+    "size": [1024, 201],
+    "sha256": "3e16789c7da12a8b4beae80d621ca286570958085c63d1f90ab9a82af499d551"
+  }
+}

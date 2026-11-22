@@ -638,10 +638,30 @@ internal sealed class InitiativeReorderSlide
 
         if (_rest.Count == 0 || !setMatches)
         {
-            // Nothing to compare against (first frames after a conversion, or the row just changed
-            // shape). The layout group is in charge here; take its output as the new truth.
+            // Native Proceed can finish a reorder via StopUpdateActors between two
+            // LateTicks. That writes old world X positions and drops the batch/flags.
+            // If the same transition changes the pooled row membership, the idle
+            // branch used to latch the resulting foreign local Z as its new rest
+            // plane. Layout fixes X/Y but cannot heal Z. Restore the original
+            // planes before taking a fresh membership snapshot, as on a live sort.
             if (!animating)
+            {
+                if (track != null && RestoreEntryPlanes(track, holder))
+                {
+                    // Complete the native XY layout first as well. Otherwise
+                    // LatchRest can record the leaked Y before the next canvas pass.
+                    HorizontalLayoutGroup? group = track.layoutGroup;
+                    if (group != null && group.isActiveAndEnabled && group.transform is RectTransform rect)
+                        LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+                    if (Time.unscaledTime >= _nextGuardLog)
+                    {
+                        _nextGuardLog = Time.unscaledTime + GuardLogInterval;
+                        VRLog.Note("WorldUI", "INITIATIVE ROW PLANE RECOVERED: restored original portrait depth "
+                            + "before recording a changed native row.");
+                    }
+                }
                 LatchRest(track, holder);
+            }
             return;
         }
 
@@ -1062,8 +1082,9 @@ internal sealed class InitiativeReorderSlide
     /// newly pooled native player/enemy roots are authored at zero (level6's two
     /// referenced prefabs). Nested portrait/selection depth is deliberately untouched.
     /// </summary>
-    private void RestoreEntryPlanes(InitiativeTrack track, Transform holder)
+    private bool RestoreEntryPlanes(InitiativeTrack track, Transform holder)
     {
+        bool repaired = false;
         List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
         for (int i = 0; actors != null && i < actors.Count; i++)
         {
@@ -1074,8 +1095,12 @@ internal sealed class InitiativeReorderSlide
             float z = _rest.TryGetValue(root, out Rest native) ? native.Z : 0f;
             Vector3 live = root.localPosition;
             if (Mathf.Abs(live.z - z) > 0.001f)
+            {
                 root.localPosition = new Vector3(live.x, live.y, z);
+                repaired = true;
+            }
         }
+        return repaired;
     }
 
     private void PrimeAfterMembershipChange(InitiativeTrack track, Transform holder)

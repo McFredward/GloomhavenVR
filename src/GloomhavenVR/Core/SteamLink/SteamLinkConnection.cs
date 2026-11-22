@@ -43,7 +43,7 @@ internal static class SteamLinkConnection
     private static int _warnedReasons;
 
     // Caller must prove an ACTIVE running SteamVR OpenXR session, WindowsPlayer,
-    // and !FrameNativePassthrough.Required. An installed/loaded DLL is not proof.
+    // and a non-standalone launch. An installed/loaded DLL is not proof.
     internal static void Tick(bool eligibleRunningSteamVrSession, float nowSeconds)
     {
         Snapshot before = State.Current;

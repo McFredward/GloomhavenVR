@@ -7,14 +7,23 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Frame passthrough depends on the live OpenXR runtime, not a guessed Proton version.
+/// Native passthrough availability follows the current OpenXR session.
 /// Preserve the user's saved preference while keeping unavailable choices inert and explained.
 /// </summary>
 internal static partial class VROptionsTab
 {
     private static readonly List<Action> MixedRealityAvailabilityRefreshers = new();
     private static int _mixedRealityAvailabilitySignature = -1;
-    private static bool? _steamLinkAvailable;
+    private static (bool Companion, bool KeyColor)? _mixedRealityRowVisibility;
+
+    private static bool SteamLinkCompanionVisible =>
+        !FrameNativePassthrough.Standalone && Core.SteamLink.SteamLinkConnection.Available;
+
+    private static bool MixedRealityKeyColorVisible =>
+        !FrameNativePassthrough.Required && !SteamLinkCompanionVisible;
+
+    private static (bool Companion, bool KeyColor) MixedRealityRowVisibility =>
+        (SteamLinkCompanionVisible, MixedRealityKeyColorVisible);
 
     private static bool MixedRealityCanEnable =>
         !FrameNativePassthrough.Required || FrameNativePassthrough.IsAvailable;
@@ -31,11 +40,14 @@ internal static partial class VROptionsTab
     private static string MixedRealityHint()
     {
         if (!FrameNativePassthrough.Required)
-            return Loc.ConfigHelpForPlayers("MixedReality", "Enabled") ?? string.Empty;
+            return SteamLinkCompanionVisible ? Loc.Mod("mr_frame_companion_selected")
+                : Loc.ConfigHelpForPlayers("MixedReality", "Enabled") ?? string.Empty;
         if (MixedRealityCanEnable)
             return Loc.Mod("mr_frame_available");
-        return Loc.Mod(FrameNativePassthrough.Status == FrameNativePassthroughStatus.Checking
-            ? "mr_frame_checking" : "mr_frame_update_required");
+        if (FrameNativePassthrough.Status == FrameNativePassthroughStatus.Checking)
+            return Loc.Mod("mr_frame_checking");
+        return Loc.Mod(FrameNativePassthrough.Standalone
+            ? "mr_frame_update_required" : "mr_frame_stream_update_required");
     }
 
     private static void RefreshMixedRealitySwitch(ConfigCatalog.ConfigItem item, Toggle toggle, TMP_Text? title)
@@ -50,6 +62,9 @@ internal static partial class VROptionsTab
         AttachHoverHint(toggle.gameObject, hint, item.Key);
     }
 
+    private static void CaptureMixedRealityRowVisibility() =>
+        _mixedRealityRowVisibility = MixedRealityRowVisibility;
+
     private static void RegisterMixedRealityAvailabilityRefresh(Action refresh)
     {
         MixedRealityAvailabilityRefreshers.Add(refresh);
@@ -61,14 +76,13 @@ internal static partial class VROptionsTab
     {
         if (!IsOpen)
             return;
-        bool steamLinkAvailable = Core.SteamLink.SteamLinkConnection.Available;
-        bool changed = _steamLinkAvailable.HasValue && _steamLinkAvailable.Value != steamLinkAvailable;
-        _steamLinkAvailable = steamLinkAvailable;
+        var visibility = MixedRealityRowVisibility;
+        bool changed = _mixedRealityRowVisibility.HasValue && _mixedRealityRowVisibility.Value != visibility;
+        _mixedRealityRowVisibility = visibility;
         if (changed)
         {
-            // The asynchronous identity check can finish while this pane is
-            // already open. Re-evaluate both the native switch and key colour;
-            // never leave an unavailable saved-on preference hiding its fallback.
+            // The OpenXR capability and the companion connection can resolve independently.
+            // Rebuild only when their result changes which rows belong in this pane.
             TickGuard.Run("VROptionsTab.RebuildSteamLinkCapability", Rebuild, "WorldUI");
             return;
         }
@@ -87,6 +101,6 @@ internal static partial class VROptionsTab
     {
         MixedRealityAvailabilityRefreshers.Clear();
         _mixedRealityAvailabilitySignature = -1;
-        _steamLinkAvailable = null;
+        _mixedRealityRowVisibility = null;
     }
 }

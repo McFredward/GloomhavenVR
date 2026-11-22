@@ -72,6 +72,7 @@ internal static partial class MixedReality
     /// <summary>MR mode master (settings-panel toggle binds this).</summary>
     internal static ConfigEntry<bool> Enabled = null!;
     internal static ConfigEntry<bool> SteamLinkNative = null!;
+    internal static ConfigEntry<bool> SteamLinkCompanion = null!;
     internal static ConfigEntry<bool> SteamLinkEdgeQuality = null!;
     internal static ConfigEntry<int> SteamLinkEncodeWidth = null!;
 
@@ -439,8 +440,9 @@ internal static partial class MixedReality
     /// </summary>
     internal static bool BackingsWanted =>
         _file != null && Enabled.Value && VRSession.IsRunning
-        && (!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)
-        && (!SteamLink.SteamLinkSceneRuntime.Requested || SteamLink.SteamLinkSceneRuntime.Active);
+        && (FrameNativePassthrough.Required ? FrameNativePassthrough.IsActive
+            : SteamLink.SteamLinkSceneRuntime.Requested ? SteamLink.SteamLinkSceneRuntime.Active
+            : !SteamLink.SteamLinkConnectionLifecycle.Checking && _active);
 
     /// <summary>
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
@@ -462,21 +464,18 @@ internal static partial class MixedReality
             return;
         _file = ModuleConfig.Create("mixedreality");
         Enabled = _file.Bind("MixedReality", "Enabled", Defaults.MixedReality_Enabled,
-            "Place the game table in your real room. Steam Frame standalone uses native " +
-            "passthrough when the active Proton/OpenXR/SteamVR combination supports alpha " +
-            "composition; otherwise this choice is unavailable. PC streaming normally uses " +
-            "the selected solid KeyColor for compatible software such as Virtual Desktop. " +
-            "The native Steam Link choice requires matching PC and Frame companions. " +
+            "Place the game table in your real room. Steam Frame standalone and Steam Link " +
+            "use native OpenXR alpha blending when the runtime supports it. Other compatible " +
+            "streaming software such as Virtual Desktop uses the selected solid KeyColor. " +
             "Sky backgrounds are hidden, game geometry stays visible and floated " +
             "UI gets readable backing plates. Turning off restores the previous environment.");
         SteamLinkNative = _file.Bind("MixedReality", "SteamLinkNative", Defaults.SteamLinkNative,
-            "Experimental native passthrough while streaming to Steam Frame over Steam Link. " +
-            "Available only on an identified Steam Frame/vrlink connection, enabled by default. " +
-            "Other headsets and streaming transports retain ordinary output even if this saved preference is on. " +
+            "INERT — previous default-on companion preference, retained for configuration compatibility. " +
+            "Use SteamLinkCompanion for an explicit opt-in to the legacy method.");
+        SteamLinkCompanion = _file.Bind("MixedReality", "SteamLinkCompanion", Defaults.SteamLinkCompanion,
+            "Use the legacy companion instead of Valve's OpenXR alpha blending over Steam Link. " +
+            "Available only on an identified Steam Frame Steam Link connection. " +
             "Requires compatible PC and Frame companions. Without them the normal game image remains visible. " +
-            "Streams the real game image with separate opacity instead of replacing a colour. " +
-            "Changes apply immediately, including while VR Options is open. " +
-            "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
             "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
             "Does not change eye resolution, video quality settings or Steam Frame standalone passthrough.");
         SteamLinkEdgeQuality = _file.Bind("MixedReality", "SteamLinkEdgeQuality", Defaults.SteamLinkEdgeQuality,
@@ -620,8 +619,6 @@ internal static partial class MixedReality
     {
         Bind();
         SteamLink.SteamLinkConnectionLifecycle.Tick();
-        SteamLink.SteamLinkCoverageBridge.Tick(SteamLink.SteamLinkSceneRuntime.Requested
-            && Enabled.Value && VRSession.IsRunning && SteamLink.SteamLinkSceneRuntime.SourceProfileSupported, Time.unscaledTime);
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the
         // elements reach the player under every presentation — a bundled room, the game's own sky,
@@ -634,16 +631,20 @@ internal static partial class MixedReality
         bool requested = Enabled.Value && VRSession.IsRunning;
         bool native = FrameNativePassthrough.Required;
         bool stream = SteamLink.SteamLinkSceneRuntime.Requested;
+        if (!native || !requested)
+            FrameNativePassthrough.Exit();
+        bool restoringAlpha = !native && requested && FrameNativePassthrough.RestorationPending;
+        SteamLink.SteamLinkCoverageBridge.Tick(stream && requested && !restoringAlpha
+            && SteamLink.SteamLinkSceneRuntime.SourceProfileSupported, Time.unscaledTime);
         // A pending identity query is not a request for chroma key. Keep the
         // ordinary image until admission completes, including a real HMD
         // reconnect; never flash the saved green key during that transition.
-        bool checkingStream = !native && SteamLinkNative.Value
-            && SteamLink.SteamLinkConnectionLifecycle.Checking;
+        bool checkingStream = !native && (restoringAlpha || SteamLink.SteamLinkConnectionLifecycle.Checking);
         bool streamReady = false;
         // Only a compatible paired companion can admit native stream coverage.
         // Until then the unmodified game image stays visible; there is no atlas
         // or chroma-key fallback for an identified Steam Link connection.
-        bool streamHostPrepared = SteamLink.SteamLinkSceneRuntime.TransportPrepared();
+        bool streamHostPrepared = stream && !restoringAlpha && SteamLink.SteamLinkSceneRuntime.TransportPrepared();
         if (!native && stream && requested && streamHostPrepared)
         {
             Camera? streamHead = VRCameraPolicy.AllowedHead;
@@ -672,8 +673,6 @@ internal static partial class MixedReality
         {
             if (_active || CamOriginals.Count != 0)
                 RestoreAll();
-            else if (!requested)
-                FrameNativePassthrough.Exit();
             // MR OFF: the player's SKY CHOICE applies ([Sky] Style — SkyAlternative). Default:
             // the game's sky STAYS and is made a pure NON-OCCLUDING backdrop by SkyBackdrop
             // (ZWrite-off, or — when the shader hard-codes ZWrite On — the sky is left drawing

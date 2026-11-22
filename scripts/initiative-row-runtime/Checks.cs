@@ -222,10 +222,45 @@ public static class InitiativeRowChecks
         evidence = output; Assertions = 0; VRLog.Lines.Clear();
         if (scenario == "cold") { var cold = Cold(); while (cold.MoveNext()) yield return cold.Current; yield break; }
         if (scenario == "edges") { var edges = Edges(); while (edges.MoveNext()) yield return edges.Current; yield break; }
+        if (scenario == "proceed-repool") { ProceedRepool(); yield break; }
         if (scenario == "idle" || scenario == "abort")
         { var idle = Idle(scenario == "abort"); while (idle.MoveNext()) yield return idle.Current; yield break; }
         var changed = Changed(scenario == "remove", scenario == "paused");
         while (changed.MoveNext()) yield return changed.Current;
+    }
+
+    private static void ProceedRepool()
+    {
+        using var scene = new Scene(3);
+        scene.Convert();
+        scene.Tick();
+
+        // Native StopUpdateActors:300–329 writes the saved world X while
+        // isAnimating, turns layout back on and clears its batch. Proceed can
+        // do this before our next Tick has ever observed a live batch.
+        var savedX = scene.Entries.Select(entry => entry.transform.position.x).ToArray();
+        Vector3 move = new Vector3(.7f, 0, 0);
+        scene.Board.position += move;
+        scene.Camera.transform.position += move;
+        scene.Tick();
+        for (int i = 0; i < scene.Entries.Count; i++)
+        {
+            Transform root = scene.Entries[i].transform;
+            Vector3 position = root.position;
+            root.position = new Vector3(savedX[i], position.y, position.z);
+        }
+        scene.Track.isAnimating = false;
+        scene.Track.animationDelayed = false;
+        scene.Track.moveXAnimations.Clear();
+        scene.Add(20);
+        scene.NativeLayout();
+        Check(scene.Entries.Any(entry => Mathf.Abs(entry.transform.localPosition.z) > 100f),
+            "native world-X stop leaves displaced entry planes after the XY-only repool layout");
+
+        scene.Tick();
+        scene.PlaneAndPixels("proceed-repool");
+        scene.Tick();
+        scene.PlaneAndPixels("proceed-repool-settled");
     }
 
     [Serializable] private sealed class NativeRect

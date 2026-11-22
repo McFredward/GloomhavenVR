@@ -113,6 +113,7 @@ internal sealed class BoardModule : IVRModule
         // ENVIRONMENT-ROOM BLEED.
         VRSession.Harmony?.PatchAll(typeof(HexHighlightFix.ProjectorModifier_Awake_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
+        VRSession.Harmony?.PatchAll(typeof(Patches.NativeUndoReplication));
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
         // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
         VRSession.Harmony?.PatchAll(typeof(FigureGrab.ActorBehaviour_HeldTransform_Patch));

@@ -3072,6 +3072,17 @@
       "weight": 4
     },
     {
+      "id": "enemy-reveal-placement",
+      "command": [
+        "python3",
+        "scripts/check-enemy-reveal-placement-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
       "id": "shared-window-geometry-runtime",
       "command": [
         "python3",
@@ -3407,6 +3418,17 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "native-undo-replication-runtime",
+      "command": [
+        "python3",
+        "scripts/native-undo-replication-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
     },
     {
       "id": "initiative-row-runtime",

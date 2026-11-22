@@ -8,7 +8,7 @@ using UnityEngine.XR.OpenXR.NativeTypes;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// Queries the actual instance once per system and controls standalone Frame's
+/// Queries the actual instance once per system and controls Steam Frame's
 /// native alpha composition only when explicitly requested. No native functions
 /// are replaced and no second instance, session or private camera API is used.
 /// </summary>
@@ -34,6 +34,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     internal const double ActivationTimeoutSeconds = 3;
     internal const int MinimumPendingObservations = 3;
 
+    internal bool SupportsAlphaBlend => _capabilities?.IsComplete == true && _capabilities.Modes.Contains(3);
     internal bool PassthroughActive => _active && _instance != 0 && _sessionBegun;
     internal FrameNativePassthroughStatus PassthroughStatus
     {
@@ -42,7 +43,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
             if (_activationFailed) return FrameNativePassthroughStatus.ActivationFailed;
             if (_capabilities == null) return FrameNativePassthroughStatus.Checking;
             if (!_capabilities.IsComplete) return FrameNativePassthroughStatus.QueryFailed;
-            if (!_capabilities.Modes.Contains(3)) return FrameNativePassthroughStatus.Unsupported;
+            if (!SupportsAlphaBlend) return FrameNativePassthroughStatus.Unsupported;
             return _instance != 0 && _session != 0 && _sessionBegun
                 ? FrameNativePassthroughStatus.Available : FrameNativePassthroughStatus.Checking;
         }
@@ -305,12 +306,32 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         _previousMode = null;
     }
 
+    // When leaving OpenXR alpha for another MR route, wait for Unity's queued
+    // restoration before giving that route ownership of the head output.
+    internal bool IsAlphaRestorationPending()
+    {
+        if (!_restoringMode.HasValue) return false;
+        try
+        {
+            if (GetEnvironmentBlendMode() == XrEnvironmentBlendMode.AlphaBlend) return true;
+        }
+        catch (Exception e)
+        {
+            FailActivation("native blend restoration readback exception " + e.GetType().Name);
+            return true;
+        }
+        _restoringMode = null;
+        return false;
+    }
+
     private void FailActivation(string reason)
     {
         if (_activationFailed) return;
         _activationFailed = true;
+        string updates = FrameNativePassthrough.Standalone
+            ? "update Proton and SteamVR" : "update SteamOS on the Frame and SteamVR on the PC";
         VRLog.Warn("Core", "Steam Frame native passthrough unavailable: " + reason +
-            "; update Proton and SteamVR, then restart the game; ordinary VR remains available.");
+            "; " + updates + ", then restart the game; ordinary VR remains available.");
     }
 
     public override void OnInstanceDestroy(ulong xrInstance) => EndInstance(xrInstance);

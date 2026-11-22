@@ -5,19 +5,29 @@ using UnityEngine;
 // camera restoration and HDR owner are compiled verbatim and run in real Unity.
 namespace GloomhavenVR.Core;
 internal sealed class Entry<T> { internal T Value; internal Entry(T value) => Value = value; }
-internal static class VRSession { internal static bool IsRunning = true; internal static bool? InputFocus = true; }
+internal static class VRSession
+{
+    internal static bool IsRunning = true;
+    internal static bool? InputFocus = true;
+    internal static string? RuntimeName;
+}
 internal static class VRCameraPolicy
 {
     internal static Camera? AllowedHead;
     internal static Camera[] Others = new Camera[0];
     internal static int GetAllCamerasNonAlloc(out Camera[] all) { all = Others; return all.Length; }
 }
-internal static class FrameNativePassthrough
+internal sealed class OpenXrEnvironmentBlendFeature
 {
-    internal static bool Required, Ready, IsActive;
-    internal static int Requests, Exits;
-    internal static bool TryEnter() { Requests++; IsActive = Ready; return Ready; }
-    internal static void Exit() { Exits++; IsActive = false; }
+    internal bool SupportsAlphaBlend = true, Ready, PassthroughActive, Restoring;
+    internal int Requests;
+    internal FrameNativePassthroughStatus PassthroughStatus => !SupportsAlphaBlend
+        ? FrameNativePassthroughStatus.Unsupported : Ready
+        ? FrameNativePassthroughStatus.Available : FrameNativePassthroughStatus.Checking;
+    internal bool TryEnterPassthrough(double now)
+    { Requests++; PassthroughActive = Ready && SupportsAlphaBlend; return PassthroughActive; }
+    internal void ExitPassthrough() => PassthroughActive = false;
+    internal bool IsAlphaRestorationPending() => Restoring;
 }
 internal static class ElementMood { internal static void Tick() { } }
 internal static class SkyAlternative
@@ -31,7 +41,8 @@ internal static partial class MixedReality
 {
     private static readonly object _file = new();
     internal static readonly Entry<bool> Enabled = new(false);
-    internal static readonly Entry<bool> SteamLinkNative = new(false);
+    internal static readonly Entry<bool> SteamLinkNative = new(true); // Old persisted preference is inert.
+    internal static readonly Entry<bool> SteamLinkCompanion = new(false);
     internal static readonly Entry<bool> SteamLinkEdgeQuality = new(true);
     internal static readonly Entry<Color> KeyColor = new(Color.green);
     private static bool _active, _loggedActive, _skyboxSaved;

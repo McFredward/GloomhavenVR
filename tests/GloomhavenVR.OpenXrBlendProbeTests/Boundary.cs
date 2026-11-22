@@ -65,12 +65,21 @@ namespace GloomhavenVR.Core
     // Type-only dependencies of the actual VRSession source; no lifecycle is modeled here.
     internal sealed class CoreModule { }
     internal sealed class OpenXRBootstrap { }
+    internal static class MixedReality
+    {
+        internal sealed class Entry { internal bool Value; }
+        internal static Entry? SteamLinkCompanion;
+    }
     internal static class VRLog
     {
         public static readonly List<string> Lines = new();
         public static void Info(string scope, string message) => Lines.Add(message);
         public static void Warn(string scope, string message) => Lines.Add(message);
     }
+}
+namespace GloomhavenVR.Core.SteamLink
+{
+    internal static class SteamLinkConnection { internal static bool Available; }
 }
 namespace GloomhavenVR
 {

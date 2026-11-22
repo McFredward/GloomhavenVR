@@ -1,6 +1,10 @@
 # Steam Frame mixed reality: implementation decision
 
-Updated: 2026-10-09. Build653 implements capability-gated native alpha
+**2026-11-20 update** — Valve now supports streamed OpenXR alpha composition on
+Steam Frame. See the [current Steam Link implementation](../STEAM-LINK-MASK.md).
+The investigation below describes the original standalone implementation.
+
+2026-10-09. Build653 implements capability-gated native alpha
 composition for Steam Frame standalone. The renderer and menu have automated
 coverage; actual Proton/compositor output is still awaiting a headset test.
 

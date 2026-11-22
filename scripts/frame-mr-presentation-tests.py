@@ -34,7 +34,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/frame-mr-presentation')
-    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner', 'pending-key', 'pending-host']
+    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner', 'pending-key', 'pending-host',
+                'require-legacy-reader', 'overlap-native-companion']
     parser.add_argument('--mutation', choices=controls)
     parser.add_argument('--all', action='store_true', help='Run production and all causal negative controls')
     args = parser.parse_args()
@@ -61,6 +62,7 @@ def main():
     source_path = ROOT / 'src/GloomhavenVR/Core/MixedReality/MixedReality.cs'
     camera_path = ROOT / 'src/GloomhavenVR/Core/MixedReality/MrNativeCamera.cs'
     owner_path = ROOT / 'src/GloomhavenVR/Core/SteamLink/SteamLinkSceneRuntime.cs'
+    route_path = source_path.with_name('FrameNativePassthrough.cs')
     source = source_path.read_text()
     owner = owner_path.read_text().split('// Unity invokes this only on the camera', 1)[0]
     # No XR device is created: the real ownership/lifecycle code receives a
@@ -100,6 +102,16 @@ def main():
         # must reject this former parallel prepare/admit behavior.
         source = source.replace(old, 'if (!native && stream && requested)')
         owner = owner.replace(' || !TransportPrepared())', ')')
+    if args.mutation == 'require-legacy-reader':
+        old = ': _feature?.SupportsAlphaBlend == true)'
+        route = route_path.read_text()
+        assert route.count(old) == 1
+        route_path = run / route_path.name
+        route_path.write_text(route.replace(old, ': false)'))
+    if args.mutation == 'overlap-native-companion':
+        old = 'bool restoringAlpha = !native && requested && FrameNativePassthrough.RestorationPending;'
+        assert source.count(old) == 1
+        source = source.replace(old, 'bool restoringAlpha = false;')
     declarations = [method(source, signature) for signature in (
         'internal static void Tick()', 'private static void Record(Camera cam)',
         'private static void ForceSolid(Camera cam, Color key)', 'internal static void RestoreAll()')]
@@ -120,6 +132,7 @@ def main():
     command = [dotnet, 'build', str(fixture / 'Presentation.csproj'), '-c', 'Release', '-p:UseSharedCompilation=false',
         '-p:CaseName=FrameMrPresentation', '-p:PresentationSource=' + str(generated),
         '-p:StreamOwnerSource=' + str(generated_owner),
+        '-p:NativeRouteSource=' + str(route_path),
         '-p:SteamLinkSource=' + str(owner_path.parent),
         '-p:CameraSource=' + str(camera_path), '-p:UnityManaged=' + str(args.unity.parent / 'Data/Managed'),
         '-p:BaseIntermediateOutputPath=' + str(build / 'obj') + '/',
@@ -153,7 +166,9 @@ def main():
                     'menu-entry': 'open settings applies native streaming immediately',
                     'menu-owner': 'open settings retains live source ownership',
                     'pending-key': 'initial identity query never selects the saved green key',
-                    'pending-host': 'pending paired capability preserves ordinary presentation without chromakey'}[args.mutation]
+                    'pending-host': 'pending paired capability preserves ordinary presentation without chromakey',
+                    'require-legacy-reader': 'SteamVR AlphaBlend enables native stream clear before the companion reader identifies the headset',
+                    'overlap-native-companion': 'wait for OpenXR opacity to be restored before companion negotiation and rendering'}[args.mutation]
         assert completed.returncode != 0 and expected in output, output
         print('PASS negative control: ' + args.mutation)
     else:
@@ -161,7 +176,7 @@ def main():
         if completed.returncode:
             raise SystemExit(completed.returncode)
     (run / 'source-sha256.txt').write_text('\n'.join(str(path.relative_to(ROOT)) + ' '
-        + hashlib.sha256(path.read_bytes()).hexdigest() for path in (source_path, camera_path, owner_path)) + '\n')
+        + hashlib.sha256(path.read_bytes()).hexdigest() for path in (source_path, camera_path, owner_path, route_path)) + '\n')
     # Preserve small causal receipts, never whole editor caches from successful runs.
     shutil.rmtree(project / 'Library', ignore_errors=True)
     completion['exit_code'] = 0

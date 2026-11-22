@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile bounded production request/menu predicates; no HMD, helper or receiver is simulated."""
+"""Compile bounded production menu predicates with explicit connection and XR capability inputs."""
 import argparse
 import hashlib
 import json
@@ -33,59 +33,71 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
     completion = run / 'completion.log'
     completion.write_text('Evidence: ' + str(run) + '\n')
-    inputs = [ROOT / 'src/GloomhavenVR/Core/SteamLink/SteamLinkSceneRuntime.cs',
-        ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.8.Dependencies.cs',
-        ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.MixedReality.cs',
-        ROOT / 'src/GloomhavenVR/Defaults/Defaults.Core.cs', HERE / 'Program.cs',
-        HERE / 'Fixture.csproj', Path(__file__),
-        ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.4.Curated.cs']
+    options = ROOT / 'src/GloomhavenVR/WorldUI/Options'
+    dependencies_path = options / 'VROptionsTab.8.Dependencies.cs'
+    menu_path = options / 'VROptionsTab.MixedReality.cs'
+    content_path = options / 'VROptionsTab.3.Content.cs'
+    curated_path = options / 'VROptionsTab.4.Curated.cs'
+    catalog_path = options / 'ConfigCatalog.cs'
+    inputs = [dependencies_path, menu_path, HERE / 'Program.cs',
+        HERE / 'Fixture.csproj', Path(__file__), curated_path, content_path, catalog_path]
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     copies = run / 'sources'; copies.mkdir()
     for p in inputs: shutil.copyfile(p, copies / p.name)
-    owner, dependencies, menu, defaults = [p.read_text() for p in inputs[:4]]
-    requested = re.search(r'internal static bool Requested =>.*?;', owner, re.S)[0]
+    dependencies, menu = dependencies_path.read_text(), menu_path.read_text()
     visible = re.search(r'private static bool IsRowVisible\(.*?;', dependencies, re.S)[0]
-    predicate = re.search(r'\["MixedReality/KeyColor"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
-    edge_predicate = re.search(r'\["MixedReality/SteamLinkEdgeQuality"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
+    fields = menu[menu.index('private static readonly List<Action>'):
+        menu.index('private static bool IsEnvironmentChoice')]
     refresh = method(menu, 'private static void RefreshMixedRealityAvailability()')
     clear = method(menu, 'private static void ClearMixedRealityAvailabilityRefreshers()')
-    assert re.search(r'internal const bool SteamLinkNative = true;', defaults)
-    assert not re.search(r'new\("MixedReality", "SteamLinkEncodeWidth",', inputs[-1].read_text())
-    # A counterexample that restores each actual defect must be rejected at its
-    # semantic assertion; compilation failure alone is never counted as proof.
-    variants = {
-        'production': (requested, visible, predicate, refresh),
-        'request-gate': (requested.replace('&& SteamLinkConnection.Available', ''), visible, predicate, refresh),
-        'row-gate': (requested, visible.replace('&& !Core.SteamLink.SteamLinkConnection.Available', '&& false'), predicate, refresh),
-        'fallback': (requested, visible, 'static v => Off(v)', refresh),
-        'live-refresh': (requested, visible, predicate, refresh.replace('if (changed)', 'if (changed && false)')),
+    capture = re.search(r'private static void CaptureMixedRealityRowVisibility\(.*?;', menu, re.S)[0]
+    source = '\n'.join([fields, visible, refresh, clear, capture])
+    rebuild = method(content_path.read_text(), 'private static void Rebuild()')
+    assert rebuild.index('ClearRows();') < rebuild.index('CaptureMixedRealityRowVisibility();') < rebuild.index('BuildAdvancedIndex()')
+    topic = method(content_path.read_text(), 'private static int BuildTopic(')
+    assert 'ConfigCatalog.Groups(topic)' in topic and 'IsRowVisible(entry)' in topic and 'BuildItem(entry,' in topic
+    categorization = method(catalog_path.read_text(), 'private static ConfigTopic TopicOf(')
+    assert re.search(r'case "MixedReality":(?:\s*case "[^"]+":)*\s*return ConfigTopic.Environment;', categorization)
+    assert not re.search(r'new\("MixedReality", "(?:SteamLinkNative|SteamLinkCompanion|SteamLinkEncodeWidth|SteamLinkEdgeQuality)",',
+        curated_path.read_text())
+    # Each counterexample must fail its semantic assertion after compiling.
+    mutations = {
+        'companion-row': ('!FrameNativePassthrough.Standalone && Core.SteamLink.SteamLinkConnection.Available',
+            '!FrameNativePassthrough.Standalone'),
+        'chroma-native': ('!FrameNativePassthrough.Required && !SteamLinkCompanionVisible',
+            '!SteamLinkCompanionVisible'),
+        'chroma-companion': ('!FrameNativePassthrough.Required && !SteamLinkCompanionVisible',
+            '!FrameNativePassthrough.Required'),
+        'live-refresh': ('if (changed)', 'if (changed && false)'),
+        'early-refresh': ('_mixedRealityRowVisibility = MixedRealityRowVisibility;', '_mixedRealityRowVisibility = null;'),
+        'retired-options': ('"SteamLinkNative" or "SteamLinkEdgeQuality" or "SteamLinkEncodeWidth" => true',
+            '"SteamLinkNative" or "SteamLinkEdgeQuality" or "SteamLinkEncodeWidth" => false'),
     }
-    variants = {name: (*values, edge_predicate) for name, values in variants.items()}
-    variants['quality-parent'] = (requested, visible, predicate, refresh, 'static v => true')
-    variants['retired-width'] = (requested, visible.replace(
-        '&& !(item.Section == "MixedReality" && item.Key == "SteamLinkEncodeWidth")', '&& true'),
-        predicate, refresh, edge_predicate)
+    variants = {'production': source}
+    for name, (original, mutated) in mutations.items():
+        assert source.count(original) == 1, name
+        variants[name] = source.replace(original, mutated)
     project = run / 'owned-project'; project.mkdir()
     shutil.copyfile(HERE / 'Fixture.csproj', project / 'Fixture.csproj')
     shutil.copyfile(HERE / 'Program.cs', project / 'Program.cs')
     env = dict(os.environ); env['PATH'] = str(Path.home() / '.dotnet') + os.pathsep + env.get('PATH', '')
     code = 1
     results = []
-    expected = {'request-gate': 'only proven Frame/vrlink plus preference',
-        'row-gate': 'native control requires current Frame/vrlink',
-        'fallback': 'unsupported persisted-on preference must retain chromakey controls',
-        'live-refresh': 'resolved capability refreshes an already open pane',
-        'quality-parent': 'edge quality requires proven streaming plus native preference',
-        'retired-width': 'retired encoding width is hidden in every hardware and preference state'}
+    expected = {
+        'companion-row': 'legacy control is limited to identified Frame streaming',
+        'chroma-native': 'chroma colour is reserved for generic PC streaming',
+        'chroma-companion': 'chroma colour is reserved for generic PC streaming',
+        'live-refresh': 'identified connection updates an already open pane',
+        'early-refresh': 'first tick sees capability change since building rows',
+        'retired-options': 'retired companion and transmission options stay hidden',
+    }
+    assertions = None
     try:
-        for name, (request, row, pred, update, edge_pred) in variants.items():
+        for name, variant in variants.items():
             fixture = ('using System; using System.Collections.Generic; using GloomhavenVR.Core;\n'
-                + 'namespace GloomhavenVR.Core.SteamLink { internal static partial class SteamLinkSceneRuntime {' + request + '} }\n'
                 + 'namespace GloomhavenVR.WorldUI { internal static partial class VROptionsTab {'
-                + 'private static Func<object?, bool> KeyPredicate = ' + pred + ';\n'
-                + 'private static Func<object?, bool> EdgeQualityPredicate = ' + edge_pred + ';\n'
-                + row + '\n' + update + '\n' + clear + '} }')
+                + variant + '} }')
             (project / 'Source.cs').write_text(fixture)
             (copies / (name + '.cs')).write_text(fixture)
             command = ['dotnet', 'run', '--project', str(project / 'Fixture.csproj'), '-c', 'Release']
@@ -93,7 +105,8 @@ def main():
                 process = subprocess.run(command, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=120)
             output = (run / (name + '.log')).read_text()
             if name == 'production':
-                assert process.returncode == 0 and '69 assertions' in output, output
+                assert process.returncode == 0 and '57 assertions' in output, output
+                assertions = 57
             else:
                 assert process.returncode != 0 and expected[name] in output, 'Wrong refusal: ' + name + '\n' + output
                 assert 'error CS' not in output, output
@@ -106,7 +119,7 @@ def main():
         cleanup = cleanup_completed_run('steamlink-availability', code, completion, ROOT, process_reaped=True)
         if project.is_dir() and not project.is_symlink(): shutil.rmtree(project)
         (run / 'result.json').write_text(json.dumps({'exit_code': code, 'cases': results,
-            'assertions': 69 if results and results[0]['accepted'] else None,
+            'assertions': assertions,
             'cleanup': cleanup, 'scope': 'Production predicates; HMD identity and actual image output are external boundaries.'}, indent=2) + '\n')
         print('Evidence: ' + str(run))
     return code

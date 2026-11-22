@@ -13,6 +13,7 @@ namespace GloomhavenVR.Core
     internal enum FrameNativePassthroughStatus { Checking, Unsupported, QueryFailed, ActivationFailed, Available }
     internal static class FrameNativePassthrough
     {
+        internal static bool Standalone { get; set; }
         internal static bool Required { get; set; }
         internal static bool IsAvailable { get; set; }
         internal static FrameNativePassthroughStatus Status { get; set; }
@@ -45,9 +46,8 @@ namespace GloomhavenVR.Core
     {
         internal static void Run(string name, Action action, string area)
         {
-            // Ordinary edit rebuilds are the existing construction boundary.
-            // Do not silently simulate a Steam Link identity transition or a new path.
-            if (name != "VROptionsTab.VariantTiles" && name != "VROptionsTab.RebuildAfterEdit")
+            if (name != "VROptionsTab.VariantTiles" && name != "VROptionsTab.RebuildAfterEdit"
+                && name != "VROptionsTab.RebuildSteamLinkCapability")
                 throw new InvalidOperationException("Unsupported Frame MR option fixture dispatch: " + name);
             action();
         }
@@ -60,11 +60,11 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Core.SteamLink
 {
-    // These cases vary direct Frame capability and ordinary PC chromakey inputs.
-    // No Steam Link identity is admitted; its discovery/rebuild has separate proof.
+    // Connection discovery is a boundary; the Unity cases supply a proven
+    // connection and exercise its effects on the actual tooltip and control.
     internal static class SteamLinkConnection
     {
-        internal static bool Available => false;
+        internal static bool Available { get; set; }
     }
 }
 namespace GloomhavenVR.WorldUI
@@ -113,10 +113,13 @@ namespace GloomhavenVR.WorldUI
         private static bool IsShownForCurrentVariant(ConfigCatalog.ConfigItem item) => true;
         private static bool DependencyMet(ConfigCatalog.ConfigItem item) => true;
         internal static bool KeyColorVisible => IsRowVisible(new ConfigCatalog.ConfigItem { Key = "KeyColor" });
+        internal static bool CompanionVisible => IsRowVisible(new ConfigCatalog.ConfigItem { Key = "SteamLinkCompanion" });
         private static bool SelectsAVariant(ConfigCatalog.ConfigItem item) => false;
         private static bool IsDependencyParent(ConfigCatalog.ConfigItem item) => false;
         private static float ReadNumber(ConfigCatalog.ConfigItem item, int component) => 0;
-        private static void Rebuild() { }
+        // Full menu construction is a boundary. Repaint the actual controls
+        // below after a simulated rebuild of the row list.
+        private static void Rebuild() => RefreshMixedRealityAvailability();
 
         internal static Toggle BuildSwitch(GameObject template, Transform parent)
         {
@@ -141,6 +144,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool PickSky(SkyStyle style) => ChooseSky(style);
         internal static object MakeTile(Button button, Image picture, TMP_Text label)
         {
+            CaptureMixedRealityRowVisibility();
             var tile = new VariantTile { Available = () => MixedRealityCanEnable, Selected = () => MixedRealityOn,
                 Choose = ChooseMixedReality, Hint = MixedRealityHint, Resource = "MR fixture" };
             var built = new List<BuiltTile> { new BuiltTile { Button = button, Picture = picture, Label = label, Tile = tile } };

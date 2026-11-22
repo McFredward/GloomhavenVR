@@ -1,3 +1,157 @@
+**Release 1.2.5 candidate, Build778, 2026-11-23.**
+
+The maintainer accepted the Build777 Frosthaven panorama in a headset. The
+matching logs show that both teaser textures decoded and the four-card enemy
+reveal opened, held its full layout and restored the native cards. They also
+record a shutdown exception in the reveal diagnostic after Unity destroyed
+the initiative panel host. Build778 uses Unity's destroyed-object check in
+both relevant messages. The render restoration and network format are unchanged.
+
+The actual compiled Build778 passes seven Unity shutdown assertions. The
+untouched Build777 control reproduces the exception and the interrupted renderer
+restore. Strict Release 0/0, all 16 source suites, 307,211 fresh golden assertions,
+asset and public-surface checks, and the focused conversion and initiative checks
+pass. The compiled comparison changes only the reveal diagnostics and build
+identity. All 35 embedded resources match Build777. The test inventory now
+includes both new local suites, and the native card depth controls target the
+current registration guard. Evidence is under `.planning/validation/release125/`.
+
+**Depth in the Frosthaven panorama, Build777, 2026-11-23.**
+
+Restore the original textured wordmark plane and use the original panorama's
+embedded GMD1 depth data for the scene instead. The photo uses the existing
+heightfield mesh on its passive world-space canvas. The tile keeps both native
+DLC seats clear and hides when there is insufficient room below them.
+
+Class B. Strict Release 0/0, 16 source checks and two affected runtime suites.
+The final DLL passed 37 Unity assertions including relief and flat-control pixels
+in both eye views, native DLC rotation and a short-menu fallback. The original
+enemy-reveal fix and wire format are unchanged. Evidence is in
+`.planning/validation/build777/`. The maintainer subsequently confirmed the teaser
+in a headset.
+
+**Solid Frosthaven wordmark and uninterrupted enemy-card reveal, Build776, 2026-11-22.**
+
+The Frosthaven teaser keeps its textured front and draws the original letter
+silhouette as a depth-tested volume with sidewalls and a rear cap. The native
+DLC seats and both captions retain their previous layout. A runtime without the
+required shader keeps the readable raised image.
+
+The enemy reveal uses the complete native slot layout before any card fades in.
+The holder and world frame stay stable through the full stagger. Defer cold mip
+work and gaze-driven relocation until native animation completes. Original
+callbacks, continuation and wire format are unchanged.
+
+Class B. Strict Release 0/0, 16 source suites, three affected runtime suites and
+the compiled scope comparison. Real Unity proved four- and seven-card reveals
+including intermediate pixels and all native callbacks (18 assertions). The
+Build775 control reproduces a live 1690 to 928 px reflow. The logo fixture passed
+39 assertions with depth-tested oblique and stereo renders, a body-disabled
+control and native DLC slots. See `.planning/validation/build776/`. Headset
+presentation remains to be verified.
+
+**Optional turn announcements, Build775, 2026-11-22.**
+
+Panels & readouts shows a saved, default-on switch for the local player and
+enemy turn paper. Apply visibility live to the converted canvas. Native
+animation, enemy-turn continuation and the other phases keep their original
+behavior and shared authority.
+
+Class B. Strict Release 0/0, all 16 source suites and three focused option
+suites passed. The compiled DLL passed 29 Unity assertions covering rendered
+pixels, persistence, and native enemy-turn completion with the paper hidden.
+Compiled scope and inherited input verification are in
+`.planning/validation/build775/`. Live headset rendering remains unverified.
+
+**FrosthavenVR main-menu teaser, Build774, 2026-11-22.**
+
+The movable VR main menu carries a passive FrosthavenVR artwork tile with
+localized availability text and an independent raised wordmark plane. The
+native DLC column retains both authored slot envelopes for its full open
+lifetime. The teaser uses the clear row below, or its top seat when native
+offers are absent. Layout uncertainty and covered menus suppress the tile.
+There are no callbacks, hit surfaces or native store mutations.
+
+Class B. Strict Release 0/0, all 16 source suites and four focused runtime
+suites. The compiled DLL ran 27 Unity assertions with paired eye renders,
+actual language selection and native DLC window and slot references. The
+build adds two embedded textures. The 32 prior resources match exactly.
+Evidence is in `.planning/validation/build774/`. Live headset presentation
+remains to be verified. No wire or package layout change.
+
+**Frosthaven scenario presentation port, Build773, 2026-11-22.**
+
+Use the original animated banner child for turn and round notices. Seat it
+once at reading distance, above the scenario footprint when it fits the view.
+The native UIWindow retains its fullscreen blocker, animation completion and
+continuation callbacks. The visual child restores to its original hierarchy.
+
+After card selection the enemy reveal chooses a seat from the fitted card
+rectangle, the stereo aperture and the visible local and peer boards. Content
+growth reuses the opening measurement. A sustained physical head turn starts
+an eased recenter. The existing native reveal, hover and Continue paths stay
+in charge of their respective behavior.
+
+Class B. Strict Release 0/0, 16 source suites and eight affected local suites.
+Real Unity exercised the original banner callbacks and final camera pixels
+in 16 assertions, plus 20 enemy placement assertions and five causal controls.
+Compiled comparison with Build772 shows three changed UI types, two new
+presentation types and the build stamps. The 32 resources are identical.
+Evidence is in `.planning/validation/build773/`. Live headset and paired
+multiplayer rendering remain to be verified. No wire format change.
+
+**Valve OpenXR passthrough over Steam Link, Build772, 2026-11-20.**
+
+Valve introduced OpenXR AlphaBlend for PC streams with Steam Frame SteamOS
+0.5.8 Beta and the PC SteamVR Beta. When Mixed Reality is selected, use the
+live SteamVR stereo capability and the existing standalone alpha presentation.
+Keep the ordinary view until the runtime accepts the blend request. The
+official route works independently of the old connection reader and coverage
+bridge. Older identified Frame runtimes keep the ordinary view and offer an
+update hint. Virtual Desktop keeps its chroma-key route.
+
+Advanced → Environment & world offers the legacy companion as an opt-in on
+an identified Frame stream. The former default-on preference is inert. Wait
+for native blend restoration before handing the head camera to the companion.
+The existing Mixed Reality selection and standalone marker retain their roles.
+
+Class B, confined to local MR presentation and options. Strict Release 0/0,
+all 16 source suites, 21 affected local suites and two additional rendering
+controls across focused runs. The integrated Unity check has 58 presentation
+assertions and nine causal controls. Compiled review finds eight changed MR/
+options types, metadata, and the build stamp. All 32 resources are identical.
+Evidence is in `.planning/validation/build772/`. A live headset stream remains
+to be verified. No protocol or release archive change.
+
+**Initiative row, portrait laser, and native targeting Undo, Build771, 2026-11-18.**
+
+Issue24's November 17 host report is 1.2.4 / Build770. The recent photos show
+the row partly covered and the log shows seven board-occluded presses. The
+laser now resolves real portrait geometry before distance arbitration and
+retains it through native pointer release. A native world-X reorder stop plus
+repool between LateTicks could also make the idle latch adopt foreign depth.
+Recover the original planes and native layout before relatching. Board offsets
+and authored portrait effects stay as configured.
+
+The separate abort was the game's 15-second phase timeout: after valid Cold
+Fire #654, the sender submitted an identical #655 while the host was in
+TargetSelection, with no intervening networked Undo. The preceding Minor Mana
+Potion's confirmed item picker leaves an orphanable local-only cancel flag in
+mouse mode. Restore native replication on the acting VR client's ordinary
+targeting Undo when the override stack is empty. Preserve the live picker,
+original native action, authority and receiver. The sender log is absent, so
+its specific Undo gesture remains unconfirmed.
+
+Class B with affected runtime proof. Strict Release 0 warnings/errors and
+16 source suites. Row 1,139 assertions and nine controls, focused laser 21/3
+plus neighboring pointer, scroll and world-menu scopes, actual native item/
+undo/ability IL 21/1. Original renderer geometry and publisher callbacks
+checked with explicit native phase/transport boundaries. Unchanged 769/770
+qualification is inherited. Compiled scope has five behavior types plus one
+new guard, 32 identical resources and only version/build metadata otherwise.
+Evidence: `.planning/validation/build771/` and `issue24-laser/`. No new
+headset or live Photon proof. Dev delivery requires all VR peers on Build771.
+
 **Release 1.2.4 readiness, Build770, 2026-11-10.**
 
 The maintainer reports the paired multiplayer test successful and authorizes

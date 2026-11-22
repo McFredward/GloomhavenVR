@@ -655,7 +655,53 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 770;
+    public const ushort ModBuild = 778;
+
+    // ModBuild778 — restore converted panels cleanly at shutdown when Unity has
+    // already destroyed their hosts. Retain both reveal diagnostics and the
+    // existing visibility restoration. No wire format change.
+
+    // ModBuild777 — undo the logo extrusion and attach the prepared heightfield
+    // to the original Frosthaven panorama instead. The passive menu tile renders
+    // the relief directly in stereo. Keep its label and native DLC reservations.
+
+    // ModBuild776 — the FrosthavenVR logo has a textured front and solid side
+    // walls. Enemy reveal seats the full native card layout before the stagger;
+    // preserve the original motion, opacity and completion callbacks. No wire
+    // format change.
+
+    // ModBuild775 — the default-on ShowTurnBanner preference hides only the
+    // local player and enemy turn paper. Native animation, completion, round
+    // and death announcements remain active. No wire format change.
+
+    // ModBuild774 — the movable main menu carries the FrosthavenVR teaser
+    // with English/German availability text and a raised stereo wordmark.
+    // Reserve both native DLC offer rectangles while their carousel is visible.
+    // The teaser has no input surface and follows the menu's existing lifetime.
+    // Two new embedded textures. No change to the native stores or wire format.
+
+    // ModBuild773 — ports FrosthavenVR's native scenario turn banner and
+    // enemy reveal seating. Float the animated banner child while the game
+    // owns its window, interaction blocker and continuation. The reveal
+    // chooses a reading seat from its fitted area, the eye aperture and visible
+    // control-board silhouettes, with the existing gentle head-turn recenter.
+    // No change to native decisions or the multiplayer wire.
+
+    // ModBuild772 — Steam Frame over Steam Link now defaults to Valve's OpenXR
+    // AlphaBlend when the runtime reports it. Reuse the standalone alpha
+    // presentation and preserve ordinary VR until the runtime accepts it.
+    // The historical companion preference is inert. The Advanced companion
+    // override is opt-in and requires an identified Steam Frame connection.
+    // No network protocol change.
+
+    // ModBuild771 — Issue #24 and intermittent VR initiative clicks. Resolve
+    // the native portrait before surface arbitration, then use that geometry for
+    // the beam, hover, press and release. Recover native row planes before
+    // latching changed pool membership after a world-X reorder stop.
+    // Host logs also confirm a duplicate Cold Fire selection after potion use.
+    // Restore ordinary native Undo replication on the acting VR client when
+    // the potion's local cancel flag survives without any override. Preserve
+    // live picker cancellation, proxy/flat handling and the original wire.
 
     // ModBuild770 — paired769 confirms complete common Results content, but
     // guests see their own scrolling late and shared frame motion trails grabs.

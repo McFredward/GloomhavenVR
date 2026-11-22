@@ -13,8 +13,9 @@ namespace GloomhavenVR.Hands.Interact
 {
     internal sealed class PokeInteractor { }
     internal sealed class PokeOnlyTarget:MonoBehaviour { }
-    internal interface IDepthPortraitPicker { bool TryPickPortrait(Vector3 origin,Vector3 direction,out GameObject portrait,out Vector3 point); }
-    internal static class DepthPortraitPicks { internal static bool TryGet(Canvas canvas,out IDepthPortraitPicker picker){picker=null!;return false;} }
+    internal static class DepthPortraitPicks
+    { internal static bool IsAvatarHit(Canvas canvas, GameObject target) => false; }
+
     // Beam rendering is a sink here; the near-figure suite owns trigger arbitration.
     internal sealed class RayInteractor
     {

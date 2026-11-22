@@ -278,7 +278,7 @@ internal static partial class CanvasConversion
                 canvasesChanged++;
             }
             VRLog.Alert("WorldUI", "REVEAL RESTORE WITHHELD: the pre-Start withhold would have "
-                + $"revealed '{panel.HostGo?.name ?? "?"}' with ZERO canvases switched on, so it "
+                + $"revealed '{(panel.HostGo != null ? panel.HostGo.name : "?")}' with ZERO canvases switched on, so it "
                 + $"was ABANDONED and all {canvasesChanged} recorded canvas(es) were restored the "
                 + "old way. The window draws; the flash this rule prevents may be back on this one "
                 + "open. A repeat of this line names a panel whose every recorded canvas belongs "
@@ -298,7 +298,8 @@ internal static partial class CanvasConversion
             s_revealClauseLines++;
             // HW-VERIFY: the number that says whether the pre-Start restore exception reaches the
             // screen the user photographed. See RevealWithholdClause for how to read the pair.
-            VRLog.Note("WorldUI", $"REVEAL RESTORE WITHHELD on '{panel.HostGo?.name ?? "?"}' at "
+            // A scene can destroy the native host before the mod releases its conversion.
+            VRLog.Note("WorldUI", $"REVEAL RESTORE WITHHELD on '{(panel.HostGo != null ? panel.HostGo.name : "?")}' at "
                 + $"frame {Time.frameCount}: {RevealWithholdClause()} Restored "
                 + $"{canvasesChanged} canvas(es) this reveal.");
         }

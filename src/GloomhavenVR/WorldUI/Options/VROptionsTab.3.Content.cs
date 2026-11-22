@@ -146,6 +146,7 @@ internal static partial class VROptionsTab
                                   + "it, with one opaque plate behind the whole pane.");
         }
         ClearRows();
+        CaptureMixedRealityRowVisibility();
         HideForeignContent();
 
         BuildCategoryStrip();

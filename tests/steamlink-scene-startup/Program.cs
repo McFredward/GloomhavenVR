@@ -20,7 +20,7 @@ internal static class Program
     {
         SteamLinkSceneRuntime.Reset();VRLog.Warnings.Clear();SteamLinkCoverageBridge.CanAcceptOrdinaryRgba=true;
         SceneEyeOutput.Next=SceneEyeResult.Rendered;SceneEyeOutput.Ordinary=0;Graphics.Ordinary=0;
-        MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
+        MixedReality.Enabled.Value=true;MixedReality.SteamLinkCompanion.Value=true;
         SteamLinkConnection.Available=true;VRSession.IsRunning=true;VRSession.InputFocus=true;
         UnityEngine.XR.XRSettings.eyeTextureWidth=UnityEngine.XR.XRSettings.eyeTextureHeight=4040;
         QualitySettings.activeColorSpace=ColorSpace.Gamma;
@@ -150,7 +150,7 @@ internal static class Program
         {
             head=Fresh();output=Enter(head);
             if(stop=="master-off")MixedReality.Enabled.Value=false;
-            if(stop=="preference-off")MixedReality.SteamLinkNative.Value=false;
+            if(stop=="preference-off")MixedReality.SteamLinkCompanion.Value=false;
             if(stop=="connection-loss")SteamLinkConnection.Available=false;
             if(stop=="head-replaced")VRCameraPolicy.AllowedHead=new Camera();
             if(stop=="VR-stop")VRSession.IsRunning=false;

@@ -565,6 +565,7 @@ internal static partial class Loc
 
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),
+            ["MixedReality/SteamLinkCompanion"] = Pair("Legacy Steam Link companion", "Älterer Steam-Link-Companion"),
             ["MixedReality/SteamLinkNative"] = Pair("Steam Link native passthrough", "Steam Link: natives Passthrough"),
             ["MixedReality/SteamLinkEdgeQuality"] = Pair("Steam Link edge quality", "Steam-Link-Kantenqualität"),
             ["MixedReality/SteamLinkEncodeWidth"] = Pair("Steam Link encoding width (px)", "Steam-Link-Übertragungsbreite (px)"),
@@ -760,6 +761,7 @@ internal static partial class Loc
             // is no longer and the player presses it expecting a window.
             ["WorldUI/CombatLog"] = Pair("Show combat log at scenario start",
                                          "Kampflog beim Szenariostart einblenden"),
+            ["WorldUI/ShowTurnBanner"] = Pair("Show turn banner", "„Zug von …“ anzeigen"),
             ["WorldUI/ImmersiveTownServices"] = Pair("Immersive town NPCs", "Immersive Stadt-NPCs"),
             ["WorldUI/ImmersiveTownSpeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
             ["WorldUI/ImmersiveTownSoundEffects"] = Pair("NPC sound effects", "NPC-Soundeffekte"),

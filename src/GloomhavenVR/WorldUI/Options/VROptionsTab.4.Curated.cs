@@ -687,10 +687,8 @@ internal static partial class VROptionsTab
                         // der Himmel immer aus."). No dependency-layer entry: a choice row has no
                         // children.
                         new("Sky", "Style", "vr_o_sky"),
-                        // The environment MR tile already owns the master switch.
-                        // Keep its streaming method and chroma colour immediately
-                        // below that choice, with the existing dependency gates.
-                        new("MixedReality", "SteamLinkNative", "vr_o_steamlinknative"),
+                        // Chroma-key software uses this colour below the environment chooser.
+                        // The legacy Steam Link companion is selected in Advanced.
                         new("MixedReality", "KeyColor", "key_color"),
                         // ELEMENT MOOD — the environment's answer to the element infusions. The
                         // strength dial folds under the toggle (VROptionsTab.8.Dependencies.cs).
@@ -1192,6 +1190,7 @@ internal static partial class VROptionsTab
                         CuratedEntry.Press("Spawn combat log now", "Kampflog jetzt einblenden",
                                            Surfaces.CombatLogSurface.SpawnFromOptions),
                         new("WorldUI", "CombatLog", "show_combat_log"),
+                        new("WorldUI", "ShowTurnBanner", ""),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),

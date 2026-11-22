@@ -20,8 +20,14 @@ public static class FrameMrOptionsProgram
         var rect = (RectTransform)go.transform; rect.sizeDelta = size; rect.anchoredPosition = position;
         return rect;
     }
-    private static void Runtime(bool frame, FrameNativePassthroughStatus status, bool available)
-    { FrameNativePassthrough.Required = frame; FrameNativePassthrough.Status = status; FrameNativePassthrough.IsAvailable = available; }
+    private static void Runtime(bool native, FrameNativePassthroughStatus status, bool available, bool streamed = false)
+    {
+        FrameNativePassthrough.Standalone = native && !streamed;
+        FrameNativePassthrough.Required = native;
+        FrameNativePassthrough.Status = status;
+        FrameNativePassthrough.IsAvailable = available;
+        GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = streamed;
+    }
     private static void Hoverable(GraphicRaycaster raycaster, Camera camera, GameObject control)
     {
         Canvas.ForceUpdateCanvases(); camera.Render();
@@ -121,6 +127,23 @@ public static class FrameMrOptionsProgram
             VROptionsTab.Clear();
             Runtime(true, FrameNativePassthroughStatus.Unsupported, false); VROptionsTab.Refresh();
             Check(button.interactable, "removed rows release availability callbacks");
+
+            MixedReality.Enabled.Value = false;
+            Runtime(true, FrameNativePassthroughStatus.Unsupported, false, streamed: true);
+            var chooseStream = (Action)VROptionsTab.MakeTile(button, picture, label);
+            Check(!button.interactable && VROptionsTab.Hint.Contains("SteamOS")
+                && VROptionsTab.Hint.Contains("SteamVR") && !VROptionsTab.Hint.Contains("Proton"),
+                "unavailable Steam Link guidance names the streaming devices' updates");
+            Check(VROptionsTab.CompanionVisible && !VROptionsTab.KeyColorVisible,
+                "identified Steam Frame streaming keeps its companion override and hides key colour");
+            Hoverable(raycaster, camera, button.gameObject);
+            Runtime(true, FrameNativePassthroughStatus.Available, true, streamed: true); VROptionsTab.Refresh();
+            chooseStream();
+            Check(button.interactable && MixedReality.Enabled.Value, "native Steam Link can be enabled through the ordinary MR tile");
+            Runtime(false, FrameNativePassthroughStatus.Unsupported, false, streamed: true); VROptionsTab.Refresh();
+            Check(button.interactable && VROptionsTab.Hint == Loc.Mod("mr_frame_companion_selected"),
+                "explicit companion selection admits MR and explains the active method");
+            Hoverable(raycaster, camera, button.gameObject);
         }
         File.WriteAllText(Path.Combine(evidence, "scope.txt"),
             "Production MR availability, tile callback/tint, bool row, generic Apply guard and native tooltip attachment execute unchanged. Actual Unity uGUI/TMP and original GH UITextTooltipTarget/raycast filter execute. Configuration store, OpenXR lifecycle, authored clone layout/skin and whole-menu rebuild are explicit boundaries; no headset passthrough or complete options window is claimed.\n");

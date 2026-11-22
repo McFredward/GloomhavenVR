@@ -21,7 +21,7 @@ namespace UnityEngine.UI
         internal CanvasRenderer canvasRenderer=>throw new InvalidOperationException("No depth graphic in menu world fixture");
     }
 }
-namespace UnityEngine.EventSystems { internal interface IDragHandler { } internal struct RaycastResult {internal GameObject gameObject;}}
+namespace UnityEngine.EventSystems { internal interface IDragHandler { } internal struct RaycastResult {internal GameObject gameObject;internal float distance;internal Vector3 worldPosition;}}
 internal sealed class MapChoreographer:MonoBehaviour { }
 internal sealed class Choreographer:MonoBehaviour
 {internal static Choreographer? s_Choreographer=null;internal bool ThisPlayerHasTurnControl=false;}
@@ -201,6 +201,13 @@ namespace GloomhavenVR.Hands.Interact
         internal void SetWorldUiHit(Vector3 point,string _)=>WorldUiHit=point;
     }
     // Native callback/widget ports. Canvas plane geometry and arbitration execute extracted production code.
+    internal static class DepthPortraitPicks
+    {
+        // There is no native initiative row in this menu-arrival fixture.
+        internal static bool TryRaycast(Canvas canvas, Vector3 origin, Vector3 direction,
+            out UnityEngine.EventSystems.RaycastResult hit) { hit=default;return false; }
+
+    }
     internal sealed class UguiPointer
     {
         internal static int Presses=0,Releases=0;internal GameObject? Hovered;
@@ -212,6 +219,8 @@ namespace GloomhavenVR.Hands.Interact
             Vector3 physicalPoint,float physicalDistance,out UnityEngine.EventSystems.RaycastResult result,
             Transform? nativeRoot=null)
             => throw new InvalidOperationException("No spatial menu source is registered in the menu world fixture");
+        internal void SetPreparedHit(in UnityEngine.EventSystems.RaycastResult hit, Vector2 screenPosition)
+            => throw new InvalidOperationException("No initiative portraits in the main-menu world fixture");
         internal void Cancel()=>Hovered=null;internal void SetHovered(GameObject? target)=>Hovered=target;
         internal void Press(Vector2 point)=>Presses++;internal void Release(Vector2 point)=>Releases++;
         internal void Drag(Vector2 point){}
@@ -220,7 +229,7 @@ namespace GloomhavenVR.Hands.Interact
     {
         private const float MaxDistanceMeters=20f,OcclusionEpsilonMeters=.005f;
         private readonly VRHand _hand;private readonly UguiPointer _pointer;
-        private Canvas? _canvas;private bool _pressing;
+        private Canvas? _canvas;private bool _pressing, _pressingPortrait;
         private static readonly Vector3[] Corners=new Vector3[4];
         internal RayUguiDriver(VRHand hand){_hand=hand;_pointer=new UguiPointer(hand.Side,true);}
         internal bool IsPressing=>_pressing;internal bool HasHit{get;private set;}internal float HitDistance{get;private set;}=float.PositiveInfinity;
@@ -317,6 +326,10 @@ namespace GloomhavenVR.WorldUI
     internal static class VirtualMouse{internal static readonly Vector2 ParkPixel=new(-4096f,-4096f);internal static Vector2 Pixel;internal static void WarpTo(Vector2 value)=>Pixel=value;}
     internal sealed class StereoPort
     {internal bool MapActive=false;internal void BeginMapPan(Vector2 _){}internal void UpdateMapPan(Vector2 _){}internal void EndMapPan(){}}
+    // The teaser's rendering and native DLC layout are exercised independently.
+    internal sealed class FrosthavenMenuPromotion
+    {internal void Tick(RectTransform frame, Camera? head, bool covered){}internal void Release(){}}
+    internal static class VROptionsTab {internal static bool IsOpen => false;}
     internal sealed partial class FlatScreen
     {
         private const float ScreenAspect=16f/9f,BackplaneGapMeters=.06f,FollowAngleDegrees=45,FollowDwellSeconds=1,FollowSettledDegrees=5,MapPanStartPixels=8;
@@ -337,6 +350,7 @@ namespace GloomhavenVR.WorldUI
         private readonly struct CapturedCamera{internal readonly bool IsUi;internal CapturedCamera(bool ui){IsUi=ui;}}
         private static readonly Dictionary<Camera,CapturedCamera> CapturedSet=new();
         private bool _pokePressing=false;
+        private static bool IsConfirmationBoxOpen()=>false;
         private void TickPoke(){}
         private bool TickHandednessSwitch()=>false;
         private void EnrollCamera(Camera camera)=>CapturedSet[camera]=new CapturedCamera(true);

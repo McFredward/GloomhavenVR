@@ -68,13 +68,11 @@ internal static Lease Enter(GraphicRaycaster caster,PointerEventData data,Canvas
 }
 internal sealed class UguiPointer {
 private readonly bool _farRay=true;
-private readonly HandSide _side=HandSide.Left;
 private readonly List<RaycastResult> _hits=new();
 private PointerEventData? _data;
 private int _lastPokeHitCount,_lastPokePadRank;
 private GameObject? _lastPokeRunnerUp;
 private PointerEventData GetData()=>_data??=new PointerEventData(EventSystem.current);
-private bool TryAimRay(out Vector3 origin,out Vector3 direction){origin=direction=default;return false;}
 '''
     for signature in ('internal bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit)',
                       'private bool TryRaycast(Canvas canvas, Vector2 screenPos, out RaycastResult topHit, bool worldPlane)',

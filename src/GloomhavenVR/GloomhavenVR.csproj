@@ -3,7 +3,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>GloomhavenVR</AssemblyName>
     <RootNamespace>GloomhavenVR</RootNamespace>
-    <Version>1.2.4</Version>
+    <Version>1.2.5</Version>
     <Description>Demeo-style room-scale VR mod for Gloomhaven (digital).</Description>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Consumed by BepInEx.PluginInfoProps -> MyPluginInfo -->
@@ -97,6 +97,12 @@
     -->
     <EmbeddedResource Include="Assets\GloomhavenVR_logo.png"
                       LogicalName="GloomhavenVR.Assets.GloomhavenVR_logo.png" />
+    <EmbeddedResource Include="Assets\MenuPromotion\Frosthaven_scene.jpg"
+                      LogicalName="GloomhavenVR.Assets.MenuPromotion.Frosthaven_scene.jpg" />
+    <EmbeddedResource Include="Assets\MenuPromotion\Frosthaven_scene.gmd"
+                      LogicalName="GloomhavenVR.Assets.MenuPromotion.Frosthaven_scene.gmd" />
+    <EmbeddedResource Include="Assets\MenuPromotion\FrosthavenVR_logo.png"
+                      LogicalName="GloomhavenVR.Assets.MenuPromotion.FrosthavenVR_logo.png" />
 
     <!--
       THE FOUR GRAB-BAR ALBEDO STRIPS, for the same reason and by the same route as the wordmark

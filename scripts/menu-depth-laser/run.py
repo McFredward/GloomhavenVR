@@ -69,15 +69,43 @@ def main():
     sources['ActualHoverSender.cs']='namespace GloomhavenVR.Hands { internal sealed partial class VRHand {\n'+block(hand,'internal void SendHoverHaptic(')+'\n'+block(hand,'public void SendHaptic(')+'\n}}'
     ray_path=ROOT/'src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs';ray=ray_path.read_text()
     signatures=['internal void Tick()','private void TickPressed(in PickPose pick, float scale)',
+        'private void TickPressedPortrait(Canvas canvas, in PickPose pick, float scale)',
+        'private bool TryAimSurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,',
         'private bool TrySurface(Canvas canvas, Vector3 origin, Vector3 direction, float maxDistance,',
         'private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,',
         'private static void HitCorners(RectTransform rect, in Rect local, Vector3[] into)',
         'private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)','internal void Cancel()']
     hit=ray[ray.index('    private static Rect HitRectOf('):ray.index(';',ray.index('    private static Rect HitRectOf('))+1]
     sources['ActualRayUgui.cs']='using GloomhavenVR.Cards; using UnityEngine; using UnityEngine.UI; using UnityEngine.EventSystems; namespace GloomhavenVR.Hands.Interact; internal sealed partial class RayUguiDriver {\n'+'\n'.join(block(ray,s)for s in signatures)+'\n'+hit+'\n}'
+    initiative_path=ROOT/'src/GloomhavenVR/WorldUI/Surfaces/TablePanelSurfaces.cs'
+    initiative=initiative_path.read_text()
+    picker=block(initiative, 'bool IDepthPortraitPicker.TryPickPortrait(')
+    native_holder='Transform? holder = InitiativeTrack.Instance != null\n            ? InitiativeTrack.Instance.initiativeTrackHolder\n            : null;'
+    assert picker.count(native_holder)==1
+    # Redirect only the singleton lookup to the Unity fixture's native row.
+    sources['ActualInitiativePicker.cs']=(
+        '#nullable enable\nusing System.Collections.Generic; using UnityEngine; using UnityEngine.EventSystems; using UnityEngine.UI;'
+        'using GloomhavenVR.Hands.Interact;\ninternal sealed class FixtureInitiativePicker : IDepthPortraitPicker {'
+        'private readonly Transform _holder; internal FixtureInitiativePicker(Transform holder)=>_holder=holder;'
+        'private bool OwnsCurrentTrack()=>_holder!=null;'
+        'private static readonly Vector3[] PickCorners=new Vector3[4];'
+        'private readonly List<Graphic> _portraitPickGraphics=new();'
+        + picker.replace(native_holder,'Transform? holder = _holder;')
+        + block(initiative, 'private static bool TryIntersectRect(') + '}')
     grab_path=ROOT/'src/GloomhavenVR/Hands/Interact/RayGrabDriver.cs';grab=grab_path.read_text()
     sources['ActualBarGeometry.cs']='using UnityEngine;using GloomhavenVR.WorldUI;namespace GloomhavenVR.Hands.Interact;internal sealed partial class RayGrabDriver {\n'+block(grab,'private static bool TryPickBarGeometry(Ray ray, float limit, bool requireGrabbable,')+'\n}'
     cases=[('production','','','',''),
+        ('initiative-portrait','','','',''),
+        ('initiative-host-distance','ActualRayUgui.cs','distance = portrait.distance;',
+            'distance = Vector3.Distance(origin, canvas.transform.position);',
+            'physical portrait in front of the board owns the press'),
+        ('initiative-release-occlusion','ActualRayUgui.cs',
+            '&& _hand.Ray.SolidOccluderDistance >= portrait.distance - epsilon',
+            '&& _hand.Ray.SolidOccluderDistance >= 0f',
+            'a board crossing the ray after press suppresses the click'),
+        ('initiative-flat-avatar-fallback','UguiPointer.cs',
+            ' || _farRay && DepthPortraitPicks.IsAvatarHit(canvas!, topHit.gameObject)', '',
+            'a flat fallback cannot activate an avatar missed by the actual beam'),
         ('retired-plane-story','','','',''),
         ('retired-plane-old-ready','MenuDepthCardPlane.cs','this != null && _configured && isActiveAndEnabled',
             '_configured && isActiveAndEnabled','retired card plane cannot abort scenario story laser or following grab-bar phase'),
@@ -136,7 +164,7 @@ def main():
         Path('/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472/0Harmony.dll')]
     toolchain += [p for package in ['bepinex.assemblypublicizer.msbuild/0.4.3','bepinex.assemblypublicizer/0.4.3']
         for p in (Path('/home/claw/.nuget/packages')/package).rglob('*') if p.is_file()]
-    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,grab_path,hand_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
+    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,ray_path,grab_path,hand_path,initiative_path,*fixture.glob('*'),fixture/'Editor/Runner.cs',bundle,*toolchain,
         unity,native,cards,field,Path('/home/claw/.dotnet/dotnet'),*game.glob('*.dll'),ROOT/'ressources/GH_Data/level9',ROOT/'ressources/GH_Data/sharedassets2.assets',
         ROOT/'scripts/menu726-native-profile.py',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
@@ -164,7 +192,7 @@ def main():
             dll=assemblies/(assembly+'.dll');shutil.copy2(case/'bin/Release/net472'/dll.name,dll)
             shutil.copy2(case/'obj/project.assets.json',case/'resolved-build-assets.json')
             manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected,
-                'method':'RunRetiredPlaneStory' if name.startswith('retired-plane-') else 'RunMoreCards' if name.startswith('more-cards-') else 'Run'})
+                'method':'RunInitiativePortrait' if name.startswith('initiative-') else 'RunRetiredPlaneStory' if name.startswith('retired-plane-') else 'RunMoreCards' if name.startswith('more-cards-') else 'Run'})
         for directory in ['Assets/Editor','Packages','ProjectSettings']:(project/directory).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6"}}\n')

@@ -14,10 +14,9 @@ namespace GloomhavenVR.WorldUI;
 /// monster stat panels, the transient enemy round-reveal float over the board
 /// (test #20), true world-space actor bars, wrist HUD, floating 2D screen +
 /// virtual-mouse pointer, gamepad-mode guard and world tooltips. Built on the
-/// Phase-2 seed (<see cref="VirtualMouse"/>). The phase banner is NOT converted
-/// (test #18: the converted banner never received its onHidden — the box froze in
-/// space and its soft lock kept every host raycaster disabled for the rest of the
-/// scenario); the round number lives on the control board instead (PlayTray).
+/// Phase-2 seed (<see cref="VirtualMouse"/>). The phase banner borrows only its
+/// animated visual child. The native window and interaction lock remain together
+/// (test #18 found that converting the whole window could prevent onHidden).
 ///
 /// Everything is reversible: surfaces restore the panels they moved, patches gate on
 /// <see cref="WorldUIConfig.ConversionActive"/> (vanilla when VR is off), and
@@ -362,6 +361,7 @@ internal sealed class WorldUIModule : IVRModule
         private readonly StatPanelSurface _statPanels = new();
         private readonly PropInfoSurface _propInfo = new();
         private readonly EnemyRevealSurface _enemyReveal = new();
+        private readonly PhaseBannerSurface _phaseBanner = new();
         private readonly DecisionDockSurface _decisionDock = new();
         private readonly UseBarsSurface _useBars = new();
         // Flows 2-4: the doom UIAbilityCardPicker + the distribute-points popups are plain
@@ -502,6 +502,7 @@ internal sealed class WorldUIModule : IVRModule
                 // two-eye targets. Actual eye preparation runs after native visual writers.
                 // FRAME-ORDER WorldUIModule.MenuDepth [MenuDepth.MenuDepthDriver.Tick, CanvasConversion.LateTick]
                 ("MenuDepth", MenuDepth.MenuDepthDriver.Tick),
+                ("PhaseBanner", _phaseBanner.Tick), // after native animation and loading visibility updates
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
                 ("MapRetirementPrompt.Late", MapRoom.MapRetirementPrompt.LateTick),
                 // ModBuild 191: the LOCAL tooltip family (item card hints and friends) hangs inside
@@ -656,6 +657,7 @@ internal sealed class WorldUIModule : IVRModule
             TickGuard.Run("WorldUI.Shutdown.StatPanels", _statPanels.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.PropInfo", _propInfo.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.EnemyReveal", _enemyReveal.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.PhaseBanner", _phaseBanner.Release, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DecisionDock", _decisionDock.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.UseBars", _useBars.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DoomPicker", _doomPicker.Shutdown, "WorldUI");
