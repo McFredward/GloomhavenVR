@@ -655,7 +655,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 777;
+    public const ushort ModBuild = 778;
+
+    // ModBuild778 — restore converted panels cleanly at shutdown when Unity has
+    // already destroyed their hosts. Retain both reveal diagnostics and the
+    // existing visibility restoration. No wire format change.
 
     // ModBuild777 — undo the logo extrusion and attach the prepared heightfield
     // to the original Frosthaven panorama instead. The passive menu tile renders
