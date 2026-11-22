@@ -761,6 +761,7 @@ internal static partial class Loc
             // is no longer and the player presses it expecting a window.
             ["WorldUI/CombatLog"] = Pair("Show combat log at scenario start",
                                          "Kampflog beim Szenariostart einblenden"),
+            ["WorldUI/ShowTurnBanner"] = Pair("Show turn banner", "„Zug von …“ anzeigen"),
             ["WorldUI/ImmersiveTownServices"] = Pair("Immersive town NPCs", "Immersive Stadt-NPCs"),
             ["WorldUI/ImmersiveTownSpeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
             ["WorldUI/ImmersiveTownSoundEffects"] = Pair("NPC sound effects", "NPC-Soundeffekte"),

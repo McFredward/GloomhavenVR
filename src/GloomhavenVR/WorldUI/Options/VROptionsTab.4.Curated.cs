@@ -1190,6 +1190,7 @@ internal static partial class VROptionsTab
                         CuratedEntry.Press("Spawn combat log now", "Kampflog jetzt einblenden",
                                            Surfaces.CombatLogSurface.SpawnFromOptions),
                         new("WorldUI", "CombatLog", "show_combat_log"),
+                        new("WorldUI", "ShowTurnBanner", ""),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),

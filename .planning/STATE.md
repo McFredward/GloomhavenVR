@@ -1,3 +1,16 @@
+**Optional turn announcements, Build775, 2026-11-22.**
+
+Panels & readouts shows a saved, default-on switch for the local player and
+enemy turn paper. Apply visibility live to the converted canvas. Native
+animation, enemy-turn continuation and the other phases keep their original
+behavior and shared authority.
+
+Class B. Strict Release 0/0, all 16 source suites and three focused option
+suites passed. The compiled DLL passed 29 Unity assertions covering rendered
+pixels, persistence, and native enemy-turn completion with the paper hidden.
+Compiled scope and inherited input verification are in
+`.planning/validation/build775/`. Live headset rendering remains unverified.
+
 **FrosthavenVR main-menu teaser, Build774, 2026-11-22.**
 
 The movable VR main menu carries a passive FrosthavenVR artwork tile with

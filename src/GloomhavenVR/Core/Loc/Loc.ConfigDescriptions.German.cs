@@ -2418,6 +2418,8 @@ internal static partial class Loc
                 + "ANFANG eines Szenarios, kein Hauptschalter: unabhängig davon holt die Zeile "
                 + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
                 + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
+            ["WorldUI/ShowTurnBanner"] =
+                "Zeigt den schwebenden Hinweis, wenn eine Spielfigur oder ein Gegner am Zug ist. Wirkt sofort.",
             ["WorldUI/ImmersiveTownServices"] =
                 "Händler, Tempel und Verzauberin erscheinen als immersive Bewohner der 3D-Kartenumgebung. "
                 + "Nähere dich ihren Ständen und interagiere mit physischen Angeboten. Neue PC-Profile "

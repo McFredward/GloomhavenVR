@@ -76,7 +76,11 @@ internal sealed class PhaseBannerSurface
             host.localScale = Vector3.one * (scale / PixelsPerMeter);
             _line = line;
         }
-        SetVisible(true);
+        // Gate only the rendered turn paper. Enemy turns still advance through
+        // the native animation completion callback even with the paper hidden.
+        bool isTurn = owner.currentPhaseShown is PhaseBannerHandler.PhaseBanner.PLAYER_TURN
+            or PhaseBannerHandler.PhaseBanner.ENEMY_TURN;
+        SetVisible(!isTurn || WorldUIConfig.ShowTurnBanner.Value);
     }
 
     private static Vector3 Opening(Transform eye, float scale, SpawnRing.Footprint board)

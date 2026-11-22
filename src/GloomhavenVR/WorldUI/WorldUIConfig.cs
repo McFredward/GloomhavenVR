@@ -118,6 +118,8 @@ internal static class WorldUIConfig
     /// <summary>START-UP PREFERENCE: should the combat log panel be up when a scenario begins?
     /// (Bound key still "CombatLog" so an existing cfg value survives — see Defaults.)</summary>
     internal static ConfigEntry<bool> CombatLogAtStart = null!;
+    /// <summary>Local visibility of the scenario's player and enemy turn announcements.</summary>
+    internal static ConfigEntry<bool> ShowTurnBanner = null!;
     /// <summary>Local town visits use immersive stations; off retains the original service windows.</summary>
     internal static ConfigEntry<bool> ImmersiveTownServices = null!;
     /// <summary>Local playback preference; shared resident cue clocks remain authoritative.</summary>
@@ -601,6 +603,8 @@ internal static class WorldUIConfig
             "START of a scenario, not a master switch: whatever it says, the VR options row " +
             "'Kampflog jetzt einblenden' brings the panel up at any time, and the panel's own X " +
             "closes it again. Off = it simply is not there until you ask for it.");
+        ShowTurnBanner = _file.Bind("WorldUI", "ShowTurnBanner", Defaults.ShowTurnBanner,
+            "Show the floating announcement at the start of player and enemy turns. Takes effect immediately.");
         ImmersiveTownServices = _file.Bind("WorldUI", "ImmersiveTownServices",
             FrameDefaults.Active ? FrameDefaults.ImmersiveTownServices : Defaults.ImmersiveTownServices,
             "Show the merchant, temple and enchantress as immersive residents in the 3D map room. " +

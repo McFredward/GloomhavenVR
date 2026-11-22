@@ -126,6 +126,7 @@ internal static partial class Defaults
     // neither writes this.
     // Release 1.0.1: new profiles start without the panel; saved preferences remain authoritative.
     internal const bool CombatLogAtStart = false;             // => [WorldUI] CombatLog (pinned: user default ruling 2026-09-15 - hidden at scenario start)
+    internal const bool ShowTurnBanner = true;                // => [WorldUI] ShowTurnBanner
     internal const bool ImmersiveTownServices = true;         // => [WorldUI] ImmersiveTownServices (user default ruling 2026-09-21)
     internal const bool ImmersiveTownSpeech = true;           // => [WorldUI] ImmersiveTownSpeech
     internal const bool ImmersiveTownSoundEffects = true;     // => [WorldUI] ImmersiveTownSoundEffects

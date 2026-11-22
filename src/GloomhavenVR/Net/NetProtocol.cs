@@ -655,7 +655,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 774;
+    public const ushort ModBuild = 775;
+
+    // ModBuild775 — the default-on ShowTurnBanner preference hides only the
+    // local player and enemy turn paper. Native animation, completion, round
+    // and death announcements remain active. No wire format change.
 
     // ModBuild774 — the movable main menu carries the FrosthavenVR teaser
     // with English/German availability text and a raised stereo wordmark.
