@@ -1503,6 +1503,7 @@ internal static partial class Loc
         ["VR_FOCUS_READONLY"] = Pair("(view only)", "(nur Ansicht)"),
         ["VR_FOCUS_AT_TURN"] = Pair("At turn: {0}", "Am Zug: {0}"),
         ["VR_FOCUS_WRONG_CHARACTER"] = Pair("{0} is at turn", "{0} ist am Zug"),
+        ["frosthaven_promo_caption"] = Pair("Coming Soon", "Demnächst"),
         // Banner hint shown when a flow WANTS an item but the fan is closed. The fan never opens
         // itself any more (user ruling 2026-08-07: "Weder soll es sich automatisch öffnen, noch
         // soll es jemals die Situation geben, dass man es nicht schließen kann"), so the prompt

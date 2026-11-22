@@ -326,6 +326,10 @@ namespace GloomhavenVR.WorldUI
     internal static class VirtualMouse{internal static readonly Vector2 ParkPixel=new(-4096f,-4096f);internal static Vector2 Pixel;internal static void WarpTo(Vector2 value)=>Pixel=value;}
     internal sealed class StereoPort
     {internal bool MapActive=false;internal void BeginMapPan(Vector2 _){}internal void UpdateMapPan(Vector2 _){}internal void EndMapPan(){}}
+    // The teaser's rendering and native DLC layout are exercised independently.
+    internal sealed class FrosthavenMenuPromotion
+    {internal void Tick(RectTransform frame, Camera? head, bool covered){}internal void Release(){}}
+    internal static class VROptionsTab {internal static bool IsOpen => false;}
     internal sealed partial class FlatScreen
     {
         private const float ScreenAspect=16f/9f,BackplaneGapMeters=.06f,FollowAngleDegrees=45,FollowDwellSeconds=1,FollowSettledDegrees=5,MapPanStartPixels=8;
@@ -346,6 +350,7 @@ namespace GloomhavenVR.WorldUI
         private readonly struct CapturedCamera{internal readonly bool IsUi;internal CapturedCamera(bool ui){IsUi=ui;}}
         private static readonly Dictionary<Camera,CapturedCamera> CapturedSet=new();
         private bool _pokePressing=false;
+        private static bool IsConfirmationBoxOpen()=>false;
         private void TickPoke(){}
         private bool TickHandednessSwitch()=>false;
         private void EnrollCamera(Camera camera)=>CapturedSet[camera]=new CapturedCamera(true);

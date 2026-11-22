@@ -10,6 +10,7 @@ internal sealed partial class FlatScreen
     private GameObject? _worldMenuHost;
     private SurfaceGrabBar? _worldMenuGrab;
     private ConvertedPanel? _worldMenuPanel;
+    private readonly FrosthavenMenuPromotion _frosthavenPromotion = new();
     private float _worldMenuUnit;
     private uint _worldMenuOpening;
     private uint _savedMenuOpening;
@@ -85,6 +86,8 @@ internal sealed partial class FlatScreen
         }
         _worldMenuGrab?.Tick();
         SyncWorldMenuBack();
+        _frosthavenPromotion.Tick((RectTransform)_worldMenuHost.transform, CanvasConversion.WorldCamera,
+            VROptionsTab.IsOpen || IsConfirmationBoxOpen());
         return true;
     }
 
@@ -150,6 +153,7 @@ internal sealed partial class FlatScreen
 
     private void ReleaseWorldMenu()
     {
+        _frosthavenPromotion.Release();
         RestoreWorldMenuBackdrop();
         if (_worldMenuHost == null && _worldMenuGrab == null)
             return;

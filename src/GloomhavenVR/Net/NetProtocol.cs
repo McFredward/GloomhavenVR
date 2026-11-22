@@ -655,7 +655,13 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 773;
+    public const ushort ModBuild = 774;
+
+    // ModBuild774 — the movable main menu carries the FrosthavenVR teaser
+    // with English/German availability text and a raised stereo wordmark.
+    // Reserve both native DLC offer rectangles while their carousel is visible.
+    // The teaser has no input surface and follows the menu's existing lifetime.
+    // Two new embedded textures. No change to the native stores or wire format.
 
     // ModBuild773 — ports FrosthavenVR's native scenario turn banner and
     // enemy reveal seating. Float the animated banner child while the game
